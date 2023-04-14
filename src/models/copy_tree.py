@@ -1,0 +1,173 @@
+import logging
+
+import networkx as nx
+import numpy as np
+import scipy.stats as sp_stats
+import itertools
+
+from typing import Tuple
+
+
+def iter_pair_states(n_states):
+    # TODO: remove impossible cases from this iterable
+    for pair_state in itertools.combinations_with_replacement(range(n_states), 2):
+        yield pair_state
+
+
+def iter_quad_states(n_states):
+    for quad_state in itertools.combinations_with_replacement(range(n_states), 2):
+        yield quad_state
+
+
+# TODO: differentiate impossible cases to mask
+def get_zipping_mask(n_states):
+    """Build a mask on the i - i' == j - j' condition
+
+    Parameters
+    ----------
+    n_states :
+        Number of total copy number states (cn = 0, 1, ..., n_states - 1)
+    Returns
+    -------
+    np boolean tensor of shape (n_states, n_states, n_states, n_states),
+    true where the indices satisfy the condition.
+    Idx order is `mask[j', j, i', i]`
+    """
+    ind_arr = np.indices((n_states, n_states))
+    # i - j
+    imj = ind_arr[0] - ind_arr[1]
+    # i - j == k - l
+    mask = imj == imj[:, :, np.newaxis, np.newaxis]
+    return mask
+
+
+def get_zipping_mask0(n_states):
+    """Build a mask on the i == j condition
+
+    Parameters
+    ----------
+    n_states :
+        Number of total copy number states (cn = 0, 1, ..., n_states - 1)
+    Returns
+    -------
+    np boolean tensor of shape (n_states, n_states),
+    true where the indices satisfy the condition
+    """
+    ind_arr = np.indices((n_states, n_states))
+    # i = j (diagonal)
+    mask = ind_arr[0] == ind_arr[1]
+    return mask
+
+
+def h_eps(n_states: int, eps: float) -> np.ndarray:
+    """
+Zipping function tensor for given epsilon. In arc u->v, for each
+combination, P(Cv_m=j'| Cv_{m-1}=j, Cu_m=i', Cu_{m-1}=i) = h(j'|j, i', i).
+Indexing order: [j', j, i', i]. Invariant: sum(dim=0) = 1.
+    Args:
+        n_states: total number of copy number states
+        eps: arc distance parameter
+
+    Returns:
+        tensor of shape (A x A x A x A) with A = n_states
+    """
+    # TODO: add zero-absorption P(Cu>0 | Cp=0) = 0
+    mask_arr = get_zipping_mask(n_states=n_states)
+    # put 1-eps where j'-j = i'-i
+    a = mask_arr * (1 - eps)
+    # put either 1 or 1-eps in j'-j != i'-i  and divide by the cases
+    b = (1 - np.sum(a, axis=0)) / np.sum(~mask_arr, axis=0)
+    # combine the two arrays
+    out_arr = b * (~mask_arr) + a
+    return out_arr
+
+
+def h_eps0(n_states: int, eps0: float) -> np.ndarray:
+    """
+Simple zipping function tensor. P(Cv_1=j| Cu_1=i) = h0(j|i)
+    Args:
+        n_states: total number of copy number states
+        eps: arc distance parameter
+
+    Returns:
+        tensor of shape (A x A) with A = n_states
+    """
+    heps0_arr = eps0 / (n_states - 1) * np.ones((n_states, n_states))
+    diag_mask = get_zipping_mask0(n_states)
+    heps0_arr[diag_mask] = 1 - eps0
+    return heps0_arr
+
+
+def normalizing_zipping_constant(n_states: int) -> np.ndarray:
+    # out shape (n_states, n_states, n_states, n_states)
+    out_tensor = np.empty((n_states,) * 4)
+    mask = get_zipping_mask(n_states)
+    out_tensor[...] = np.sum(~mask, axis=0, keepdims=True)
+    return out_tensor
+
+
+def normalizing_zipping_constant0(n_states: int) -> np.ndarray:
+    # out shape (n_states, n_states)
+    out_arr = np.empty(n_states, n_states)
+    mask = get_zipping_mask0(n_states)
+    out_arr[...] = np.sum(~mask, axis=0, keepdims=True)
+    return out_arr
+
+
+def is_rare_case(jj, j, ii, i):
+    return (j != 0 or jj == 0) and (i != 0 or ii == 0) and (jj - j != ii - i)
+
+
+def is_common_case(jj, j, ii, i):
+    return (j != 0 or jj == 0) and (i != 0 or ii == 0) and (jj - j == ii - i)
+
+
+def compute_n_cases(n_copy_states) -> Tuple[np.ndarray, np.ndarray]:
+    rare_cnt = np.zeros((n_copy_states,) * 3)
+    common_cnt = np.zeros((n_copy_states,) * 3)
+    # iterates over all configurations
+    for cp4 in itertools.product(*(range(n_copy_states),) * 4):
+        # for each of the conditioned states combination
+        # count the number of rare and common states with that specific config
+        rare_cnt[cp4[1], cp4[2], cp4[3]] += is_rare_case(*cp4)
+        common_cnt[cp4[1], cp4[2], cp4[3]] += is_common_case(*cp4)
+
+    return rare_cnt, common_cnt
+
+
+class CopyTree:
+    def __init__(self, N, M, A, true_tree: nx.DiGraph = None):
+        self.true_tree = true_tree
+        self.N = N
+        self.M = M
+        self.A = A
+        self.K = 2 * N - 1
+
+    def simulate_copy_tree_data(self, eps_a, eps_b, eps_0):
+        eps = np.zeros((self.K, self.K))
+        logging.debug(f'Copy Tree data simulation - eps_a: {eps_a}, eps_b: {eps_b}, eps_0:{eps_0} ')
+        eps_dist = sp_stats.beta(eps_a, eps_b)
+        if eps_dist.std()**2 > 0.1 * eps_dist.mean():
+            logging.warning(
+                f'Large variance for epsilon: {eps_dist.std()**2} (mean: {eps_dist.mean()}. Consider increasing '
+                f'eps_b param.')
+
+        tree = self.true_tree
+        for u, v in tree.edges:
+            eps[u, v] = eps_dist.rvs()
+            tree.edges[u, v]['weight'] = eps[u, v]
+
+        # generate copy numbers
+        c = np.empty((self.K, self.M), dtype=int)
+        c[0, :] = 2 * np.ones(self.M, )
+        h_eps0_cached = h_eps0(self.A, eps_0)
+        for u, v in nx.bfs_edges(tree, source=0):
+            t0 = h_eps0_cached[c[u, 0], :]
+            c[v, 0] = np.argmax(sp_stats.multinomial(n=1, p=t0).rvs())
+            h_eps_uv = h_eps(self.A, eps[u, v])
+            for m in range(1, self.M):
+                # j', j, i', i
+                transition = h_eps_uv[:, c[v, m - 1], c[u, m], c[u, m - 1]]
+                c[v, m] = np.argmax(sp_stats.multinomial(n=1, p=transition).rvs())
+
+        return eps, c
