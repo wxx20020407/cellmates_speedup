@@ -15,3 +15,4 @@ class EMTestCase(unittest.TestCase):
         obs_1 = np.ones(M,) * 2.
         obs_2 = np.ones(M,) * 2.
         em = EM(M, A, C_r, obs_1, obs_2)
+        em.run()

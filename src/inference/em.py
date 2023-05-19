@@ -1,3 +1,4 @@
+import numpy as np
 from hmmlearn import hmm
 
 class EM():
@@ -14,15 +15,20 @@ class EM():
         self.obs_2 = obs_2
 
     def run(self):
-        hmm.PoissonHMM(n_components=self.A,
-                       startprob_prior=1.0,
-                       transmat_prior=1.0,
-                       lambdas_prior=0.0,
-                       lambdas_weight=0.0,
-                       algorithm='viterbi',
-                       random_state=None,
-                       n_iter=10,
-                       tol=0.01,
-                       verbose=False,
-                       params='stl', init_params='stl', implementation='log')
+        y = np.concatenate([self.obs_1, self.obs_2])
+        lengths = [len(self.obs_1), len(self.obs_2)]
+        init_prior = np.zeros((self.A, ))
+        init_prior[2] = 1.
+        transmat_prior = np.ones((self.A, self.A)) * 2.
+        model = hmm.PoissonHMM(n_components=self.A,
+                               startprob_prior=1.0,
+                               transmat_prior=1.0,
+                               lambdas_prior=0.0,
+                               lambdas_weight=0.0,
+                               algorithm='viterbi',
+                               random_state=None,
+                               n_iter=10,
+                               tol=0.01,
+                               verbose=False,
+                               params='stl', init_params='stl', implementation='log')
 
