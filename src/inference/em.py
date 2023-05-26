@@ -80,6 +80,7 @@ def compute_trans_mat(eps_trip, n_states) -> np.ndarray:
 
 
 def compute_start_prob(eps_trip, n_states):
+    # TODO: uniform prob, but not implemented properly yet
     return np.ones((n_states,) * 3) / n_states ** 3
 
 
