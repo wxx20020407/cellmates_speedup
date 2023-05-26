@@ -12,3 +12,4 @@ notes.md
 /tests/test_output/
 /output/
 requirements.txt
+/*_env/
