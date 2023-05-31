@@ -16,7 +16,7 @@ def _generate_obs():
         [100] * 3 + [200] * 2 + [300] * 5,
         [200] * 10,
         [400] * 2 + [300] * 2 + [200] * 3 + [100] * 3
-    ]), np.ones((5, 5))
+    ]).transpose(), np.ones((5, 5))
 
 
 class EMTestCase(unittest.TestCase):
