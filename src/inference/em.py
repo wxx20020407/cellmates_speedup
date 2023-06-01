@@ -232,7 +232,7 @@ def _build_tree_rec(ctr_table, cells: set, edges: set[tuple]):
         # find edge with cell v and add split
         for x, v_ in edges:
             if v_ == f'c{v}':
-                edges = edges.difference((x, v_))
+                edges.remove((x, v_))
                 u = x + '_0'
                 edges = edges.union([(x, u), (u, v_), (u, f'c{w}')])
                 break

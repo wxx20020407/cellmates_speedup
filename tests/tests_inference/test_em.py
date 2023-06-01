@@ -60,6 +60,7 @@ class EMTestCase(unittest.TestCase):
         obs, eps = _generate_obs(noise=10)
         # run em
         ctr_table = em_alg(obs)
+        print(ctr_table)
         # build tree
         em_tree = build_tree(ctr_table)
         print(em_tree)
