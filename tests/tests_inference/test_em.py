@@ -4,7 +4,7 @@ import unittest
 import networkx as nx
 import numpy as np
 
-from inference.em import EM
+from inference.em import EM, jcb_em_alg
 from models.quadruplet import Quadruplet
 
 from src.inference.em import em_alg, build_tree
@@ -16,10 +16,12 @@ def _generate_obs(noise=0):
         [200] * 5 + [300] * 5,
         [100] * 5 + [200] * 5,
         [100] * 3 + [200] * 2 + [300] * 5,
-        [200] * 10,
+        [200] * 9 + [100],
         [400] * 2 + [300] * 2 + [200] * 3 + [100] * 3
     ]).transpose()
     eps = np.ones((5, 5))
+    print("cn:\n")
+    print((obs / 100).astype(int).transpose())
     noise = np.round(np.random.normal(size=obs.shape) * noise).astype(int)
     return obs + noise, eps
 
@@ -59,10 +61,12 @@ class EMTestCase(unittest.TestCase):
         # generate toy data
         obs, eps = _generate_obs(noise=10)
         # run em
-        ctr_table = em_alg(obs)
+        # ctr_table = em_alg(obs)
+        ctr_table = jcb_em_alg(obs)
         print(ctr_table)
         # build tree
         em_tree = build_tree(ctr_table)
         print(em_tree)
+        nx.write_network_text(em_tree, sources=['0'])
         assert nx.is_tree(em_tree)
 

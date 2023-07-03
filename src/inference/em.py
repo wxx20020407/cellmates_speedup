@@ -9,7 +9,7 @@ import networkx as nx
 
 from models.quadruplet import Quadruplet
 
-from src.models.copy_tree import h_eps, get_zipping_mask, get_zipping_mask0
+from src.models.copy_tree import h_eps, get_zipping_mask, get_zipping_mask0, p_delta_trans_mat, p_delta_start_prob
 
 
 class EM():
@@ -71,21 +71,43 @@ def compute_log_emissions(obs_vw: np.ndarray, n_states, pois_mean_eps=1e-5) -> n
     return log_emissions
 
 
-def compute_trans_mat(eps_trip, n_states) -> np.ndarray:
+def compute_eps_trans_mat(eps_trip, n_states) -> np.ndarray:
     trans_mat = np.empty((n_states,) * 6)
     # transition from r -> u (fix r = 2)
     a_ru = h_eps(n_states, eps=eps_trip[0])[:, :, 2, 2]
     a_uv = h_eps(n_states, eps=eps_trip[1])
     a_uw = h_eps(n_states, eps=eps_trip[2])
     # results is state i, j, k -> x, y, z
-    trans_mat = np.einsum('xi,yjxi,zkxi->ijkxyz', a_ru, a_uv, a_uw)
+    trans_mat[...] = np.einsum('xi,yjxi,zkxi->ijkxyz', a_ru, a_uv, a_uw)
     return trans_mat
 
 
-def compute_start_prob(eps_trip, n_states):
+def compute_l_trans_mat(l_trip, n_states) -> np.ndarray:
+    trans_mat = np.empty((n_states,) * 6)
+    # transition from r -> u (fix r = 2)
+    a_ru = p_delta_trans_mat(n_states, l_trip[0])[:, :, 2, 2]
+    a_uv = p_delta_trans_mat(n_states, l_trip[1])
+    a_uw = p_delta_trans_mat(n_states, l_trip[2])
+    # results is state i, j, k -> x, y, z
+    trans_mat[...] = np.einsum('xi,yjxi,zkxi->ijkxyz', a_ru, a_uv, a_uw)
+    return trans_mat
+
+
+def compute_eps_start_prob(eps_trip, n_states):
     # TODO: uniform prob, but not implemented properly yet
     return np.ones((n_states,) * 3) / n_states ** 3
 
+
+def compute_l_start_prob(l_trip, n_states):
+    trip_start = np.empty((n_states,) * 3)
+
+    a_ru = p_delta_start_prob(n_states, l_trip[0])[:, 2]
+    a_uv = p_delta_start_prob(n_states, l_trip[1])
+    a_uw = p_delta_start_prob(n_states, l_trip[2])
+    # results is state i, j, k
+    trip_start[...] = np.einsum('i, ij, ik', a_ru, a_uv, a_uw)
+    # TODO: check that it sums to 1
+    return trip_start
 
 def forward_pass(obs_vw, start_prob, trans_mat, log_emissions, eps=1e-5):
     n_sites = obs_vw.shape[0]
@@ -125,12 +147,15 @@ def backward_pass(obs_vw, start_prob, trans_mat, log_emissions):
     return beta
 
 
-def two_slice_marginals(obs_vw, epsilon_k, n_states):
+def two_slice_marginals(obs_vw, theta: np.ndarray, n_states: int, jcb: bool = False):
     n_sites = obs_vw.shape[0]
-    # define start_probs
-    start_prob = compute_start_prob(epsilon_k, n_states)
-    # define transitions
-    trans_mat = compute_trans_mat(epsilon_k, n_states)
+    # define start_probs and transitions depending on chosen model
+    if jcb:
+        start_prob = compute_l_start_prob(theta, n_states)
+        trans_mat = compute_l_trans_mat(theta, n_states)
+    else:
+        start_prob = compute_eps_start_prob(theta, n_states)
+        trans_mat = compute_eps_trans_mat(theta, n_states)
 
     # define emission prob (for emission pair)
     # log emission shape (n_sites, n_states, n_states)
@@ -149,6 +174,36 @@ def two_slice_marginals(obs_vw, epsilon_k, n_states):
     assert np.allclose(logsumexp(log_xi, axis=(1, 2, 3, 4, 5, 6)), np.zeros(n_sites - 1))
 
     return log_xi
+
+
+def compute_exp_changes(l_prev, obs_vw, n_states):
+    d = np.empty(3)
+    dp = np.empty_like(d)
+    # compute two slice marginals
+    log_xi = two_slice_marginals(obs_vw, l_prev, n_states, jcb=True)
+
+    comut_mask0 = get_zipping_mask0(n_states).transpose()
+    comut_mask = get_zipping_mask(n_states).transpose(tuple(reversed(range(4))))
+    # count expected changes/no-changes
+    for e in range(3):
+        if e == 0:
+            # eps_ru
+            pair_tsm = logsumexp(log_xi, axis=(0, 2, 3, 5, 6))
+            # use comut_mask0
+            d[0] = np.exp(logsumexp(pair_tsm[~comut_mask0]))
+            dp[0] = np.exp(logsumexp(pair_tsm[comut_mask0]))
+        else:
+            if e == 1:
+                # eps_uv
+                pair_tsm = logsumexp(log_xi, axis=(0, 3, 6))
+            else:
+                # eps_uw
+                pair_tsm = logsumexp(log_xi, axis=(0, 2, 5))
+
+            d[e] = np.exp(logsumexp(pair_tsm[~comut_mask]))
+            dp[e] = np.exp(logsumexp(pair_tsm[comut_mask]))
+
+    return d, dp
 
 
 def update_eps(log_xi):
@@ -219,6 +274,41 @@ Implementation of algorithm 6 in write-up
 
     return epsilon_hat
 
+def jcb_em_alg(obs: np.ndarray) -> np.ndarray:
+    # FIXME: runtime error in log l_new update
+    """
+Implementation of JCB EM algorithm in write-up
+    Parameters
+    ----------
+    obs array of shape (n_sites, n_cells)
+    Returns
+    -------
+    array of shape (n_cells, n_cells), centroid-to-root distance
+    """
+    # params
+    n_states = 7
+    l_init = 1.0
+    n_sites, n_cells = obs.shape
+    l_hat = - np.ones((n_cells, n_cells))
+
+    # for each pair of cells
+    for v, w in itertools.combinations(range(n_cells), r=2):
+        # initialize eps = (eps_ru, eps_uv, eps_uw)
+        l_i = np.random.exponential(l_init, size=3)
+        # triplet state u, v, w
+        convergence = False
+        while not convergence:
+            # compute D and D'
+            d, dp = compute_exp_changes(l_i, obs[:, [v, w]], n_states)
+
+            # update l according to formula
+            l_new = - 1 / n_states * np.log(((n_states - 1) * dp - d) /
+                                            ((n_states - 1) * (dp + d)))
+
+            convergence = np.allclose(l_new, l_i, rtol=1e-2)
+            l_hat[v, w] = l_new[0]  # ctr distance is eps_ru (first of triplet)
+
+    return l_hat
 
 def _build_tree_rec(ctr_table, cells: set, edges: set[tuple]):
 
