@@ -105,8 +105,7 @@ def compute_l_start_prob(l_trip, n_states):
     a_uv = p_delta_start_prob(n_states, l_trip[1])
     a_uw = p_delta_start_prob(n_states, l_trip[2])
     # results is state i, j, k
-    trip_start[...] = np.einsum('i, ij, ik', a_ru, a_uv, a_uw)
-    # TODO: check that it sums to 1
+    trip_start[...] = np.einsum('i, ij, ik -> ijk', a_ru, a_uv, a_uw)
     return trip_start
 
 def forward_pass(obs_vw, start_prob, trans_mat, log_emissions, eps=1e-5):
@@ -294,7 +293,7 @@ Implementation of JCB EM algorithm in write-up
     # for each pair of cells
     for v, w in itertools.combinations(range(n_cells), r=2):
         # initialize eps = (eps_ru, eps_uv, eps_uw)
-        l_i = np.random.exponential(l_init, size=3)
+        l_i = np.random.uniform(0, 1 / (n_states - 1), size=3)
         # triplet state u, v, w
         convergence = False
         while not convergence:
@@ -305,8 +304,11 @@ Implementation of JCB EM algorithm in write-up
             l_new = - 1 / n_states * np.log(((n_states - 1) * dp - d) /
                                             ((n_states - 1) * (dp + d)))
 
-            convergence = np.allclose(l_new, l_i, rtol=1e-2)
-            l_hat[v, w] = l_new[0]  # ctr distance is eps_ru (first of triplet)
+            l_delta = l_new - l_i
+            convergence = np.allclose(l_delta, np.zeros_like(l_delta), atol=0.001)
+            l_i = l_new  # update current l
+
+        l_hat[v, w] = l_i[0]  # ctr distance is eps_ru (first of triplet)
 
     return l_hat
 

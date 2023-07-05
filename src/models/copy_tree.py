@@ -78,14 +78,15 @@ def p_delta(n_states, l, i, ii, j, jj):
     -------
     normalized transition probability
     """
-    p_out = -1
-    change = ii - i != jj - j
-    return p_delta_change(n_states, l, change)
+    if ii - i + j < 0 or ii - i + j > n_states - 1:
+        return 1 / n_states
+    else:
+        change = ii - i != jj - j
+        return p_delta_change(n_states, l, change)
 
 
 def p_delta_change(n_states, l, change: bool):
-    p_out = -1
-    if change:
+    if not change:
         p_out = 1 / n_states + (n_states - 1) / n_states * math.exp(- (n_states - 1) * l)
     else:
         p_out = 1 / n_states - math.exp(- (n_states - 1) * l) / n_states
@@ -104,7 +105,7 @@ def p_delta_trans_mat(n_states, l):
     """
     mat = np.empty((n_states,) * 4)
 
-    for (i, ii, j, jj) in itertools.product(range(n_states), repeat = 4):
+    for (i, ii, j, jj) in itertools.product(range(n_states), repeat=4):
         mat[jj, j, ii, i] = p_delta(n_states, l, i, ii, j, jj)
     return mat
 
