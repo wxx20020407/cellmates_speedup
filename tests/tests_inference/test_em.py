@@ -1,4 +1,5 @@
 import itertools
+import random
 import unittest
 
 import networkx as nx
@@ -27,6 +28,10 @@ def _generate_obs(noise=0):
 
 
 class EMTestCase(unittest.TestCase):
+
+    def setUp(self) -> None:
+        random.seed(101)
+        np.random.seed(seed=101)
 
     def test_simple_hmm_hmmlearn(self):
         M = 20

@@ -1,4 +1,5 @@
 import itertools
+import logging
 from typing import Optional, Union
 
 import numpy as np
@@ -179,6 +180,7 @@ def compute_exp_changes(l_prev, obs_vw, n_states):
     d = np.empty(3)
     dp = np.empty_like(d)
     # compute two slice marginals
+    # prob(Cm = ijk, Cm+1 = i'j'k' | Y)
     log_xi = two_slice_marginals(obs_vw, l_prev, n_states, jcb=True)
 
     comut_mask0 = get_zipping_mask0(n_states).transpose()
@@ -186,17 +188,17 @@ def compute_exp_changes(l_prev, obs_vw, n_states):
     # count expected changes/no-changes
     for e in range(3):
         if e == 0:
-            # eps_ru
+            # eps_ru (sum over m, j, k, j', k')
             pair_tsm = logsumexp(log_xi, axis=(0, 2, 3, 5, 6))
             # use comut_mask0
             d[0] = np.exp(logsumexp(pair_tsm[~comut_mask0]))
             dp[0] = np.exp(logsumexp(pair_tsm[comut_mask0]))
         else:
             if e == 1:
-                # eps_uv
+                # eps_uv (sum over m, i, i')
                 pair_tsm = logsumexp(log_xi, axis=(0, 3, 6))
             else:
-                # eps_uw
+                # eps_uw (sum over m, j, j'
                 pair_tsm = logsumexp(log_xi, axis=(0, 2, 5))
 
             d[e] = np.exp(logsumexp(pair_tsm[~comut_mask]))
@@ -288,7 +290,8 @@ Implementation of JCB EM algorithm in write-up
     n_states = 7
     l_init = 1.0
     n_sites, n_cells = obs.shape
-    l_hat = - np.ones((n_cells, n_cells))
+    l_hat = - np.infty * np.ones((n_cells, n_cells))
+    zero_tol = 1e-5  # saturation level when dp << d (changes are much more prevalent)
 
     # for each pair of cells
     for v, w in itertools.combinations(range(n_cells), r=2):
@@ -301,8 +304,12 @@ Implementation of JCB EM algorithm in write-up
             d, dp = compute_exp_changes(l_i, obs[:, [v, w]], n_states)
 
             # update l according to formula
-            l_new = - 1 / n_states * np.log(((n_states - 1) * dp - d) /
-                                            ((n_states - 1) * (dp + d)))
+            if np.any((n_states - 1) * dp <= d):
+                logging.warning(f"too many changes detected: D = {d}, D' = {dp}\n"
+                                f"...saturating l for cells {v},{w}")
+            # if l -> +inf, pDeltaDelta == pDeltaDelta'
+            num = np.clip((n_states - 1) * dp - d, a_min=zero_tol, a_max=None)
+            l_new = - 1 / n_states * np.log(num / ((n_states - 1) * (dp + d)))
 
             l_delta = l_new - l_i
             convergence = np.allclose(l_delta, np.zeros_like(l_delta), atol=0.001)
@@ -310,7 +317,8 @@ Implementation of JCB EM algorithm in write-up
 
         l_hat[v, w] = l_i[0]  # ctr distance is eps_ru (first of triplet)
 
-    return l_hat
+    return -l_hat
+
 
 def _build_tree_rec(ctr_table, cells: set, edges: set[tuple]):
 
@@ -322,6 +330,7 @@ def _build_tree_rec(ctr_table, cells: set, edges: set[tuple]):
         v, w = np.argwhere(ctr_table_sub == ctr_table_sub.max())[0].tolist()
         edges = _build_tree_rec(ctr_table, cells.difference({w}), edges)
         # find edge with cell v and add split
+        # FIXME: change distance value in the table i.e. d(u, z) = 1/2 d(x, z) + d(v, z)
         for x, v_ in edges:
             if v_ == f'c{v}':
                 edges.remove((x, v_))
