@@ -72,6 +72,6 @@ class EMTestCase(unittest.TestCase):
         # build tree
         em_tree = build_tree(ctr_table)
         print(em_tree)
-        nx.write_network_text(em_tree, sources=['0'])
+        nx.write_network_text(em_tree, sources=['r'])
         assert nx.is_tree(em_tree)
 

@@ -1,5 +1,6 @@
 import itertools
 import logging
+import operator
 from typing import Optional, Union
 
 import numpy as np
@@ -290,7 +291,7 @@ Implementation of JCB EM algorithm in write-up
     n_states = 7
     l_init = 1.0
     n_sites, n_cells = obs.shape
-    l_hat = - np.infty * np.ones((n_cells, n_cells))
+    l_hat = np.infty * np.ones((n_cells, n_cells))
     zero_tol = 1e-5  # saturation level when dp << d (changes are much more prevalent)
 
     # for each pair of cells
@@ -320,22 +321,36 @@ Implementation of JCB EM algorithm in write-up
     return -l_hat
 
 
-def _build_tree_rec(ctr_table, cells: set, edges: set[tuple]):
+def _build_tree_rec(dist: dict, otus: set, edges: set[tuple]):
 
-    if len(cells) == 2:
-        for c in cells:
-            edges.add(('0', f'c{c}'))
+    if len(otus) == 2:
+        for c in otus:
+            edges.add(('r', c))
     else:
-        ctr_table_sub = ctr_table[np.ix_(list(cells), list(cells))]
-        v, w = np.argwhere(ctr_table_sub == ctr_table_sub.max())[0].tolist()
-        edges = _build_tree_rec(ctr_table, cells.difference({w}), edges)
-        # find edge with cell v and add split
-        # FIXME: change distance value in the table i.e. d(u, z) = 1/2 d(x, z) + d(v, z)
+        vw, l = max(dist.items(), key=operator.itemgetter(1))
+        # remove pair and add common ancestor with averaged distance
+        dist.pop(vw)
+        v, w = vw
+        # update distances merging vw in one OTU
+        vsw = v + '_' + w  # node with string showing merges v_w
+        new_otus = otus.difference({w, v})
+        for c in new_otus:
+            vc = frozenset({v, c})
+            wc = frozenset({w, c})
+            # update distance for new node
+            dist[frozenset({vsw, c})] = .5 * (dist[vc] + dist[wc])
+            # remove already merged nodes
+            dist.pop(vc)
+            dist.pop(wc)
+
+        # add node/subtree as OTU
+        new_otus.add(vsw)
+
+        edges = _build_tree_rec(dist, new_otus, edges)
+        # find edge with merged node and add subtrees
         for x, v_ in edges:
-            if v_ == f'c{v}':
-                edges.remove((x, v_))
-                u = x + '_0'
-                edges = edges.union([(x, u), (u, v_), (u, f'c{w}')])
+            if v_ == vsw:
+                edges = edges.union([(v_, v), (v_, w)])
                 break
 
     return edges
@@ -343,7 +358,11 @@ def _build_tree_rec(ctr_table, cells: set, edges: set[tuple]):
 
 def build_tree(ctr_table):
 
-    edges = _build_tree_rec(ctr_table, set(range(ctr_table.shape[0])), set())
+    # operational taxonomic units, OTUs, init with cells
+    otus = set(map(str, range(ctr_table.shape[0])))
+    dist = {frozenset({str(v), str(w)}): ctr_table[v, w] for v in range(len(otus)) for w in range(v + 1, len(otus))}
+
+    edges = _build_tree_rec(dist, otus, set())
     em_tree = nx.Graph()
     em_tree.add_edges_from(edges)
 
