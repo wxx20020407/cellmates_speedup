@@ -5,6 +5,7 @@ import unittest
 import networkx as nx
 import numpy as np
 
+from simulation.datagen import rand_dataset
 from inference.em import EM, jcb_em_alg
 from models.quadruplet import Quadruplet
 
@@ -32,6 +33,7 @@ class EMTestCase(unittest.TestCase):
     def setUp(self) -> None:
         random.seed(101)
         np.random.seed(seed=101)
+        # TODO: add logging lever
 
     def test_simple_hmm_hmmlearn(self):
         M = 20
@@ -62,7 +64,7 @@ class EMTestCase(unittest.TestCase):
             print(" ------- ")
         # print(ctr_table)
 
-    def test_tree_inference(self):
+    def test_tree_inference_toy(self):
         # generate toy data
         obs, eps = _generate_obs(noise=10)
         # run em
@@ -75,3 +77,21 @@ class EMTestCase(unittest.TestCase):
         nx.write_network_text(em_tree, sources=['r'])
         assert nx.is_tree(em_tree)
 
+    def test_tree_inference_synth(self):
+        n_states = 6
+        n_sites = 30
+        n_cells = 10
+        data = rand_dataset(n_cells, n_states, n_sites, alpha=.02, obs_type='pois')
+        print("Generated tree")
+        data['tree'].print_plot()
+
+        print("Observations")
+        print(data['obs'][:20, :])
+
+        ctr_table = jcb_em_alg(data['obs'])
+        print(ctr_table)
+
+        em_tree = build_tree(ctr_table)
+        print(em_tree)
+
+        nx.write_network_text(em_tree, sources=['r'])

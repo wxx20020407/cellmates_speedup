@@ -5,6 +5,7 @@ from typing import Optional, Union
 
 import numpy as np
 import scipy.stats as stats
+from scipy.special import comb
 from scipy.special import logsumexp
 import networkx as nx
 # from hmmlearn import hmm
@@ -276,6 +277,7 @@ Implementation of algorithm 6 in write-up
 
     return epsilon_hat
 
+
 def jcb_em_alg(obs: np.ndarray) -> np.ndarray:
     # FIXME: runtime error in log l_new update
     """
@@ -295,6 +297,8 @@ Implementation of JCB EM algorithm in write-up
     zero_tol = 1e-5  # saturation level when dp << d (changes are much more prevalent)
 
     # for each pair of cells
+    counter = 0
+    logging.debug(f'pairwise EM started: {comb(n_cells, 2)} pairs')
     for v, w in itertools.combinations(range(n_cells), r=2):
         # initialize eps = (eps_ru, eps_uv, eps_uw)
         l_i = np.random.uniform(0, 1 / (n_states - 1), size=3)
@@ -316,6 +320,9 @@ Implementation of JCB EM algorithm in write-up
             convergence = np.allclose(l_delta, np.zeros_like(l_delta), atol=0.001)
             l_i = l_new  # update current l
 
+        counter += 1
+        if counter % 10 == 0:
+            logging.debug(f'{comb(n_cells, 2) - counter} pairs remaining...')
         l_hat[v, w] = l_i[0]  # ctr distance is eps_ru (first of triplet)
 
     return -l_hat
