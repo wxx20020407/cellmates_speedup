@@ -111,6 +111,7 @@ def compute_l_start_prob(l_trip, n_states):
     trip_start[...] = np.einsum('i, ij, ik -> ijk', a_ru, a_uv, a_uw)
     return trip_start
 
+
 def forward_pass(obs_vw, start_prob, trans_mat, log_emissions, eps=1e-5):
     n_sites = obs_vw.shape[0]
     n_states = trans_mat.shape[0]
@@ -130,7 +131,7 @@ def forward_pass(obs_vw, start_prob, trans_mat, log_emissions, eps=1e-5):
     return alpha
 
 
-def backward_pass(obs_vw, start_prob, trans_mat, log_emissions):
+def backward_pass(obs_vw, trans_mat, log_emissions):
     n_sites = obs_vw.shape[0]
     n_states = trans_mat.shape[0]
     beta = np.empty((n_sites, n_states, n_states, n_states))
@@ -165,7 +166,7 @@ def two_slice_marginals(obs_vw, theta: np.ndarray, n_states: int, jcb: bool = Fa
     # compute forward: shape (n_sites, n_states, n_states, n_states)
     alpha = forward_pass(obs_vw, start_prob, trans_mat, log_emissions)
     # compute backward: shape (n_sites, n_states, n_states, n_states)
-    beta = backward_pass(obs_vw, start_prob, trans_mat, log_emissions)
+    beta = backward_pass(obs_vw, trans_mat, log_emissions)
     # tsm shape: (n_sites - 1,) + (n_states,) * 6
     # compute two slice: xi
     log_xi = alpha[(np.arange(n_sites - 1), ...) + (np.newaxis,) * 3] + np.log(trans_mat)[np.newaxis, ...] + \
@@ -279,7 +280,6 @@ Implementation of algorithm 6 in write-up
 
 
 def jcb_em_alg(obs: np.ndarray) -> np.ndarray:
-    # FIXME: runtime error in log l_new update
     """
 Implementation of JCB EM algorithm in write-up
     Parameters
@@ -370,7 +370,7 @@ def build_tree(ctr_table):
     dist = {frozenset({str(v), str(w)}): ctr_table[v, w] for v in range(len(otus)) for w in range(v + 1, len(otus))}
 
     edges = _build_tree_rec(dist, otus, set())
-    em_tree = nx.Graph()
+    em_tree = nx.DiGraph()
     em_tree.add_edges_from(edges)
 
     return em_tree

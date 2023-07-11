@@ -8,6 +8,7 @@ import numpy as np
 from simulation.datagen import rand_dataset
 from inference.em import EM, jcb_em_alg
 from models.quadruplet import Quadruplet
+from utils.tree_utils import convert_networkx_to_dendropy
 
 from src.inference.em import em_alg, build_tree
 
@@ -88,6 +89,9 @@ class EMTestCase(unittest.TestCase):
         print("Observations")
         print(data['obs'][:20, :])
 
+        print("Cell-taxa map")
+        print(data['tax_id_map'])
+
         ctr_table = jcb_em_alg(data['obs'])
         print(ctr_table)
 
@@ -95,3 +99,8 @@ class EMTestCase(unittest.TestCase):
         print(em_tree)
 
         nx.write_network_text(em_tree, sources=['r'])
+
+        # compare with true tree using RF-distance (unweighted)
+        dendropy_tree = convert_networkx_to_dendropy(em_tree, data['tree'].taxon_namespace)
+        dendropy_tree.print_plot()
+
