@@ -8,6 +8,7 @@ import numpy as np
 import scipy.stats as ss
 import dendropy
 import random
+import anndata
 
 from models.copy_tree import p_delta_change
 
@@ -59,6 +60,22 @@ def simulate_cn(tree, n_sites, n_states, alpha=1.):
 def label_tree(tree):
     for i, n in enumerate(tree.preorder_node_iter()):
         n.label = i
+
+
+def rand_ann_dataset(n_cells: int, n_states: int, n_sites: int, **kwargs):
+    #   using different hmms for each chromosome
+    # kwargs = [alpha, obs_type]
+    # minimum n_sites = 200 because bins are shared among 23 chromosomes
+    # in the human genome
+    if n_sites < 200:
+        logging.debug(f"requested bins number {n_sites} is too low for human genome, setting n_sites = 200")
+        n_sites = 200
+    anndataset = anndata.AnnData()
+    # TODO: implement
+    #   using different hmms for each chromosome
+    data = rand_dataset(n_cells, n_states, n_sites, **kwargs)
+
+    return anndataset
 
 
 def rand_dataset(n_cells: int, n_states: int, n_sites: int, alpha=0.02, obs_type='norm') -> dict:
