@@ -6,19 +6,6 @@ import numpy as np
 import scipy.stats as sp_stats
 import itertools
 
-from typing import Tuple
-
-
-def iter_pair_states(n_states):
-    # TODO: remove impossible cases from this iterable
-    for pair_state in itertools.combinations_with_replacement(range(n_states), 2):
-        yield pair_state
-
-
-def iter_quad_states(n_states):
-    for quad_state in itertools.combinations_with_replacement(range(n_states), 2):
-        yield quad_state
-
 
 # TODO: differentiate impossible cases to mask
 def get_zipping_mask(n_states):
@@ -165,43 +152,6 @@ Simple zipping function tensor. P(Cv_1=j| Cu_1=i) = h0(j|i)
     diag_mask = get_zipping_mask0(n_states)
     heps0_arr[diag_mask] = 1 - eps0
     return heps0_arr
-
-
-def normalizing_zipping_constant(n_states: int) -> np.ndarray:
-    # out shape (n_states, n_states, n_states, n_states)
-    out_tensor = np.empty((n_states,) * 4)
-    mask = get_zipping_mask(n_states)
-    out_tensor[...] = np.sum(~mask, axis=0, keepdims=True)
-    return out_tensor
-
-
-def normalizing_zipping_constant0(n_states: int) -> np.ndarray:
-    # out shape (n_states, n_states)
-    out_arr = np.empty(n_states, n_states)
-    mask = get_zipping_mask0(n_states)
-    out_arr[...] = np.sum(~mask, axis=0, keepdims=True)
-    return out_arr
-
-
-def is_rare_case(jj, j, ii, i):
-    return (j != 0 or jj == 0) and (i != 0 or ii == 0) and (jj - j != ii - i)
-
-
-def is_common_case(jj, j, ii, i):
-    return (j != 0 or jj == 0) and (i != 0 or ii == 0) and (jj - j == ii - i)
-
-
-def compute_n_cases(n_copy_states) -> Tuple[np.ndarray, np.ndarray]:
-    rare_cnt = np.zeros((n_copy_states,) * 3)
-    common_cnt = np.zeros((n_copy_states,) * 3)
-    # iterates over all configurations
-    for cp4 in itertools.product(*(range(n_copy_states),) * 4):
-        # for each of the conditioned states combination
-        # count the number of rare and common states with that specific config
-        rare_cnt[cp4[1], cp4[2], cp4[3]] += is_rare_case(*cp4)
-        common_cnt[cp4[1], cp4[2], cp4[3]] += is_common_case(*cp4)
-
-    return rare_cnt, common_cnt
 
 
 class CopyTree:

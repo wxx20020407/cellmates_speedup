@@ -96,6 +96,8 @@ class EMTestCase(unittest.TestCase):
         print(ctr_table)
 
         em_tree = build_tree(ctr_table)
+        # relabel tree nodes with data taxon labels
+        nx.relabel_nodes(em_tree, {w: k for k, w in data['tax_id_map'].items()}, copy=False)
         print(em_tree)
 
         nx.write_network_text(em_tree, sources=['r'])
