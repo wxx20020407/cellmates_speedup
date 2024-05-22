@@ -16,8 +16,8 @@ algorithm is in the [Cellmates article](https://www.overleaf.com/project/63a43d8
 
 The next steps are:
 
-- [ ] Implement NJ and fast-NJ for tree reconstruction comparisons
-- [ ] Add observation model
+- [ ] Implement NJ for tree reconstruction comparisons
+- [ ] Add observation model parameters inference
 
 ## Requirements
 
@@ -25,4 +25,5 @@ The next steps are:
 - NumPy
 - DendroPy
 - NetworkX
+- anndata
 
