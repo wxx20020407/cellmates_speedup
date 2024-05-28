@@ -8,13 +8,14 @@ import scipy.stats as stats
 from scipy.special import comb
 from scipy.special import logsumexp
 import networkx as nx
-# from hmmlearn import hmm
 
 from models.quadruplet import Quadruplet
 
 from src.models.copy_tree import h_eps, get_zipping_mask, get_zipping_mask0, p_delta_trans_mat, p_delta_start_prob
 
 
+# CURRENTLY UNUSED
+# TODO: wrap EM function `jcb_em_alg` in class (sklearn style)
 class EM():
     """
     Runs the EM-algorithm for a quadruplet. Requires the copy number sequence of the root and observations of a pair
