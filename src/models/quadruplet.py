@@ -2,7 +2,7 @@ import networkx as nx
 import numpy as np
 
 from models.copy_tree import CopyTree
-from models.observation_models.cell_baseline_and_precision_model import QuadrupletSpecificCellbaselineAndPrecisionModel
+from models.observation_models.normalized_read_counts_models import QuadrupletSpecificCellbaselineAndPrecisionModel
 
 
 class Quadruplet():
@@ -21,7 +21,7 @@ class Quadruplet():
         self.C_u = np.zeros((M, A))
         self.C_v = np.zeros((M, A))
         self.C_w = np.zeros((M, A))
-        self.CN_model = CN_model if CN_model is not None else CopyTree(A, M, self.quadruplet_graph)
+        self.CN_model = CN_model if CN_model is not None else CopyTree(M, A, self.quadruplet_graph)
         self.observation_model = obs_model if obs_model is not None else QuadrupletSpecificCellbaselineAndPrecisionModel(
             M, 1., 1., 10., 10.)
 
@@ -29,10 +29,11 @@ class Quadruplet():
         """
         Simulate data for the quadruplet using the CN model and the observation model.
         """
-        eps, c = self.CN_model.simulate_data(eps_a=1.0, eps_b=20.0, eps_0=0.05)
+        eps, c = self.CN_model.simulate_data(eps_a=eps_a, eps_b=eps_b, eps_0=eps_0)
         c_v = c[2, :]
         c_w = c[3, :]
         yv, yw, mu_v, mu_w, tau_v, tau_w = self.observation_model.simulate_data(c_v, c_w, mu_v, mu_w, tau_v, tau_w)
         self.yv = yv
         self.yw = yw
-        return yv, yw, c_v, c_w, mu_v, mu_w, tau_v, tau_w
+        out = {'yv': yv, 'yw': yw, 'c_v': c_v, 'c_w': c_w, 'mu_v': mu_v, 'mu_w': mu_w, 'tau_v': tau_v, 'tau_w': tau_w}
+        return out
