@@ -20,14 +20,14 @@ class QuadrupletSpecificCellbaselineAndPrecisionModel:
         self.y_v = None
         self.y_w = None
 
-    def simulate_data(self, c_v, c_w, mu_v=None, mu_w=None, tau_v=None, tau_w=None):
+    def simulate_data(self, c_v, c_w, obs_param_v=None, obs_param_w=None):
         """
         Simulate data for the model using prior parameters as default.
         """
-        mu_v = mu_v if mu_v is not None else self.mu_v_prior
-        mu_w = mu_w if mu_w is not None else self.mu_w_prior
-        tau_v = tau_v if tau_v is not None else self.tau_v_prior
-        tau_w = tau_w if tau_w is not None else self.tau_w_prior
+        mu_v = obs_param_v['mu'] if obs_param_v is not None else self.mu_v_prior
+        mu_w = obs_param_w['mu'] if obs_param_w is not None else self.mu_w_prior
+        tau_v = obs_param_v['tau'] if obs_param_v is not None else self.tau_v_prior
+        tau_w = obs_param_w['tau'] if obs_param_w is not None else self.tau_w_prior
 
         y_v = np.zeros(self.M)
         y_w = np.zeros(self.M)
@@ -39,6 +39,8 @@ class QuadrupletSpecificCellbaselineAndPrecisionModel:
         self.true_mu_w = mu_w
         self.true_tau_v = tau_v
         self.true_tau_w = tau_w
+        obs_param_v = {'mu': mu_v, 'tau': tau_v}
+        obs_param_w = {'mu': mu_w, 'tau': tau_w}
         self.y_v = y_v
         self.y_w = y_w
-        return y_v, y_w, mu_v, mu_w, tau_v, tau_w
+        return y_v, y_w, obs_param_v, obs_param_w
