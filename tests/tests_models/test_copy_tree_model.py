@@ -20,7 +20,7 @@ class CopyTreeTestCase(unittest.TestCase):
         eps_a = 1.0
         eps_b = 20.0
         eps_0 = 0.05
-        eps, c = copy_tree.simulate_copy_tree_data(eps_a, eps_b, eps_0)
+        eps, c = copy_tree.simulate_data(eps_a, eps_b, eps_0)
         print(f"eps: {eps} \n c: {c}")
 
     def test_data_simulation_medium_tree(self):
@@ -33,7 +33,7 @@ class CopyTreeTestCase(unittest.TestCase):
         eps_a = 1.0
         eps_b = 20.0
         eps_0 = 0.05
-        eps, c = copy_tree.simulate_copy_tree_data(eps_a, eps_b, eps_0)
+        eps, c = copy_tree.simulate_data(eps_a, eps_b, eps_0)
         for u, v in tree.edges:
             print(f"eps: {eps[u, v]}")
 
@@ -47,7 +47,7 @@ class CopyTreeTestCase(unittest.TestCase):
         eps_a = 1.0
         eps_b = 20.0
         eps_0 = 0.05
-        eps, c = copy_tree.simulate_copy_tree_data(eps_a, eps_b, eps_0)
+        eps, c = copy_tree.simulate_data(eps_a, eps_b, eps_0)
 
     def assert_no_transition_from_absorbing_state(self, c, tree):
         M = c.shape[1]

@@ -162,7 +162,7 @@ class CopyTree:
         self.A = A
         self.K = 2 * N - 1
 
-    def simulate_copy_tree_data(self, eps_a, eps_b, eps_0):
+    def simulate_data(self, eps_a, eps_b, eps_0):
         eps = np.zeros((self.K, self.K))
         logging.debug(f'Copy Tree data simulation - eps_a: {eps_a}, eps_b: {eps_b}, eps_0:{eps_0} ')
         eps_dist = sp_stats.beta(eps_a, eps_b)
