@@ -26,8 +26,8 @@ class EM():
         self.quadruplet = quadruplet
 
     def run_hmmlearn(self):
-        yv = self.quadruplet.yv
-        yw = self.quadruplet.yv
+        yv = self.quadruplet.data_v
+        yw = self.quadruplet.data_v
         A = self.quadruplet.A
         y = np.concatenate([yv, yw])
         lengths = [len(yv), len(yw)]

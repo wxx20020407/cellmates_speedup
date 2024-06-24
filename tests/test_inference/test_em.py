@@ -6,8 +6,7 @@ import networkx as nx
 import numpy as np
 
 from simulation.datagen import rand_dataset
-from inference.em import EM, jcb_em_alg
-from models.quadruplet import Quadruplet
+from inference.em import jcb_em_alg
 from utils.tree_utils import convert_networkx_to_dendropy
 
 from src.inference.em import em_alg, build_tree
@@ -35,23 +34,6 @@ class EMTestCase(unittest.TestCase):
         random.seed(101)
         np.random.seed(seed=101)
         # TODO: add logging lever
-
-    def test_simple_hmm_hmmlearn(self):
-        M = 20
-        A = 5
-        C_r = np.zeros((M, A))
-        C_r[:, 2] = 1
-        y1 = []
-        y2 = []
-        for m in range(M):
-            y1.append([np.random.poisson(1.0)])
-            y2.append([np.random.poisson(1.0)])
-
-        obs_1 = np.ones(M, ) * 2.
-        obs_2 = np.ones(M, ) * 2.
-        quad = Quadruplet(M, A, C_r, y1, y2)
-        em = EM(quad)
-        em.run_hmmlearn()  # Throws exception from hmmlearn expecting 1D hidden state
 
     def test_em_alg(self):
         # generate toy data

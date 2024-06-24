@@ -155,14 +155,13 @@ Simple zipping function tensor. P(Cv_1=j| Cu_1=i) = h0(j|i)
 
 
 class CopyTree:
-    def __init__(self, N, M, A, true_tree: nx.DiGraph = None):
+    def __init__(self, M, A, true_tree: nx.DiGraph):
         self.true_tree = true_tree
-        self.N = N
         self.M = M
         self.A = A
-        self.K = 2 * N - 1
+        self.K = len(true_tree.nodes)
 
-    def simulate_copy_tree_data(self, eps_a, eps_b, eps_0):
+    def simulate_data(self, eps_a, eps_b, eps_0):
         eps = np.zeros((self.K, self.K))
         logging.debug(f'Copy Tree data simulation - eps_a: {eps_a}, eps_b: {eps_b}, eps_0:{eps_0} ')
         eps_dist = sp_stats.beta(eps_a, eps_b)
