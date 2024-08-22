@@ -9,7 +9,7 @@ from simulation.datagen import rand_dataset
 from inference.em import jcb_em_alg
 from utils.tree_utils import convert_networkx_to_dendropy
 
-from src.inference.em import em_alg, build_tree
+from inference.em import em_alg, build_tree
 
 
 def _generate_obs(noise=0):

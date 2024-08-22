@@ -294,7 +294,7 @@ Implementation of JCB EM algorithm in write-up
     n_states = 7
     l_init = 1.0
     n_sites, n_cells = obs.shape
-    l_hat = np.infty * np.ones((n_cells, n_cells))
+    l_hat = np.inf * np.ones((n_cells, n_cells))
     zero_tol = 1e-5  # saturation level when dp << d (changes are much more prevalent)
 
     # for each pair of cells
