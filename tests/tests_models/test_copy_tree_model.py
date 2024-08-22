@@ -54,7 +54,6 @@ class CopyTreeTestCase(unittest.TestCase):
         for u, v in tree.edges:
             for m in range(M):
                 if c[u, m] == 0:
-                    self.assertEqual(c[v, m], 0, msg=f"Parent node {u} copy number 0 at m {m} but child has {c[v, m]}")
                     self.assertEqual(
                         c[v, m],
                         0,
