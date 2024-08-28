@@ -3,7 +3,6 @@ Synthetic data generation functions.
 """
 import logging
 
-import networkx as nx
 import numpy as np
 import scipy.stats as ss
 import dendropy
@@ -80,7 +79,9 @@ def rand_ann_dataset(n_cells: int, n_states: int, n_sites: int, **kwargs):
 
 def rand_dataset(n_cells: int, n_states: int, n_sites: int, alpha=0.02, obs_type='norm') -> dict:
     # generate random sc binary tree
-    tree = dendropy.treesim.treesim.birth_death_tree(.9, .4, num_extant_tips=n_cells)
+    tns = dendropy.TaxonNamespace([dendropy.Taxon(str(i)) for i in range(n_cells)], label='taxa')
+    # tree = dendropy.treesim.treesim.birth_death_tree(.9, .4, num_extant_tips=n_cells)
+    tree = dendropy.treesim.treesim.pure_kingman_tree(taxon_namespace=tns, pop_size=1)
     # ref: https://dendropy.org/primer/treesims.html
     # generate lengths
     # (done in dendropy)

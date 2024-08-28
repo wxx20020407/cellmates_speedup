@@ -4,6 +4,7 @@ import unittest
 
 import networkx as nx
 import numpy as np
+from dendropy.calculate import treecompare
 
 from simulation.datagen import rand_dataset
 from inference.em import jcb_em_alg
@@ -63,10 +64,12 @@ class EMTestCase(unittest.TestCase):
     def test_tree_inference_synth(self):
         n_states = 6
         n_sites = 30
-        n_cells = 10
+        n_cells = 4
         data = rand_dataset(n_cells, n_states, n_sites, alpha=.02, obs_type='pois')
         print("Generated tree")
         data['tree'].print_plot()
+        for node in data['tree'].preorder_node_iter():
+            print(node.label, node.edge_length)
 
         print("Observations")
         print(data['obs'][:20, :])
@@ -87,4 +90,20 @@ class EMTestCase(unittest.TestCase):
         # compare with true tree using RF-distance (unweighted)
         dendropy_tree = convert_networkx_to_dendropy(em_tree, data['tree'].taxon_namespace)
         dendropy_tree.print_plot()
+        rf_distance_jcb = treecompare.symmetric_difference(data['tree'], dendropy_tree)
+        print(rf_distance_jcb)
+
+    def test_two_cells(self):
+        # seed for reproducibility
+        random.seed(101)
+        data = rand_dataset(3, 5, 30, alpha=.02, obs_type='pois')
+        print("Generated tree")
+        data['tree'].print_plot(plot_metric='length')
+        # for each node print the edge length
+        for node in data['tree'].preorder_node_iter():
+            print(node.label, node.edge_length)
+        # tree to newick
+        print(data['tree'].as_string('newick'))
+
+        print(data['cn'])
 
