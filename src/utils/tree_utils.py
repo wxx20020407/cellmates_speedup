@@ -1,6 +1,9 @@
 import dendropy
+import numpy as np
 from dendropy import Tree
 import networkx as nx
+import scipy.stats as ss
+
 
 def tree_to_newick(g: nx.DiGraph, root=None, weight=None, is_internal_call=False):
     """
@@ -72,3 +75,27 @@ def convert_networkx_to_dendropy(nx_tree, taxon_namespace=None) -> dendropy.Tree
     dendropy_tree = Tree.get(data=newick, schema='newick', taxon_namespace=taxon_namespace)
 
     return dendropy_tree
+
+
+def random_binary_tree(n: int, length_mean: float, seed=None):
+    """
+    Generate a random binary tree with n leaves using Dendropy.
+    ref: https://dendropy.org/primer/treesims.html
+    Args:
+        n: Number of leaves.
+        seed: Random seed.
+
+    Returns:
+        A Dendropy tree.
+    """
+    # set dendropy and scipy seed for reproducibility
+    if seed is not None:
+        dendropy.utility.GLOBAL_RNG.seed(seed)
+        np.random.seed(seed)
+    tns = dendropy.TaxonNamespace([dendropy.Taxon('c' + str(i)) for i in range(n)], label='taxa')
+    tree = dendropy.treesim.treesim.pure_kingman_tree(taxon_namespace=tns)
+    # traverse the tree and assign lengths
+    for edge in tree.preorder_edge_iter():
+        # scale = 1 / lambda
+        edge.length = ss.expon(scale=length_mean).rvs()
+    return tree

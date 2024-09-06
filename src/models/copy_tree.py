@@ -47,8 +47,7 @@ def get_zipping_mask0(n_states):
     return mask
 
 
-# TODO: test that delta is normalized over jj for any l
-def p_delta(n_states, l, i, ii, j, jj):
+def p_delta(n_states, l, i, ii, j, jj, alpha=1.):
     """
     Returns the transition probability given the length and the
     copy number configurations.
@@ -69,18 +68,20 @@ def p_delta(n_states, l, i, ii, j, jj):
         return 1 / n_states
     else:
         change = ii - i != jj - j
-        return p_delta_change(n_states, l, change)
+        return p_delta_change(n_states, l, change, alpha=alpha)
 
 
-def p_delta_change(n_states, l, change: bool):
+def p_delta_change(n_states, l, change: bool, alpha: float = 1.):
     if not change:
-        p_out = 1 / n_states + (n_states - 1) / n_states * math.exp(- (n_states - 1) * l)
+        p_out = 1 / n_states + (n_states - 1) / n_states * math.exp(- n_states * alpha * l)
+        # p_out = 1 / n_states + (n_states - 1) / n_states * math.exp(- n_states / (n_states - 1) * alpha * l)
     else:
-        p_out = 1 / n_states - math.exp(- (n_states - 1) * l) / n_states
+        p_out = 1 / n_states - math.exp(- n_states * alpha * l) / n_states
+        # p_out = 1 / n_states - math.exp(- n_states / (n_states - 1) * alpha * l) / n_states
     return p_out
 
 
-def p_delta_trans_mat(n_states, l):
+def p_delta_trans_mat(n_states, l, alpha: float = 1.):
     """
     Indexing order: [j', j, i', i]. Invariant: sum(dim=0) = 1.
     Args:
@@ -93,11 +94,11 @@ def p_delta_trans_mat(n_states, l):
     mat = np.empty((n_states,) * 4)
 
     for (i, ii, j, jj) in itertools.product(range(n_states), repeat=4):
-        mat[jj, j, ii, i] = p_delta(n_states, l, i, ii, j, jj)
+        mat[jj, j, ii, i] = p_delta(n_states, l, i, ii, j, jj, alpha=alpha)
     return mat
 
 
-def p_delta_start_prob(n_states, l):
+def p_delta_start_prob(n_states, l, alpha: float = 1.):
     """
     p_delta(C_1^v | C_1^p) initial probability
     Indexing order: [j, i]. Invariant: sum(dim=0) = 1.
@@ -111,7 +112,7 @@ def p_delta_start_prob(n_states, l):
     mat = np.empty((n_states,) * 2)
 
     for (i, j) in itertools.product(range(n_states), repeat=2):
-        mat[j, i] = p_delta_change(n_states, l, j != i)
+        mat[j, i] = p_delta_change(n_states, l, j != i, alpha=alpha)
     return mat
 
 

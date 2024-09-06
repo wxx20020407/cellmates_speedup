@@ -12,6 +12,8 @@ import random
 import anndata
 
 from models.copy_tree import p_delta_change
+from utils.math_utils import l_from_p
+from utils.tree_utils import random_binary_tree
 
 
 class Dataset(TypedDict):
@@ -26,7 +28,7 @@ class Dataset(TypedDict):
 def simulate_cn_seq(prev_cn, n_states, l, alpha=1.):
     node_cn = np.empty_like(prev_cn)
     # scale l if needed
-    pdd = p_delta_change(n_states, alpha * l, change=False)
+    pdd = p_delta_change(n_states, l, change=False, alpha=alpha)
     # simulate first copy number
     u = random.random()
     if u < pdd:
@@ -37,11 +39,17 @@ def simulate_cn_seq(prev_cn, n_states, l, alpha=1.):
     for m in range(1, len(prev_cn)):
         u = random.random()
         no_change_cn = prev_cn[m] - prev_cn[m - 1] + node_cn[m - 1]
+        if prev_cn[m] == 0:
+            # 0 absorption
+            no_change_cn = 0
+
         if 0 <= no_change_cn < n_states:
             if u < pdd:
                 node_cn[m] = no_change_cn
             else:
                 node_cn[m] = random.choice([j for j in range(n_states) if j != no_change_cn])
+        elif no_change_cn < 0:
+            node_cn[m] = 0
         else:
             node_cn[m] = random.choice([j for j in range(n_states)])
     return node_cn
@@ -117,19 +125,15 @@ def rand_ann_dataset(n_cells: int, n_states: int, n_sites: int, **kwargs):
     return anndataset
 
 
-def rand_dataset(n_cells: int, n_states: int, n_sites: int, alpha=0.02, obs_type='norm') -> Dataset:
+def rand_dataset(n_cells: int, n_states: int, n_sites: int, alpha=1., obs_type='norm', p_change: float = .2,
+                 seed=None) -> Dataset:
     # generate random sc binary tree
-    tns = dendropy.TaxonNamespace([dendropy.Taxon('c' + str(i)) for i in range(n_cells)], label='taxa')
-    tree = dendropy.treesim.treesim.pure_kingman_tree(taxon_namespace=tns, pop_size=1 / alpha)
-    # ref: https://dendropy.org/primer/treesims.html
-    # generate lengths
-    # (done in dendropy)
+    tree = random_binary_tree(n_cells, length_mean=l_from_p(p_change, n_states), seed=seed)
     label_tree(tree)
     # set tree to rooted
     tree.is_rooted = True
     # simulate copy number chains
-    # TODO: find best alpha for n_sites and delete argument from function (hide from out the function)
-    cn = simulate_cn(tree, n_sites, n_states)
+    cn = simulate_cn(tree, n_sites, n_states, alpha=alpha)
     # emit observations from tree leaves
     obs = np.empty((n_sites, n_cells))
     for t in tree.leaf_node_iter():

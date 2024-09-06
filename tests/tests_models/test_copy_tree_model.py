@@ -1,12 +1,49 @@
 import unittest
 
 import networkx as nx
+import numpy as np
 
-from models.copy_tree import CopyTree
+from models.copy_tree import CopyTree, p_delta_change, p_delta_trans_mat, p_delta_start_prob
 
 
 class CopyTreeTestCase(unittest.TestCase):
     # TODO: Find good asserts
+
+    def test_p_delta_change(self):
+        n_states = 5
+        # edge cases
+        l = 0
+        p_ddp = p_delta_change(n_states, l, change=True)
+        self.assertAlmostEqual(p_ddp, 0)
+        p_dd = p_delta_change(n_states, l, change=False)
+        self.assertAlmostEqual(p_dd, 1)
+
+        l = np.inf
+        p_ddp = p_delta_change(n_states, l, change=True)
+        self.assertAlmostEqual(p_ddp, 1 / n_states)
+        p_dd = p_delta_change(n_states, l, change=False)
+        self.assertAlmostEqual(p_dd, 1 / n_states)
+
+        l = 5.
+        p_ddp = p_delta_change(n_states, l, change=True)
+        p_dd = p_delta_change(n_states, l, change=False)
+
+        self.assertEqual(p_dd + (n_states - 1) * p_ddp, 1)
+
+    def test_p_delta_trans_mat(self):
+        n_states = 5
+        l = 5.
+        mat = p_delta_trans_mat(n_states, l)
+        self.assertEqual(mat.shape, (n_states, n_states, n_states, n_states))
+        self.assertTrue(np.allclose(np.sum(mat, axis=0), np.ones((n_states,) * 3)))
+
+    def test_p_delta_start_prob(self):
+        n_states = 5
+        l = 5.
+        mat = p_delta_start_prob(n_states, l)
+        self.assertEqual(mat.shape, (n_states, n_states))
+        self.assertTrue(np.allclose(np.sum(mat, axis=0), np.ones(n_states)))
+
     def test_data_simulation_small_tree(self):
         N = 3
         M = 50
