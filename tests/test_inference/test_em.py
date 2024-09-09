@@ -5,6 +5,7 @@ import unittest
 
 import networkx as nx
 import numpy as np
+import dendropy as dpy
 from dendropy.calculate import treecompare
 from scipy.special import logsumexp
 
