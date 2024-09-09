@@ -61,16 +61,19 @@ def _convert_nx_tree_to_dendropy_tree(nx_tree, nxroot='r'):
     return dtree
 
 
-def convert_networkx_to_dendropy(nx_tree, taxon_namespace=None) -> dendropy.Tree:
+def convert_networkx_to_dendropy(nx_tree, labels_mapping: dict = None, taxon_namespace = None) -> dendropy.Tree:
     """
     Converts a NetworkX tree to a DendroPy tree through newick string.
 
     Args:
       nx_tree: The NetworkX tree to convert.
+      labels_mapping: dict, mapping of taxa labels to new labels
 
     Returns:
       A DendroPy tree.
     """
+    if labels_mapping is not None:
+        nx_tree = nx.relabel_nodes(nx_tree, labels_mapping, copy=True)
     newick = tree_to_newick(nx_tree)
     dendropy_tree = Tree.get(data=newick, schema='newick', taxon_namespace=taxon_namespace)
 
@@ -92,10 +95,19 @@ def random_binary_tree(n: int, length_mean: float, seed=None):
     if seed is not None:
         dendropy.utility.GLOBAL_RNG.seed(seed)
         np.random.seed(seed)
-    tns = dendropy.TaxonNamespace([dendropy.Taxon('c' + str(i)) for i in range(n)], label='taxa')
+    tns = dendropy.TaxonNamespace([dendropy.Taxon(str(i)) for i in range(n)], label='taxa')
     tree = dendropy.treesim.treesim.pure_kingman_tree(taxon_namespace=tns)
     # traverse the tree and assign lengths
     for edge in tree.preorder_edge_iter():
         # scale = 1 / lambda
         edge.length = ss.expon(scale=length_mean).rvs()
     return tree
+
+
+def get_node2node_distance(tree, node1_label, node2_label):
+    tree.calc_node_root_distances()
+    node1 = tree.find_node_with_label(node1_label)
+    node2 = tree.find_node_with_label(node2_label)
+    if node1.root_distance < node2.root_distance:
+        node1, node2 = node2, node1
+    return node1.root_distance - node2.root_distance

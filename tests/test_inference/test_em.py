@@ -9,9 +9,9 @@ from dendropy.calculate import treecompare
 from scipy.special import logsumexp
 
 from models.copy_tree import p_delta_change
-from simulation.datagen import rand_dataset, get_ctr_table, simulate_cn_seq, emit_raw_obs
+from simulation.datagen import rand_dataset, get_ctr_table, emit_raw_obs, simulate_cn, label_tree
 from inference.em import jcb_em_alg, compute_exp_changes, two_slice_marginals
-from utils.tree_utils import convert_networkx_to_dendropy
+from utils.tree_utils import convert_networkx_to_dendropy, get_node2node_distance
 from utils.math_utils import l_from_p
 
 from inference.em import em_alg, build_tree
@@ -31,15 +31,6 @@ def _generate_obs(noise=0):
     print((obs / 100).astype(int).transpose())
     noise = np.round(np.random.normal(size=obs.shape) * noise).astype(int)
     return obs + noise, eps
-
-
-def get_node2node_distance(tree, node1_label, node2_label):
-    tree.calc_node_root_distances()
-    node1 = tree.find_node_with_label(node1_label)
-    node2 = tree.find_node_with_label(node2_label)
-    if node1.root_distance < node2.root_distance:
-        node1, node2 = node2, node1
-    return node1.root_distance - node2.root_distance
 
 
 class EMTestCase(unittest.TestCase):
@@ -82,7 +73,7 @@ class EMTestCase(unittest.TestCase):
         n_cells = 6
         data = rand_dataset(n_cells, n_states, n_sites, alpha=1., obs_type='pois', p_change=0.1, seed=seed)
         print("Generated tree")
-        data['tree'].print_plot()
+        data['tree'].print_plot(plot_metric='length')
         for node in data['tree'].preorder_node_iter():
             print(node.label, node.edge_length)
 
@@ -90,17 +81,82 @@ class EMTestCase(unittest.TestCase):
         print(data['obs'][:20, :])
 
         ctr_table = jcb_em_alg(data['obs'])
-        print(ctr_table)
+        print(ctr_table[..., 0])
 
         em_tree = build_tree(ctr_table)
         # relabel tree nodes with data taxon labels
         nx.write_network_text(em_tree, sources=['r'])
+        labels_mapping = {n.label: n.label for n in data['tree'].nodes() if n != data['tree'].seed_node}
+        labels_mapping['r'] = data['tree'].seed_node.label
+        nx.write_network_text(nx.relabel_nodes(em_tree, labels_mapping, copy=True),
+                              sources=[data['tree'].seed_node.label])
 
         # compare with true tree using RF-distance (unweighted)
-        dendropy_tree = convert_networkx_to_dendropy(em_tree, data['tree'].taxon_namespace)
+        dendropy_tree = convert_networkx_to_dendropy(em_tree,
+                                                     taxon_namespace=data['tree'].taxon_namespace)
         dendropy_tree.print_plot()
         rf_distance_jcb = treecompare.symmetric_difference(data['tree'], dendropy_tree)
         print(rf_distance_jcb)
+
+    def test_quadruplet(self):
+        # seed for reproducibility
+        seed = 101
+        # dendropy seed
+        random.seed(seed)
+        np.random.seed(seed)
+        n_states = 5
+        n_sites = 500
+        p_change = 0.2  # for random edge lengths
+
+        alpha = 1.
+        # generate dendropy tree with 2 leaves, one internal node and root
+        tree = dpy.Tree.get(data="((0,1)2)3;", schema='newick', taxon_namespace=dpy.TaxonNamespace(['0', '1']))
+        label_tree(tree)
+        tree.is_rooted = True
+        # generate edge lengths
+        l_true = np.empty(3)
+        r, u, v, w = 3, 2, 0, 1
+        assert tree.seed_node.label == r
+        for edge in tree.preorder_edge_iter():
+            # random
+            # l = ss.expon(scale=l_from_p(p_change, n_states)).rvs()
+            # centroid to root
+            if edge.head_node.label == u:
+                l = 0.01
+                edge.length = l
+                l_true[0] = l
+            # centroid to v
+            elif edge.head_node.label == v:
+                l = 0.03
+                edge.length = l
+                l_true[1] = l
+            # centroid to w
+            elif edge.head_node.label == w:
+                l = 0.008
+                edge.length = l
+                l_true[2] = l
+        print(f"True edge lengths: {l_true.tolist()}")
+
+        # and cn profiles
+        cn = simulate_cn(tree, n_sites, n_states, alpha=alpha)
+        print(f"CN (r, u, v, w):\n{cn[[r, u, v, w], :]}")
+        # emit observations from tree leaves
+        obs = np.empty((n_sites, 2))
+        for t in tree.leaf_node_iter():
+            cell_id = int(t.label)
+            obs[:, cell_id] = emit_raw_obs(cn[cell_id, :])
+
+        # print tree with lengths
+        tree.print_plot(plot_metric='length')
+
+        # run EM
+        ctr_table = jcb_em_alg(obs)
+        print("Estimated lengths:")
+        print(ctr_table[0, 1, :].tolist())
+
+        self.assertAlmostEqual(ctr_table[0, 1, 0], l_true[0], delta=0.02)
+        self.assertAlmostEqual(ctr_table[0, 1, 1], l_true[1], delta=0.02)
+        self.assertAlmostEqual(ctr_table[0, 1, 2], l_true[2], delta=0.01)
 
     def test_two_cells(self):
         # seed for reproducibility
@@ -131,7 +187,7 @@ class EMTestCase(unittest.TestCase):
         c1, c2 = 0, 1
         centroid = None
         for r, s in itertools.combinations(range(data['obs'].shape[1]), 2):
-            centroid = data['tree'].mrca(taxon_labels=['c' + str(r), 'c' + str(s)])
+            centroid = data['tree'].mrca(taxon_labels=[str(r), str(s)])
             if centroid != data['tree'].seed_node:
                 c1, c2 = r, s
                 break
@@ -150,11 +206,13 @@ class EMTestCase(unittest.TestCase):
         ctr_table = jcb_em_alg(data['obs'][:, [c1, c2]])
         print(f"Estimated CTR table")
         print(ctr_table)
-        self.assertAlmostEqual(ctr_table[0, 1], true_ctr_table[c1, c2])
+        self.assertAlmostEqual(ctr_table[0, 1, 0], true_ctr_table[c1, c2],
+                               msg=f"cell {c1} and {c2} CTR: {ctr_table[0, 1, 0]} != {true_ctr_table[c1, c2]}")
         # build tree
         em_tree = build_tree(ctr_table)
 
-        dendropy_tree = convert_networkx_to_dendropy(em_tree, data['tree'].taxon_namespace)
+        dendropy_tree = convert_networkx_to_dendropy(em_tree, {l.label: l.taxon.label for l in data['tree'].leaf_node_iter()},
+                                                     taxon_namespace=data['tree'].taxon_namespace)
         print("--- EM TREE ---")
         dendropy_tree.print_plot()
 
@@ -277,9 +335,5 @@ class EMTestCase(unittest.TestCase):
         # test with eps model
         d, dp = compute_exp_changes(np.array([eps_ru, eps_uv, eps_uw]), np.stack([v_obs, w_obs], axis=1),
                                     n_states=n_states, alpha=alpha, jcb=False)
-        print(f"expected p statistic via eps ({[eps_ru, eps_uv, eps_uw]}:\n"
+        print(f"expected p statistic via eps ({[eps_ru, eps_uv, eps_uw]}):\n"
               f"\tp: {d / (d + dp)}, D = {d}, D' = {dp}")
-
-    def test_two_cells_eps(self):
-        # TODO: make two cells experiment with eps model
-        pass

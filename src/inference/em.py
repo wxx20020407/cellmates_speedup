@@ -328,14 +328,15 @@ Implementation of JCB EM algorithm in write-up
     obs array of shape (n_sites, n_cells)
     Returns
     -------
-    array of shape (n_cells, n_cells), centroid-to-root distance
+    array of shape (n_cells, n_cells, 3), estimated pairwise triplet distances (upper triangular, all other
+    entries are -1)
     """
     # params
     n_states = 7
     n_sites, n_cells = obs.shape
     # init to an average of 5 changes over the whole length
     l_init = l_from_p(5 / n_sites, n_states)
-    l_hat = np.inf * np.ones((n_cells, n_cells))
+    l_hat = -np.ones((n_cells, n_cells, 3))
     zero_tol = 1e-10  # saturation level when dp << d (changes are much more prevalent)
 
     # for each pair of cells
@@ -368,9 +369,9 @@ Implementation of JCB EM algorithm in write-up
         counter += 1
         if counter % 10 == 0:
             logging.debug(f'{comb(n_cells, 2) - counter} pairs remaining...')
-        l_hat[v, w] = l_i[0]  # ctr distance is l_ru (first of triplet)
+        l_hat[v, w, :] = l_i
         iterations[(v, w)] = it
-        print(f'cell pair {v}, {w} done: l_trip = {l_i}, iterations = {it}')
+        # print(f'cell pair {v}, {w} done: l_trip = {l_i}, iterations = {it}')
 
     return l_hat
 
@@ -412,10 +413,13 @@ def _build_tree_rec(dist: dict, otus: set, edges: set[tuple]):
 def build_tree(ctr_table):
     # operational taxonomic units, OTUs, init with cells
     otus = set(map(str, range(ctr_table.shape[0])))
-    dist = {frozenset({str(v), str(w)}): ctr_table[v, w] for v in range(len(otus)) for w in range(v + 1, len(otus))}
+    dist = {frozenset({str(v), str(w)}): ctr_table[v, w, 0] for v in range(len(otus)) for w in range(v + 1, len(otus))}
 
+    # build tree only using ctr distances
     edges = _build_tree_rec(dist, otus, set())
     em_tree = nx.DiGraph()
+    # add edges with lengths
     em_tree.add_edges_from(edges)
+    # add_lengths(em_tree, ctr_table)
 
     return em_tree

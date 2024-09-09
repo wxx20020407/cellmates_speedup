@@ -32,11 +32,11 @@ class MyTestCase(unittest.TestCase):
         data = rand_dataset(n_cells, n_states, n_sites, obs_type='pois')
         ctr_table = get_ctr_table(data)
         for r, s in itertools.combinations(range(n_cells), 2):
-            centroid = data['tree'].mrca(taxon_labels=['c' + str(r), 'c' + str(s)])
+            centroid = data['tree'].mrca(taxon_labels=[str(r), str(s)])
             if centroid != data['tree'].seed_node:
                 self.assertGreater(centroid.edge_length, 0.)
-                self.assertGreater(ctr_table[r, s], 0.)
-
+                self.assertTrue(np.all(ctr_table[r, s, :] != -1))
+                self.assertTrue(np.all(ctr_table[r, s, :] > 0))
 
 
 if __name__ == '__main__':

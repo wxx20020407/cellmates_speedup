@@ -13,7 +13,7 @@ import anndata
 
 from models.copy_tree import p_delta_change
 from utils.math_utils import l_from_p
-from utils.tree_utils import random_binary_tree
+from utils.tree_utils import random_binary_tree, get_node2node_distance
 
 
 class Dataset(TypedDict):
@@ -83,8 +83,7 @@ def label_tree(tree):
     rev_node_idx = len(tree.nodes()) - 1
     for n in tree.nodes():
         if n.is_leaf():
-            # remove 'c' prefix
-            n.label = int(n.taxon.label[1:])
+            n.label = int(n.taxon.label)
         else:
             n.label = rev_node_idx
             rev_node_idx -= 1
@@ -100,11 +99,14 @@ def get_root_distance(centroid):
 
 def get_ctr_table(data: Dataset) -> np.ndarray:
     n_cells = data['obs'].shape[1]
-    ctr_table = np.zeros((n_cells, n_cells))
+    ctr_table = np.zeros((n_cells, n_cells, 3))
     for r, s in combinations(range(n_cells), 2):
+        assert r < s, "r must be less than s to ensure upper triangular matrix"
         # most recent common ancestor
-        centroid = data['tree'].mrca(taxon_labels=['c' + str(r), 'c' + str(s)])
-        ctr_table[r, s] = get_root_distance(centroid)
+        centroid = data['tree'].mrca(taxon_labels=[str(r), str(s)])
+        ctr_table[r, s, 0] = get_root_distance(centroid)
+        ctr_table[r, s, 1] = get_node2node_distance(data['tree'], centroid.label, r)
+        ctr_table[r, s, 2] = get_node2node_distance(data['tree'], centroid.label, s)
 
     return ctr_table
 
