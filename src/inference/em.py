@@ -129,12 +129,14 @@ def forward_pass(obs_vw, start_prob, trans_mat, log_emissions, eps=1e-5):
 
     for m in range(1, n_sites):
         # [ \sum_{x,y,z} alpha_{m-1}(x, y, z) p(i, j, k | x, y, z) ] p(y_m^{vw} | i, j, k)
-        alpha[m, ...] = logsumexp(alpha[m - 1] +
-                                  np.log(trans_mat),
-                                  axis=(0, 1, 2)) + log_emissions[m, np.newaxis, ...]
+        log_acc = -np.inf * np.ones((n_states, n_states, n_states))
+        for x, y, z in itertools.product(range(n_states), repeat=3):
+            log_acc = np.logaddexp(alpha[m - 1, x, y, z] + np.log(trans_mat[x, y, z, ...]), log_acc)
+        alpha[m, ...] = log_acc + log_emissions[m, np.newaxis, ...]
         # normalization step
         alpha[m] -= logsumexp(alpha[m])
 
+    assert np.allclose(logsumexp(alpha, axis=(1, 2, 3)), np.zeros(n_sites))
     return alpha
 
 
@@ -143,14 +145,25 @@ def backward_pass(obs_vw, trans_mat, log_emissions):
     n_states = trans_mat.shape[0]
     beta = np.empty((n_sites, n_states, n_states, n_states))
     # initialize beta[M] = 1. (in log form) - normalized
-    beta[-1, ...] = 0.  # 3 * np.log(n_states)
+    beta[-1, ...] = - 3 * np.log(n_states)
 
     # compute iteratively
     for m in reversed(range(n_sites - 1)):
-        beta[m, ...] = logsumexp(beta[m + 1, ...] +
-                                 np.log(trans_mat)
-                                 + log_emissions[m + 1, np.newaxis, np.newaxis, np.newaxis, ...],
-                                 axis=(3, 4, 5))
+        # -- ORIGINAL IMPLEMENTATION --
+        # beta[m, ...] = logsumexp(beta[m + 1, ...] +
+        #                          np.log(trans_mat)
+        #                          + log_emissions[m + 1, np.newaxis, np.newaxis, np.newaxis, ...],
+        #                          axis=(3, 4, 5))
+
+        #  -- ALTERATIVE IMPLEMENTATION --
+        log_acc = -np.inf * np.ones((n_states, n_states, n_states))
+        for x, y, z in itertools.product(range(n_states), repeat=3):
+            log_acc = np.logaddexp(beta[m + 1, x, y, z] +
+                                   np.log(trans_mat[..., x, y, z]) +
+                                   log_emissions[m + 1, y, z],  # ]
+                                   log_acc)
+        beta[m, ...] = log_acc
+
         # normalization step
         beta[m] -= logsumexp(beta[m])
 
@@ -207,12 +220,12 @@ def two_slice_marginals(obs_vw, theta: np.ndarray, n_states: int, jcb: bool = Fa
     return log_xi
 
 
-def compute_exp_changes(l_prev, obs_vw, n_states, alpha=1.):
+def compute_exp_changes(theta, obs_vw, n_states, alpha=1., jcb=True):
     d = np.empty(3)
     dp = np.empty_like(d)
     # compute two slice marginals
     # prob(Cm = ijk, Cm+1 = i'j'k' | Y)
-    log_xi = two_slice_marginals(obs_vw, l_prev, n_states, jcb=True, alpha=alpha)
+    log_xi = two_slice_marginals(obs_vw, theta, n_states, jcb=jcb, alpha=alpha)
 
     comut_mask0 = get_zipping_mask0(n_states).transpose()
     comut_mask = get_zipping_mask(n_states).transpose(tuple(reversed(range(4))))
@@ -328,12 +341,15 @@ Implementation of JCB EM algorithm in write-up
     # for each pair of cells
     counter = 0
     logging.debug(f'pairwise EM started: {comb(n_cells, 2)} pairs')
+    iterations = {}
     for v, w in itertools.combinations(range(n_cells), r=2):
         # initialize l = (l_ru, l_uv, l_uw)
         l_i = np.array([l_init] * 3)
         # triplet state u, v, w
         convergence = False
+        it = 0
         while not convergence:
+            it += 1
             # compute D and D'
             d, dp = compute_exp_changes(l_i, obs[:, [v, w]], n_states, alpha=alpha)
 
@@ -346,14 +362,15 @@ Implementation of JCB EM algorithm in write-up
             l_new = - 1 / (alpha * n_states) * np.log(num / ((n_states - 1) * (dp + d)))
 
             l_delta = l_new - l_i
-            convergence = np.allclose(l_delta, np.zeros_like(l_delta), atol=0.001)
+            convergence = np.allclose(l_delta, np.zeros_like(l_delta))
             l_i = l_new  # update current l
 
         counter += 1
         if counter % 10 == 0:
             logging.debug(f'{comb(n_cells, 2) - counter} pairs remaining...')
         l_hat[v, w] = l_i[0]  # ctr distance is l_ru (first of triplet)
-        # print(f'cell pair {v}, {w} done: l_trip = {l_i}')
+        iterations[(v, w)] = it
+        print(f'cell pair {v}, {w} done: l_trip = {l_i}, iterations = {it}')
 
     return l_hat
 

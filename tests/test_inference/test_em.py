@@ -33,6 +33,15 @@ def _generate_obs(noise=0):
     return obs + noise, eps
 
 
+def get_node2node_distance(tree, node1_label, node2_label):
+    tree.calc_node_root_distances()
+    node1 = tree.find_node_with_label(node1_label)
+    node2 = tree.find_node_with_label(node2_label)
+    if node1.root_distance < node2.root_distance:
+        node1, node2 = node2, node1
+    return node1.root_distance - node2.root_distance
+
+
 class EMTestCase(unittest.TestCase):
 
     def setUp(self) -> None:
@@ -67,10 +76,11 @@ class EMTestCase(unittest.TestCase):
 
     def test_tree_inference_synth(self):
         logging.basicConfig(level=logging.WARNING)
-        n_states = 6
-        n_sites = 30
+        seed = 101
+        n_states = 5
+        n_sites = 50
         n_cells = 6
-        data = rand_dataset(n_cells, n_states, n_sites, alpha=1., obs_type='pois')
+        data = rand_dataset(n_cells, n_states, n_sites, alpha=1., obs_type='pois', p_change=0.1, seed=seed)
         print("Generated tree")
         data['tree'].print_plot()
         for node in data['tree'].preorder_node_iter():
@@ -100,11 +110,11 @@ class EMTestCase(unittest.TestCase):
         np.random.seed(seed)
         n_cells = 4
         n_states = 5
-        n_sites = 100
+        n_sites = 1000
 
         alpha = 1.
         data = rand_dataset(n_cells, n_states, n_sites,
-                            alpha=alpha, obs_type='pois', p_change=5 / n_sites, seed=seed)
+                            alpha=alpha, obs_type='pois', p_change=20 / n_sites, seed=seed)
         print(f"True CTR table")
         true_ctr_table = get_ctr_table(data)
         print(true_ctr_table)
@@ -133,6 +143,9 @@ class EMTestCase(unittest.TestCase):
         print(f"C{c2}:\t {data['cn'][c2, :]}")
 
         print(f"Leaves with non-root CTR: {c1}, {c2}")
+        l_uv = get_node2node_distance(data['tree'], centroid.label, c1)
+        l_uw = get_node2node_distance(data['tree'], centroid.label, c2)
+        print(f"true l_trip: {true_ctr_table[c1, c2]}, {l_uv}, {l_uw}")
         # run EM
         ctr_table = jcb_em_alg(data['obs'][:, [c1, c2]])
         print(f"Estimated CTR table")
@@ -158,8 +171,8 @@ class EMTestCase(unittest.TestCase):
         n_states = 4
         # reasonable lengths computed by setting the change probability to
         p_change = 3 / n_sites
-        ll = l_from_p(p_change * 2, n_states)  #0.02  # long l
-        sl = l_from_p(p_change / 4, n_states)  #0.001  # short l
+        ll = l_from_p(p_change * 2, n_states)
+        sl = l_from_p(0, n_states)
         print(f"LONG l prop of change: 1 - pdd = {1 - p_delta_change(n_states, ll, change=False)}")
         print(f"SHORT l prop of change: 1 - pdd = {1 - p_delta_change(n_states, sl, change=False)}")
         obs_vw = np.array([
@@ -231,66 +244,42 @@ class EMTestCase(unittest.TestCase):
         # random seed
         random.seed(101)
         # generate cn
-        n_sites = 20
-        t0 = n_sites // 6  # first change idx
+        n_sites = 1000
+        t0 = n_sites // 200  # first change idx
         n_states = 4
-        l_ru = .015
-        print(f"1 - pdd_ru: {1 - p_delta_change(n_states, l_ru, change=False)}")
-        l_uv = 0.02
-        print(f"1 - pdd_uv: {1 - p_delta_change(n_states, l_uv, change=False)}")
-        l_uw = 0.02
-        print(f"1 - pdd_uw: {1 - p_delta_change(n_states, l_uw, change=False)}")
+        eps_ru = 200 / n_sites
+        eps_uv = 0.01 / n_sites
+        eps_uw = 100 / n_sites
+        l_ru = l_from_p(eps_ru, n_states)
+        l_uv = l_from_p(eps_uv, n_states)  # close to zero since no change from u to v
+        l_uw = l_from_p(eps_uw, n_states)
+        print(f"1 - pdd_ru: {1 - p_delta_change(n_states, l_ru, change=False)} - l_ru: {l_ru}")
+        print(f"1 - pdd_uv: {1 - p_delta_change(n_states, l_uv, change=False)} - l_uv: {l_uv}")
+        print(f"1 - pdd_uw: {1 - p_delta_change(n_states, l_uw, change=False)} - l_uw: {l_uw}")
         alpha = 1.
 
-        healthy_cn = [2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2]
-        centroid_cn = [2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1]  # 5% (1/21) change
-        v_cn = [2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1]  # no distance from centroid
-        w_cn = [2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 3, 2, 2, 2, 2, 2, 2, 2, 2, 2]  # 5% (1/20) change
+        centroid_cn = ([2] * t0 + [1] * t0) * 100  # 2 * 100 changes from root
+        v_cn = ([2] * t0 + [1] * t0) * 100  # no distance from centroid
+        w_cn = ([2] * t0 + [3] * (t0 // 2) + [1] * (t0 // 2 + 1)) * 100  # 100 more changes than v
 
         v_obs = emit_raw_obs(v_cn)
         w_obs = emit_raw_obs(w_cn)
 
-        print(f"V obs: {v_obs}")
-        print(f"W obs: {w_obs}")
+        print(f"V obs: {v_obs[:20]}")
+        print(f"W obs: {w_obs[:20]}")
 
         # compute expected changes given true l
-        # FIXME: D and D' are similar for l_ru which means the model is giving wrong (maybe random) change probabilities
-        #   from root to centroid
         d, dp = compute_exp_changes(np.array([l_ru, l_uv, l_uw]), np.stack([v_obs, w_obs], axis=1),
                                     n_states=n_states, alpha=alpha)
         print(f"expected p statistic: p: {d / (d + dp)}"
               f" D = {d}, D' = {dp}")
-        print(f"Actual changes")
 
-    def test_compute_exp_changes_eps(self):
-        # random seed
-        random.seed(101)
-        # generate cn
-        n_states = 4
-        eps_ru = .003
-        eps_uv = 0.04
-        eps_uw = 0.04
-        print(f"eps_ru: {eps_ru}")
-        print(f"eps_uv: {eps_uv}")
-        print(f"eps_uw: {eps_uw}")
+        # test with eps model
+        d, dp = compute_exp_changes(np.array([eps_ru, eps_uv, eps_uw]), np.stack([v_obs, w_obs], axis=1),
+                                    n_states=n_states, alpha=alpha, jcb=False)
+        print(f"expected p statistic via eps ({[eps_ru, eps_uv, eps_uw]}:\n"
+              f"\tp: {d / (d + dp)}, D = {d}, D' = {dp}")
 
-        healthy_cn = [2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2]
-        centroid_cn = [2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1]  # 5% (1/20) change
-        v_cn = [2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1]  # no distance from centroid
-        w_cn = [2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 3, 2, 2, 2, 2, 2, 2, 2, 2, 2]  # 5% (1/20) change
-
-        v_obs = emit_raw_obs(v_cn)
-        w_obs = emit_raw_obs(w_cn)
-
-        print(f"V obs: {v_obs}")
-        print(f"W obs: {w_obs}")
-
-        # compute two slice marginals
-        # shape (n_sites, n_states x 3, n_states x 3)
-        log_xi = two_slice_marginals(np.stack([v_obs, w_obs], axis=0).transpose(), np.array([eps_ru, eps_uv, eps_uw]),
-                                     n_states=n_states, jcb=False)
-        # update epsilon_k
-        epsilon_kp1 = update_eps(log_xi)
-        print(f"expected p statistic: p: {d / (d + dp)}"
-              f" D = {d}, D' = {dp}")
-        print(f"Actual changes")
+    def test_two_cells_eps(self):
+        # TODO: make two cells experiment with eps model
+        pass
