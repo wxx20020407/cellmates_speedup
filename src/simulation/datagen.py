@@ -7,13 +7,13 @@ from typing import TypedDict
 
 import numpy as np
 import scipy.stats as ss
-import dendropy
+import dendropy as dpy
 import random
 import anndata
 
 from models.copy_tree import p_delta_change
 from utils.math_utils import l_from_p
-from utils.tree_utils import random_binary_tree, get_node2node_distance
+from utils.tree_utils import random_binary_tree, get_node2node_distance, label_tree
 
 
 class Dataset(TypedDict):
@@ -21,8 +21,63 @@ class Dataset(TypedDict):
     Data structure for synthetic data.
     """
     obs: np.ndarray
-    tree: dendropy.Tree
+    tree: dpy.Tree
     cn: np.ndarray
+
+
+def simulate_quadruplet(n_states, n_sites, alpha=1., l_mean=None) -> Dataset:
+    """
+    Simulate a quadruplet tree with 2 leaves, one internal node and a root.
+    The tree is rooted and the edge lengths are generated from an exponential distribution if l_mean is None.
+    The copy number profiles are simulated from the tree and the observations are emitted from the leaves.
+    Indices are r, u, v, w = 3, 2, 0, 1.
+    Parameters
+    ----------
+    n_states: int, number of copy number states
+    n_sites: int, number of sites
+    alpha: float, alpha parameter for evolution model
+    l_mean: float, mean of the exponential distribution for edge lengths
+
+    Returns
+    -------
+    dict with keys 'obs', 'tree', 'cn'
+
+    """
+    # generate dendropy tree with 2 leaves, one internal node and root
+    tree = dpy.Tree.get(data="((0,1)2)3;", schema='newick', taxon_namespace=dpy.TaxonNamespace(['0', '1']))
+    label_tree(tree)
+    tree.is_rooted = True
+    # generate edge lengths
+    l_true = np.empty(3)
+    if l_mean is None:
+        l_true[:] = np.array([0.01, 0.03, 0.008])
+    else:
+        for i in range(3):
+            l_true[i] = ss.expon(scale=l_mean).rvs()
+    r, u, v, w = tuple(map(str, [3, 2, 0, 1]))
+    for edge in tree.preorder_edge_iter():
+        # centroid to root
+        if edge.head_node.label == u:
+            edge.length = l_true[0]
+        # centroid to v
+        elif edge.head_node.label == v:
+            edge.length = l_true[1]
+        # centroid to w
+        elif edge.head_node.label == w:
+            edge.length = l_true[2]
+
+    # and cn profiles
+    cn = simulate_cn(tree, n_sites, n_states, alpha=alpha)
+    # emit observations from tree leaves
+    obs = np.empty((n_sites, 2))
+    for t in tree.leaf_node_iter():
+        cell_id = int(t.label)
+        obs[:, cell_id] = emit_raw_obs(cn[cell_id, :])
+    return {
+        'obs': obs,
+        'tree': tree,
+        'cn': cn
+    }
 
 
 def simulate_cn_seq(prev_cn, n_states, l, alpha=1.):
@@ -66,27 +121,13 @@ def emit_raw_obs(cn_seq, lam=100.):
 
 def simulate_cn(tree, n_sites, n_states, alpha=1.):
     cn = np.empty((len(tree.nodes()), n_sites))
-    cn[tree.seed_node.label, :] = 2
+    cn[int(tree.seed_node.label), :] = 2
     # tree needs index-labeled node
     assert tree.seed_node.label is not None
     for n in tree.preorder_node_iter():
         if n != tree.seed_node:
-            cn[n.label] = simulate_cn_seq(cn[n.parent_node.label], n_states, n.edge_length, alpha=alpha)
+            cn[int(n.label)] = simulate_cn_seq(cn[int(n.parent_node.label)], n_states, n.edge_length, alpha=alpha)
     return cn
-
-
-def label_tree(tree):
-    """
-    Assigns labels to tree nodes. Leaves are assigned with cell ids, internal nodes with decremental numbers
-    different from cell ids.
-    """
-    rev_node_idx = len(tree.nodes()) - 1
-    for n in tree.nodes():
-        if n.is_leaf():
-            n.label = int(n.taxon.label)
-        else:
-            n.label = rev_node_idx
-            rev_node_idx -= 1
 
 
 def get_root_distance(centroid):
@@ -97,16 +138,17 @@ def get_root_distance(centroid):
     return root_distance
 
 
-def get_ctr_table(data: Dataset) -> np.ndarray:
-    n_cells = data['obs'].shape[1]
+def get_ctr_table(tree: dpy.Tree) -> np.ndarray:
+    n_cells = len(tree.leaf_nodes())
+    assert n_cells == len(tree.taxon_namespace)
     ctr_table = np.zeros((n_cells, n_cells, 3))
     for r, s in combinations(range(n_cells), 2):
         assert r < s, "r must be less than s to ensure upper triangular matrix"
         # most recent common ancestor
-        centroid = data['tree'].mrca(taxon_labels=[str(r), str(s)])
+        centroid = tree.mrca(taxon_labels=[str(r), str(s)])
         ctr_table[r, s, 0] = get_root_distance(centroid)
-        ctr_table[r, s, 1] = get_node2node_distance(data['tree'], centroid.label, r)
-        ctr_table[r, s, 2] = get_node2node_distance(data['tree'], centroid.label, s)
+        ctr_table[r, s, 1] = get_node2node_distance(tree, centroid.label, str(r))
+        ctr_table[r, s, 2] = get_node2node_distance(tree, centroid.label, str(s))
 
     return ctr_table
 
@@ -131,7 +173,6 @@ def rand_dataset(n_cells: int, n_states: int, n_sites: int, alpha=1., obs_type='
                  seed=None) -> Dataset:
     # generate random sc binary tree
     tree = random_binary_tree(n_cells, length_mean=l_from_p(p_change, n_states), seed=seed)
-    label_tree(tree)
     # set tree to rooted
     tree.is_rooted = True
     # simulate copy number chains
@@ -139,7 +180,7 @@ def rand_dataset(n_cells: int, n_states: int, n_sites: int, alpha=1., obs_type='
     # emit observations from tree leaves
     obs = np.empty((n_sites, n_cells))
     for t in tree.leaf_node_iter():
-        cell_id = t.label
+        cell_id = int(t.label)
         if obs_type == 'pois':
             obs[:, cell_id] = emit_raw_obs(cn[cell_id])
         elif obs_type == 'norm':

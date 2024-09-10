@@ -19,8 +19,8 @@ class MyTestCase(unittest.TestCase):
         self.assertEqual(data['obs'].shape, (n_sites, n_cells))
         self.assertEqual(data['cn'].shape, (2 * n_cells - 1, n_sites))
         # check that all nodes are labeled with unique integers and leaves labels are between 0 and n_cells
-        self.assertTrue({n.label for n in data['tree'].nodes()} == set(range(2 * n_cells - 1)))
-        self.assertTrue(all(0 <= n.label < n_cells for n in data['tree'].leaf_node_iter()))
+        self.assertTrue({n.label for n in data['tree'].nodes()} == set(map(str, range(2 * n_cells - 1))))
+        self.assertTrue(all(0 <= int(n.label) < n_cells for n in data['tree'].leaf_node_iter()))
 
     def test_centroid_table(self):
         random.seed(1234)
@@ -30,7 +30,7 @@ class MyTestCase(unittest.TestCase):
         n_sites = 20
 
         data = rand_dataset(n_cells, n_states, n_sites, obs_type='pois')
-        ctr_table = get_ctr_table(data)
+        ctr_table = get_ctr_table(data['tree'])
         for r, s in itertools.combinations(range(n_cells), 2):
             centroid = data['tree'].mrca(taxon_labels=[str(r), str(s)])
             if centroid != data['tree'].seed_node:

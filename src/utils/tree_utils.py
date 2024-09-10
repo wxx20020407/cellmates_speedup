@@ -33,35 +33,7 @@ def tree_to_newick(g: nx.DiGraph, root=None, weight=None, is_internal_call=False
     return newick
 
 
-def _copy_subtree(nxtree: nx.DiGraph, nxroot, droot: dendropy.Node):
-    children = [s for s in nxtree.successors(nxroot)]
-    if len(children) > 0:
-        for nxchild in children:
-            dchild = dendropy.Node()
-            dchild.label = nxchild
-            _copy_subtree(nxtree, nxchild, dchild)
-            droot.add_child(dchild)
-    else:
-        droot.taxon = dendropy.Taxon(droot)
-
-
-# FIXME: not working because of different taxon namespace.
-#  Use `convert_networkx_to_dendropy` instead. Fix might be required later on for
-#  deeper copies of trees (e.g. preserving labels/metadata)
-def _convert_nx_tree_to_dendropy_tree(nx_tree, nxroot='r'):
-
-    dtree = dendropy.Tree()
-    droot = dtree.seed_node
-    # set root label
-    droot.label = nxroot
-    # create taxa
-    tns = dendropy.TaxonNamespace([n for n, d in nx_tree.out_degree if d == 0], label='taxa')
-    _copy_subtree(nx_tree, nxroot, droot)
-
-    return dtree
-
-
-def convert_networkx_to_dendropy(nx_tree, labels_mapping: dict = None, taxon_namespace = None) -> dendropy.Tree:
+def convert_networkx_to_dendropy(nx_tree, labels_mapping: dict = None, taxon_namespace = None, edge_length= None) -> dendropy.Tree:
     """
     Converts a NetworkX tree to a DendroPy tree through newick string.
 
@@ -74,8 +46,10 @@ def convert_networkx_to_dendropy(nx_tree, labels_mapping: dict = None, taxon_nam
     """
     if labels_mapping is not None:
         nx_tree = nx.relabel_nodes(nx_tree, labels_mapping, copy=True)
-    newick = tree_to_newick(nx_tree)
+    newick = tree_to_newick(nx_tree, weight=edge_length)
     dendropy_tree = Tree.get(data=newick, schema='newick', taxon_namespace=taxon_namespace)
+    label_tree(dendropy_tree, method='group')
+    dendropy_tree.is_rooted = True
 
     return dendropy_tree
 
@@ -97,6 +71,8 @@ def random_binary_tree(n: int, length_mean: float, seed=None):
         np.random.seed(seed)
     tns = dendropy.TaxonNamespace([dendropy.Taxon(str(i)) for i in range(n)], label='taxa')
     tree = dendropy.treesim.treesim.pure_kingman_tree(taxon_namespace=tns)
+    tree.is_rooted = True
+    label_tree(tree)
     # traverse the tree and assign lengths
     for edge in tree.preorder_edge_iter():
         # scale = 1 / lambda
@@ -104,10 +80,40 @@ def random_binary_tree(n: int, length_mean: float, seed=None):
     return tree
 
 
-def get_node2node_distance(tree, node1_label, node2_label):
+def get_node2node_distance(tree: dendropy.Tree, node1_label: str, node2_label: str):
     tree.calc_node_root_distances()
     node1 = tree.find_node_with_label(node1_label)
     node2 = tree.find_node_with_label(node2_label)
     if node1.root_distance < node2.root_distance:
         node1, node2 = node2, node1
     return node1.root_distance - node2.root_distance
+
+
+def label_tree(tree, method='int'):
+    """
+    Assigns int labels to tree nodes. Leaves are assigned with cell ids, internal nodes with decremental numbers
+    different from cell ids.
+    """
+    if method == 'int':
+        rev_node_idx = len(tree.nodes()) - 1
+        for n in tree.nodes():
+            if n.is_leaf():
+                n.label = n.taxon.label
+            else:
+                n.label = str(rev_node_idx)
+                rev_node_idx -= 1
+    elif method == 'group':
+        for n in tree.postorder_node_iter():
+            if n.is_leaf():
+                n.label = str(n.taxon.label)
+            else:
+                # group the taxa in the subtree in a sorted string
+                taxa = []
+                for c in n.child_node_iter():
+                    for t in c.label.split('_'):
+                        taxa.append(t)
+                n.label = '_'.join(sorted(taxa, key=lambda x: int(x)))
+    else:
+        raise ValueError(f"Unknown method {method}")
+
+

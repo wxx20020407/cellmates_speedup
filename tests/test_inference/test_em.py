@@ -3,16 +3,16 @@ import logging
 import random
 import unittest
 
+import dendropy
 import networkx as nx
 import numpy as np
-import dendropy as dpy
 from dendropy.calculate import treecompare
 from scipy.special import logsumexp
 
 from models.copy_tree import p_delta_change
-from simulation.datagen import rand_dataset, get_ctr_table, emit_raw_obs, simulate_cn, label_tree
-from inference.em import jcb_em_alg, compute_exp_changes, two_slice_marginals
-from utils.tree_utils import convert_networkx_to_dendropy, get_node2node_distance
+from simulation.datagen import rand_dataset, get_ctr_table, emit_raw_obs, simulate_cn, simulate_quadruplet
+from inference.em import jcb_em_alg, compute_exp_changes, two_slice_marginals, likelihood
+from utils.tree_utils import convert_networkx_to_dendropy, get_node2node_distance, random_binary_tree, label_tree
 from utils.math_utils import l_from_p
 
 from inference.em import em_alg, build_tree
@@ -39,7 +39,7 @@ class EMTestCase(unittest.TestCase):
     def setUp(self) -> None:
         random.seed(101)
         np.random.seed(seed=101)
-        # TODO: add logging lever
+        logging.basicConfig(level=logging.DEBUG)
 
     def test_em_alg(self):
         # generate toy data
@@ -67,12 +67,11 @@ class EMTestCase(unittest.TestCase):
         assert nx.is_tree(em_tree)
 
     def test_tree_inference_synth(self):
-        logging.basicConfig(level=logging.WARNING)
         seed = 101
         n_states = 5
-        n_sites = 50
-        n_cells = 6
-        data = rand_dataset(n_cells, n_states, n_sites, alpha=1., obs_type='pois', p_change=0.1, seed=seed)
+        n_sites = 500
+        n_cells = 8
+        data = rand_dataset(n_cells, n_states, n_sites, alpha=1., obs_type='pois', p_change=0.05, seed=seed)
         print("Generated tree")
         data['tree'].print_plot(plot_metric='length')
         for node in data['tree'].preorder_node_iter():
@@ -81,6 +80,7 @@ class EMTestCase(unittest.TestCase):
         print("Observations")
         print(data['obs'][:20, :])
 
+        # run EM
         ctr_table = jcb_em_alg(data['obs'])
         print(ctr_table[..., 0])
 
@@ -96,12 +96,61 @@ class EMTestCase(unittest.TestCase):
         dendropy_tree = convert_networkx_to_dendropy(em_tree,
                                                      taxon_namespace=data['tree'].taxon_namespace)
         dendropy_tree.print_plot()
-        rf_distance_jcb = treecompare.symmetric_difference(data['tree'], dendropy_tree)
-        print(rf_distance_jcb)
+        sym_distance_jcb = treecompare.symmetric_difference(data['tree'], dendropy_tree)
+        print(f'Symmetric (unweighted) distance: {sym_distance_jcb}')
+        rf_distance_jcb = treecompare.robinson_foulds_distance(data['tree'], dendropy_tree, edge_weight_attr='length')
+        print(f'Robinson-Fould distance: {rf_distance_jcb}')
+        self.assertEqual(sym_distance_jcb, 0)
+        self.assertEqual(rf_distance_jcb, 0)
 
     def test_quadruplet(self):
         # seed for reproducibility
-        seed = 101
+        seed = 120
+        # dendropy seed
+        random.seed(seed)
+        np.random.seed(seed)
+        n_states = 5
+        n_sites = 500
+
+        alpha = 1.
+
+        data = simulate_quadruplet(n_states, n_sites, alpha=alpha)
+        gt_ctr_table = get_ctr_table(data['tree'])
+        # print cn in order r, u, v, w (check simulate_quadruplet doc for sorting info)
+        print(f"CN (r, u, v, w):\n{data['cn'][[3, 2, 0, 1], :20]}")
+
+        # print tree with lengths
+        l_true = gt_ctr_table[0, 1, :].tolist()
+        data['tree'].print_plot(plot_metric='length')
+        print(f"True edge lengths: {l_true}")
+
+        # run EM
+        ctr_table = jcb_em_alg(data['obs'])
+        # change tree lengths to match the estimated ones
+        for edge in data['tree'].preorder_edge_iter():
+            if edge.head_node.label == 2:
+                edge.length = ctr_table[0, 1, 0]
+            elif edge.head_node.label == 0:
+                edge.length = ctr_table[0, 1, 1]
+            elif edge.head_node.label == 1:
+                edge.length = ctr_table[0, 1, 2]
+        data['tree'].print_plot(plot_metric='length')
+        l_est = ctr_table[0, 1, :].tolist()
+        print("Estimated edge lengths:")
+        print(l_est)
+
+        # check likelihood
+        ll_true = likelihood(data['obs'], l_true, n_states)
+        ll_est = likelihood(data['obs'], l_est, n_states)
+        self.assertGreater(ll_est, ll_true)
+
+        self.assertAlmostEqual(ctr_table[0, 1, 0], gt_ctr_table[0, 1, 0], delta=0.02)
+        self.assertAlmostEqual(ctr_table[0, 1, 1], gt_ctr_table[0, 1, 1], delta=0.02)
+        self.assertAlmostEqual(ctr_table[0, 1, 2], gt_ctr_table[0, 1, 2], delta=0.01)
+
+    def test_quadruplet_random_l(self):
+        # seed for reproducibility
+        seed = 120
         # dendropy seed
         random.seed(seed)
         np.random.seed(seed)
@@ -110,54 +159,84 @@ class EMTestCase(unittest.TestCase):
         p_change = 0.2  # for random edge lengths
 
         alpha = 1.
-        # generate dendropy tree with 2 leaves, one internal node and root
-        tree = dpy.Tree.get(data="((0,1)2)3;", schema='newick', taxon_namespace=dpy.TaxonNamespace(['0', '1']))
-        label_tree(tree)
-        tree.is_rooted = True
-        # generate edge lengths
-        l_true = np.empty(3)
-        r, u, v, w = 3, 2, 0, 1
-        assert tree.seed_node.label == r
-        for edge in tree.preorder_edge_iter():
-            # random
-            # l = ss.expon(scale=l_from_p(p_change, n_states)).rvs()
-            # centroid to root
-            if edge.head_node.label == u:
-                l = 0.01
-                edge.length = l
-                l_true[0] = l
-            # centroid to v
-            elif edge.head_node.label == v:
-                l = 0.03
-                edge.length = l
-                l_true[1] = l
-            # centroid to w
-            elif edge.head_node.label == w:
-                l = 0.008
-                edge.length = l
-                l_true[2] = l
-        print(f"True edge lengths: {l_true.tolist()}")
-
-        # and cn profiles
-        cn = simulate_cn(tree, n_sites, n_states, alpha=alpha)
-        print(f"CN (r, u, v, w):\n{cn[[r, u, v, w], :]}")
-        # emit observations from tree leaves
-        obs = np.empty((n_sites, 2))
-        for t in tree.leaf_node_iter():
-            cell_id = int(t.label)
-            obs[:, cell_id] = emit_raw_obs(cn[cell_id, :])
+        data = simulate_quadruplet(n_states, n_sites, alpha=alpha, l_mean=l_from_p(p_change, n_states))
+        gt_ctr_table = get_ctr_table(data['tree'])
+        # print cn in order r, u, v, w (check simulate_quadruplet doc for sorting info)
+        print(f"CN (r, u, v, w):\n{data['cn'][[3, 2, 0, 1], :20]}")
 
         # print tree with lengths
-        tree.print_plot(plot_metric='length')
+        l_true = gt_ctr_table[0, 1, :].tolist()
+        data['tree'].print_plot(plot_metric='length')
+        print(f"True edge lengths: {l_true}")
 
         # run EM
-        ctr_table = jcb_em_alg(obs)
-        print("Estimated lengths:")
-        print(ctr_table[0, 1, :].tolist())
+        ctr_table = jcb_em_alg(data['obs'])
 
-        self.assertAlmostEqual(ctr_table[0, 1, 0], l_true[0], delta=0.02)
-        self.assertAlmostEqual(ctr_table[0, 1, 1], l_true[1], delta=0.02)
-        self.assertAlmostEqual(ctr_table[0, 1, 2], l_true[2], delta=0.01)
+        # change tree lengths to match the estimated ones
+        for edge in data['tree'].preorder_edge_iter():
+            if edge.head_node.label == 2:
+                edge.length = ctr_table[0, 1, 0]
+            elif edge.head_node.label == 0:
+                edge.length = ctr_table[0, 1, 1]
+            elif edge.head_node.label == 1:
+                edge.length = ctr_table[0, 1, 2]
+        data['tree'].print_plot(plot_metric='length')
+        l_est = ctr_table[0, 1, :].tolist()
+        print("Estimated edge lengths:")
+        print(l_est)
+
+        # check likelihood
+        ll_true = likelihood(data['obs'], l_true, n_states)
+        ll_est = likelihood(data['obs'], l_est, n_states)
+        self.assertGreater(ll_est, ll_true)
+
+        self.assertAlmostEqual(ctr_table[0, 1, 0], gt_ctr_table[0, 1, 0], delta=0.03)
+        self.assertAlmostEqual(ctr_table[0, 1, 1], gt_ctr_table[0, 1, 1], delta=0.03)
+        self.assertAlmostEqual(ctr_table[0, 1, 2], gt_ctr_table[0, 1, 2], delta=0.03)
+
+    def test_quadruplet_true_init(self):
+        # seed for reproducibility
+        seed = 120
+        # dendropy seed
+        random.seed(seed)
+        np.random.seed(seed)
+        n_states = 5
+        n_sites = 1000
+
+        alpha = 1.
+        data = simulate_quadruplet(n_states, n_sites, alpha=alpha)
+        gt_ctr_table = get_ctr_table(data['tree'])
+        # print cn in order r, u, v, w (check simulate_quadruplet doc for sorting info)
+        print(f"CN (r, u, v, w):\n{data['cn'][[3, 2, 0, 1], :20]}")
+
+        # print tree with lengths
+        l_true = gt_ctr_table[0, 1, :].tolist()
+        data['tree'].print_plot(plot_metric='length')
+        print(f"True edge lengths: {l_true}")
+
+        # run EM
+        ctr_table = jcb_em_alg(data['obs'], l_init=gt_ctr_table[0, 1, :])
+        # change tree lengths to match the estimated ones
+        for edge in data['tree'].preorder_edge_iter():
+            if edge.head_node.label == 2:
+                edge.length = ctr_table[0, 1, 0]
+            elif edge.head_node.label == 0:
+                edge.length = ctr_table[0, 1, 1]
+            elif edge.head_node.label == 1:
+                edge.length = ctr_table[0, 1, 2]
+        data['tree'].print_plot(plot_metric='length')
+        l_est = ctr_table[0, 1, :].tolist()
+        print("Estimated edge lengths:")
+        print(l_est)
+
+        # check likelihood
+        ll_true = likelihood(data['obs'], l_true, n_states)
+        ll_est = likelihood(data['obs'], l_est, n_states)
+        self.assertGreater(ll_est, ll_true)
+
+        self.assertAlmostEqual(ctr_table[0, 1, 0], gt_ctr_table[0, 1, 0], delta=0.005)
+        self.assertAlmostEqual(ctr_table[0, 1, 1], gt_ctr_table[0, 1, 1], delta=0.005)
+        self.assertAlmostEqual(ctr_table[0, 1, 2], gt_ctr_table[0, 1, 2], delta=0.005)
 
     def test_two_cells(self):
         # seed for reproducibility
@@ -173,7 +252,7 @@ class EMTestCase(unittest.TestCase):
         data = rand_dataset(n_cells, n_states, n_sites,
                             alpha=alpha, obs_type='pois', p_change=20 / n_sites, seed=seed)
         print(f"True CTR table")
-        true_ctr_table = get_ctr_table(data)
+        true_ctr_table = get_ctr_table(data['tree'])
         print(true_ctr_table)
         # for each node print the edge length
         for node in data['tree'].preorder_node_iter():
@@ -200,20 +279,19 @@ class EMTestCase(unittest.TestCase):
         print(f"C{c2}:\t {data['cn'][c2, :]}")
 
         print(f"Leaves with non-root CTR: {c1}, {c2}")
-        l_uv = get_node2node_distance(data['tree'], centroid.label, c1)
-        l_uw = get_node2node_distance(data['tree'], centroid.label, c2)
+        l_uv = get_node2node_distance(data['tree'], centroid.label, str(c1))
+        l_uw = get_node2node_distance(data['tree'], centroid.label, str(c2))
         print(f"true l_trip: {true_ctr_table[c1, c2]}, {l_uv}, {l_uw}")
         # run EM
         ctr_table = jcb_em_alg(data['obs'][:, [c1, c2]])
         print(f"Estimated CTR table")
         print(ctr_table)
-        self.assertAlmostEqual(ctr_table[0, 1, 0], true_ctr_table[c1, c2],
-                               msg=f"cell {c1} and {c2} CTR: {ctr_table[0, 1, 0]} != {true_ctr_table[c1, c2]}")
+        self.assertAlmostEqual(ctr_table[0, 1, 0], true_ctr_table[c1, c2, 0],
+                               msg=f"cell {c1} and {c2} CTR: {ctr_table[0, 1, 0]} != {true_ctr_table[c1, c2, 0]}")
         # build tree
         em_tree = build_tree(ctr_table)
 
-        dendropy_tree = convert_networkx_to_dendropy(em_tree, {l.label: l.taxon.label for l in data['tree'].leaf_node_iter()},
-                                                     taxon_namespace=data['tree'].taxon_namespace)
+        dendropy_tree = convert_networkx_to_dendropy(em_tree, taxon_namespace=data['tree'].taxon_namespace)
         print("--- EM TREE ---")
         dendropy_tree.print_plot()
 
@@ -243,10 +321,11 @@ class EMTestCase(unittest.TestCase):
         n_sites = obs_vw.shape[0]
         # the best explanation is that centroid and root are further apart than centroid and v,u
         # compute two-slice marginals assuming centroid is placed closer to the root
-        log_xi_early_centroid = two_slice_marginals(obs_vw, np.array([sl, ll, ll]), n_states, jcb=True)
+        log_xi_early_centroid, loglik_early = two_slice_marginals(obs_vw, np.array([sl, ll, ll]), n_states, jcb=True)
 
         # compute two-slice marginals assuming centroid is placed closer to the leaves
-        log_xi_late_centroid = two_slice_marginals(obs_vw, np.array([ll, sl, sl]), n_states, jcb=True)
+        log_xi_late_centroid, loglik_late = two_slice_marginals(obs_vw, np.array([ll, sl, sl]), n_states, jcb=True)
+        self.assertGreater(loglik_late, loglik_early)
 
         self.assertEqual(log_xi_late_centroid.shape, (n_sites - 1,) + (n_states,) * 6)
         self.assertTrue(np.allclose(logsumexp(log_xi_late_centroid, axis=(1, 2, 3, 4, 5, 6)), np.zeros(n_sites - 1)))
@@ -328,13 +407,49 @@ class EMTestCase(unittest.TestCase):
         print(f"W obs: {w_obs[:20]}")
 
         # compute expected changes given true l
-        d, dp = compute_exp_changes(np.array([l_ru, l_uv, l_uw]), np.stack([v_obs, w_obs], axis=1),
-                                    n_states=n_states, alpha=alpha)
+        d, dp, loglik = compute_exp_changes(np.array([l_ru, l_uv, l_uw]), np.stack([v_obs, w_obs], axis=1),
+                                            n_states=n_states, alpha=alpha)
         print(f"expected p statistic: p: {d / (d + dp)}"
-              f" D = {d}, D' = {dp}")
+              f" D = {d}, D' = {dp}, loglik = {loglik}")
 
         # test with eps model
-        d, dp = compute_exp_changes(np.array([eps_ru, eps_uv, eps_uw]), np.stack([v_obs, w_obs], axis=1),
-                                    n_states=n_states, alpha=alpha, jcb=False)
+        d, dp, loglik = compute_exp_changes(np.array([eps_ru, eps_uv, eps_uw]), np.stack([v_obs, w_obs], axis=1),
+                                            n_states=n_states, alpha=alpha, jcb=False)
         print(f"expected p statistic via eps ({[eps_ru, eps_uv, eps_uw]}):\n"
-              f"\tp: {d / (d + dp)}, D = {d}, D' = {dp}")
+              f"\tp: {d / (d + dp)}, D = {d}, D' = {dp}, loglik = {loglik}")
+
+    def test_build_tree(self):
+        n_cells = 10
+        # generate tree
+        tree: dendropy.Tree = random_binary_tree(n_cells, length_mean=0.01, seed=101)
+        print("--- Starting tree ---")
+        print(f'txnsp: {tree.taxon_namespace}')
+        label_tree(tree, method='group')
+        tree.print_plot(plot_metric='length')
+
+        # derive true ctr table from tree
+        ctr_table = get_ctr_table(tree)
+
+        # rebuild tree
+        nx_tree = build_tree(ctr_table)
+        new_dpy_tree = convert_networkx_to_dendropy(nx_tree, taxon_namespace=tree.taxon_namespace)
+        print("--- Rebuilt tree ---")
+        print(f'txnsp: {new_dpy_tree.taxon_namespace}')
+        label_tree(new_dpy_tree, method='group')
+        new_dpy_tree.print_plot(plot_metric='length')
+
+        self.assertTrue(len(new_dpy_tree.taxon_namespace) == len(tree.taxon_namespace))
+        for taxon in new_dpy_tree.taxon_namespace:
+            self.assertTrue(taxon in tree.taxon_namespace)
+            self.assertEqual(taxon.label, tree.find_node_with_taxon(lambda t: t.label == taxon.label).taxon.label)
+        self.assertEqual(treecompare.symmetric_difference(tree, new_dpy_tree), 0)
+        self.assertLess(treecompare.robinson_foulds_distance(tree, new_dpy_tree, edge_weight_attr='length'), 0.01)
+
+        # random tree robinson foulds distance
+        rnd_dpy_tree = convert_networkx_to_dendropy(nx_tree, taxon_namespace=tree.taxon_namespace)
+        # rename leaves to random numbers
+        rnd_ints = np.random.permutation(range(n_cells))
+        for leaf in rnd_dpy_tree.leaf_node_iter():
+            leaf.taxon.label = str(rnd_ints[int(leaf.taxon.label)])
+
+        self.assertEqual(treecompare.symmetric_difference(tree, rnd_dpy_tree), 0)
