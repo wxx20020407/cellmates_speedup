@@ -1,6 +1,7 @@
 import itertools
 import logging
 import random
+import time
 import unittest
 
 import dendropy
@@ -11,7 +12,7 @@ from scipy.special import logsumexp
 
 from models.copy_tree import p_delta_change
 from simulation.datagen import rand_dataset, get_ctr_table, emit_raw_obs, simulate_cn, simulate_quadruplet
-from inference.em import jcb_em_alg, compute_exp_changes, two_slice_marginals, likelihood
+from inference.em import jcb_em_ctrtable, compute_exp_changes, two_slice_marginals, likelihood
 from utils.tree_utils import convert_networkx_to_dendropy, get_node2node_distance, random_binary_tree, label_tree
 from utils.math_utils import l_from_p
 
@@ -45,7 +46,7 @@ class EMTestCase(unittest.TestCase):
         # generate toy data
         obs, eps = _generate_obs(noise=10)
         # run em
-        ctr_table = em_alg(obs)
+        ctr_table = em_alg(obs, n_states)
         # assert epsilons
         for v, w in itertools.combinations(range(obs.shape[1]), r=2):
             print(f"eps({v},{w}) = {ctr_table[v, w]:.3f}")
@@ -58,7 +59,7 @@ class EMTestCase(unittest.TestCase):
         obs, eps = _generate_obs(noise=10)
         # run em
         # ctr_table = em_alg(obs)
-        ctr_table = jcb_em_alg(obs)
+        ctr_table = jcb_em_ctrtable(obs, n_states=4)
         print(ctr_table)
         # build tree
         em_tree = build_tree(ctr_table)
@@ -81,7 +82,7 @@ class EMTestCase(unittest.TestCase):
         print(data['obs'][:20, :])
 
         # run EM
-        ctr_table = jcb_em_alg(data['obs'])
+        ctr_table = jcb_em_ctrtable(data['obs'], n_states=n_states)
         print(ctr_table[..., 0])
 
         em_tree = build_tree(ctr_table)
@@ -125,7 +126,7 @@ class EMTestCase(unittest.TestCase):
         print(f"True edge lengths: {l_true}")
 
         # run EM
-        ctr_table = jcb_em_alg(data['obs'])
+        ctr_table = jcb_em_ctrtable(data['obs'], n_states=n_states)
         # change tree lengths to match the estimated ones
         for edge in data['tree'].preorder_edge_iter():
             if edge.head_node.label == 2:
@@ -170,7 +171,7 @@ class EMTestCase(unittest.TestCase):
         print(f"True edge lengths: {l_true}")
 
         # run EM
-        ctr_table = jcb_em_alg(data['obs'])
+        ctr_table = jcb_em_ctrtable(data['obs'], n_states=n_states)
 
         # change tree lengths to match the estimated ones
         for edge in data['tree'].preorder_edge_iter():
@@ -215,7 +216,7 @@ class EMTestCase(unittest.TestCase):
         print(f"True edge lengths: {l_true}")
 
         # run EM
-        ctr_table = jcb_em_alg(data['obs'], l_init=gt_ctr_table[0, 1, :])
+        ctr_table = jcb_em_ctrtable(data['obs'], n_states=n_states, l_init=gt_ctr_table[0, 1, :])
         # change tree lengths to match the estimated ones
         for edge in data['tree'].preorder_edge_iter():
             if edge.head_node.label == 2:
@@ -283,7 +284,7 @@ class EMTestCase(unittest.TestCase):
         l_uw = get_node2node_distance(data['tree'], centroid.label, str(c2))
         print(f"true l_trip: {true_ctr_table[c1, c2]}, {l_uv}, {l_uw}")
         # run EM
-        ctr_table = jcb_em_alg(data['obs'][:, [c1, c2]])
+        ctr_table = jcb_em_ctrtable(data['obs'][:, [c1, c2]], n_states=n_states)
         print(f"Estimated CTR table")
         print(ctr_table)
         self.assertAlmostEqual(ctr_table[0, 1, 0], true_ctr_table[c1, c2, 0],
@@ -453,3 +454,29 @@ class EMTestCase(unittest.TestCase):
             leaf.taxon.label = str(rnd_ints[int(leaf.taxon.label)])
 
         self.assertEqual(treecompare.symmetric_difference(tree, rnd_dpy_tree), 0)
+
+    def test_multiprocessing(self):
+        logging.basicConfig(level=logging.DEBUG)
+        seed = 42
+
+        n_cells = 10
+        n_states = 5
+        n_sites = 100
+        p_change = 0.02
+
+        data = rand_dataset(n_cells, n_states, n_sites, obs_type='pois', p_change=p_change, seed=seed)
+
+        l_init = np.random.exponential(scale=l_from_p(p_change, n_states), size=3)
+        start_time = time.time()
+        ctr_table_5p = jcb_em_ctrtable(data['obs'], l_init=l_init, n_states=n_states, max_iter=50, num_processors=5)
+        tot_time_5_proc = time.time() - start_time
+
+        start_time = time.time()
+        ctr_table_1p = jcb_em_ctrtable(data['obs'], l_init=l_init, n_states=n_states, max_iter=50, num_processors=1)
+        tot_time_1_proc = time.time() - start_time
+
+        print(f"5proc: {tot_time_5_proc}, 1proc: {tot_time_1_proc}")
+
+        self.assertLess(tot_time_5_proc, tot_time_1_proc)
+        self.assertTrue(np.allclose(ctr_table_5p, ctr_table_1p))
+

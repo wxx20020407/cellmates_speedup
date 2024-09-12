@@ -2,7 +2,8 @@ import itertools
 import logging
 import operator
 import time
-from typing import Optional, Union
+import multiprocessing as mp
+from multiprocessing import shared_memory
 
 import numpy as np
 from dendropy.calculate.treecompare import (
@@ -11,8 +12,7 @@ from dendropy.calculate.treecompare import (
     symmetric_difference,
 )
 import scipy.stats as stats
-from scipy.special import comb
-from scipy.special import logsumexp
+from scipy.special import logsumexp, comb
 import networkx as nx
 
 from models.quadruplet import Quadruplet
@@ -206,7 +206,7 @@ def backward_pass(obs_vw, trans_mat, log_emissions):
     return beta
 
 
-def two_slice_marginals(obs_vw, theta: np.ndarray, n_states: int, jcb: bool = False, alpha: float = 1.)\
+def two_slice_marginals(obs_vw, theta: np.ndarray, n_states: int, jcb: bool = False, alpha: float = 1.) \
         -> tuple[np.ndarray, float]:
     """
     Computes the two slice marginals of a hidden markov model with three latent chains.
@@ -263,7 +263,7 @@ def get_start_transition_probs(alpha, jcb, n_states, theta):
     return start_prob, trans_mat
 
 
-def compute_exp_changes(theta, obs_vw, n_states, alpha=1., jcb=True) -> tuple[np.ndarray, np.ndarray, float]:
+def compute_exp_changes(theta, obs_vw, n_states: int, alpha=1., jcb=True) -> tuple[np.ndarray, np.ndarray, float]:
     """
     Compute the sufficient statistics, i.e. the expected number of changes and no-changes for each pair
     of triplet states. Also returns the log likelihood of the observations.
@@ -347,18 +347,18 @@ def update_eps(log_xi):
     return eps_new
 
 
-def em_alg(obs: np.ndarray) -> np.ndarray:
+def em_alg(obs: np.ndarray, n_states: int = 7) -> np.ndarray:
     """
 Implementation of algorithm 6 in write-up
     Parameters
     ----------
     obs array of shape (n_sites, n_cells)
+    n_states int, number of copy number states
     Returns
     -------
     array of shape (n_cells, n_cells), centroid-to-root distance
     """
     # params
-    n_states = 7
     eps_init = (1, 10)
     n_sites, n_cells = obs.shape
     epsilon_hat = - np.ones((n_cells, n_cells))
@@ -385,19 +385,77 @@ Implementation of algorithm 6 in write-up
     return epsilon_hat
 
 
-def jcb_em_alg(obs: np.ndarray, alpha=1., l_init=None, max_iter: int = 200, rtol: float = 1e-6) -> np.ndarray:
+def jcb_em_ctrtable(obs: np.ndarray, n_states: int = 7, alpha=1., l_init=None, max_iter: int = 200, rtol: float = 1e-6,
+                    num_processors: int = 1) -> np.ndarray:
+    """
+    Run the JCB EM algorithm to estimate the centroid-to-root distances for each pair of cells. Wrapper function
+    that only returns the centroid-to-root distances.
+    """
+    return jcb_em_alg(obs, n_states, alpha, l_init, max_iter, rtol, num_processors)['l_hat']
+
+
+def _pairwise_em(v: int, w: int, shared_obs_mem_name: str, n_cells: int, n_sites: int, l_init: np.ndarray,
+                 n_states: int, alpha: float, max_iter: int, rtol: float, zero_tol: float) -> (tuple, np.ndarray, float, int):
+    """
+    Pairwise EM algorithm for a pair of cells v, w with shared observations to be used in multiprocessing
+    """
+    # initialize l = (l_ru, l_uv, l_uw)
+    # TODO: add logger to print out the progress
+    shm = shared_memory.SharedMemory(name=shared_obs_mem_name)
+    obs = np.ndarray((n_sites, n_cells), dtype=np.float64, buffer=shm.buf)
+    l_i = l_init
+    d, dp, loglik = compute_exp_changes(l_i, obs[:, [v, w]], n_states, alpha=alpha)
+    convergence = False
+    it = 0
+    logging.debug(f'pairwise EM: {v}, {w}, iteration {it}, loglik = {loglik}')
+    while not convergence and it < max_iter:
+        # update l according to formula
+        if np.any((n_states - 1) * dp <= d):
+            logging.error(f"too many changes detected: D = {d}, D' = {dp}\n"
+                          f"...saturating l for cells {v},{w}")
+        # if l -> +inf, pDeltaDelta == pDeltaDelta'
+        num = np.clip((n_states - 1) * dp - d, a_min=zero_tol, a_max=None)
+        l_i = - 1 / (alpha * n_states) * np.log(num / ((n_states - 1) * (dp + d)))
+
+        # compute D and D'
+        d, dp, new_loglik = compute_exp_changes(l_i, obs[:, [v, w]], n_states, alpha=alpha)
+        logging.debug(f'pairwise EM: {v}, {w}, iteration {it}, loglik = {loglik}')
+
+        if new_loglik < loglik:
+            logging.error(f'log likelihood decreased: {new_loglik} < {loglik}')
+        elif (new_loglik - loglik) / np.abs(loglik) < rtol:
+            convergence = True
+        loglik = new_loglik
+        it += 1
+
+    if it == max_iter and not convergence:
+        logging.warning(f'pairwise EM: {v}, {w}, did not converge after {max_iter} iterations')
+    else:
+        logging.debug(f'pairwise EM: {v}, {w}, converged after {it} iterations')
+    return (v, w), l_i, loglik, it
+# end of _pairwise_em
+
+
+def jcb_em_alg(obs: np.ndarray, n_states: int = 7, alpha=1., l_init=None, max_iter: int = 200, rtol: float = 1e-6,
+               num_processors: int = 1) -> dict[str, np.ndarray | dict[tuple[int, int], int | float]]:
     """
 Implementation of JCB EM algorithm in write-up
     Parameters
     ----------
     obs array of shape (n_sites, n_cells)
+    alpha float, alpha parameter for the JCB model, length scaling factor
+    l_init array of shape (3,) with initial values for the triplet parameters, if None, initialized to an average of 5 changes over the whole length
+    max_iter int, maximum number of EM iterations (updates)
+    rtol float, relative tolerance for convergence
+    num_processors int, number of processors to use for parallel
     Returns
     -------
-    array of shape (n_cells, n_cells, 3), estimated pairwise triplet distances (upper triangular, all other
-    entries are -1)
+    dict with keys 'l_hat', 'iterations', 'loglikelihoods'
+    'l_hat' array of shape (n_cells, n_cells, 3), estimated triplet distances (upper triangular, all other entries are -1)
+    'iterations' dict with keys (v, w) and values number of iterations until convergence
+    'loglikelihoods' dict with keys (v, w) and values log likelihood of the observations
     """
     # params
-    n_states = 7
     n_sites, n_cells = obs.shape
     # init to an average of 5 changes over the whole length
     if l_init is None:
@@ -408,49 +466,38 @@ Implementation of JCB EM algorithm in write-up
     zero_tol = 1e-10  # saturation level when dp << d (changes are much more prevalent)
 
     # for each pair of cells
-    counter = 0
-    logging.debug(f'pairwise EM started: {comb(n_cells, 2)} pairs')
+    logging.debug(f'pairwise EM started: {comb(n_cells, 2)} pairs, {n_states} states,'
+                  f' {n_cells} cells, {n_sites} sites, {max_iter} max iterations, {rtol} rtol')
     iterations = {}
-    for v, w in itertools.combinations(range(n_cells), r=2):
-        # initialize l = (l_ru, l_uv, l_uw)
-        l_i = l_init
-        d, dp, loglik = compute_exp_changes(l_i, obs[:, [v, w]], n_states, alpha=alpha)
-        convergence = False
-        it = 0
-        logging.debug(f'pairwise EM: {v}, {w}, iteration {it}, loglik = {loglik}')
-        while not convergence and it < max_iter:
-            # update l according to formula
-            if np.any((n_states - 1) * dp <= d):
-                logging.error(f"too many changes detected: D = {d}, D' = {dp}\n"
-                              f"...saturating l for cells {v},{w}")
-            # if l -> +inf, pDeltaDelta == pDeltaDelta'
-            num = np.clip((n_states - 1) * dp - d, a_min=zero_tol, a_max=None)
-            l_i = - 1 / (alpha * n_states) * np.log(num / ((n_states - 1) * (dp + d)))
+    loglikelihoods = {}
 
-            # compute D and D'
-            d, dp, new_loglik = compute_exp_changes(l_i, obs[:, [v, w]], n_states, alpha=alpha)
-            logging.debug(f'pairwise EM: {v}, {w}, iteration {it}, loglik = {loglik}')
+    # create shared memory for observations, numpy array backed by shared memory and copy data
+    shm_obs = shared_memory.SharedMemory(create=True, size=obs.nbytes)
+    shared_obs = np.ndarray(obs.shape, dtype=obs.dtype, buffer=shm_obs.buf)
+    np.copyto(shared_obs, obs)
 
-            if new_loglik < loglik:
-                logging.error(f'log likelihood decreased: {new_loglik} < {loglik}')
-            elif (new_loglik - loglik) / np.abs(loglik) < rtol:
-                convergence = True
-            loglik = new_loglik
-            it += 1
+    args = [(s, t, shm_obs.name, n_sites, n_cells, l_init, n_states, alpha, max_iter, rtol, zero_tol)
+            for s, t in itertools.combinations(range(n_cells), r=2)]
 
-        if it == max_iter and not convergence:
-            logging.warning(f'pairwise EM: {v}, {w}, did not converge after {max_iter} iterations')
-        else:
-            logging.debug(f'pairwise EM: {v}, {w}, converged after {it} iterations')
+    if num_processors > 1:
+        logging.debug(f'pairwise EM: using {num_processors} processors')
+        with mp.Pool(num_processors) as pool:
+            # main loop
+            results = pool.starmap(_pairwise_em, args)
+    else:
+        logging.debug(f'pairwise EM: using single processor')
+        results = [_pairwise_em(*arg) for arg in args]
 
-        counter += 1
-        if counter % 10 == 0:
-            logging.debug(f'{comb(n_cells, 2) - counter} pairs remaining...')
-        l_hat[v, w, :] = l_i
-        iterations[(v, w)] = it
-        # print(f'cell pair {v}, {w} done: l_trip = {l_i}, iterations = {it}')
+    for (s, t), l_i, loglik, it in results:
+        l_hat[s, t, :] = l_i
+        iterations[(s, t)] = it
+        loglikelihoods[(s, t)] = loglik
 
-    return l_hat
+    return {
+        'l_hat': l_hat,
+        'iterations': iterations,
+        'loglikelihoods': loglikelihoods
+    }
 
 
 def _build_tree_rec(ctr: dict, ntc: dict, ntr: dict, otus: set, edges: set[tuple]) -> set[tuple]:
@@ -559,22 +606,30 @@ def build_tree(ctr_table: np.ndarray) -> nx.DiGraph:
 
 
 if __name__ == '__main__':
+    seed = 42
     logging.basicConfig(level=logging.DEBUG)
     # test EM algorithm
     n_cells = 10
     n_states = 7
     n_sites = 200
-    print(f"Instance: {n_cells} cells, {n_states} states, {n_sites} sites")
-    data = rand_dataset(n_cells, n_states, n_sites, obs_type='pois', p_change=0.05)
-    print("True tree")
-    data['tree'].print_plot(plot_metric='length')
+    data = rand_dataset(n_cells, n_states, n_sites, obs_type='pois', p_change=0.05, seed=seed)
 
     # true ctr_table
     # ctr_table = get_ctr_table(data['tree'])
 
     start_time = time.time()
-    ctr_table = jcb_em_alg(data['obs'], max_iter=20)
+    jcb_out_dict = jcb_em_alg(data['obs'], n_states=n_states, max_iter=50, num_processors=5)
     print(f"Total time: {time.time() - start_time}")
+    print(f"Instance: {n_cells} cells, {n_states} states, {n_sites} sites")
+    print("True tree")
+    data['tree'].print_plot(plot_metric='length')
+
+    ctr_table = jcb_out_dict['l_hat']
+    print("JCB EM output:")
+    loglikelihoods = jcb_out_dict['loglikelihoods']
+    iterations = jcb_out_dict['iterations']
+    for (v, w) in loglikelihoods.keys():
+        print(f"Pair ({v}, {w}): {loglikelihoods[(v, w)]}, {iterations[(v, w)]} iterations")
 
     nx_em_tree = build_tree(ctr_table)
     em_tree = convert_networkx_to_dendropy(nx_em_tree, taxon_namespace=data['tree'].taxon_namespace,

@@ -3,7 +3,7 @@ from random import random
 
 import networkx as nx
 
-from inference.em import em_alg, jcb_em_alg
+from inference.em import em_alg
 from models.copy_tree import CopyTree
 from models.observation_models.read_counts_models import QuadrupletSpecificPoissonModel
 from models.observation_models.normalized_read_counts_models import (
@@ -60,7 +60,7 @@ class QuadrupletTestCase(unittest.TestCase):
 
         # Run EM
         r = np.vstack((out['data_v'], out['data_w'])).transpose()
-        ctr_table = em_alg(r)
+        ctr_table = em_alg(r, n_states=A)
 
         print(f"Inferred d(r, u):  {ctr_table[0, 1]}")
         print(f"True d(r,u): {quadruplet.CN_model.true_tree.edges[0, 1]['weight']}")

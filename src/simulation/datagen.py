@@ -178,7 +178,7 @@ def rand_dataset(n_cells: int, n_states: int, n_sites: int, alpha=1., obs_type='
     # simulate copy number chains
     cn = simulate_cn(tree, n_sites, n_states, alpha=alpha)
     # emit observations from tree leaves
-    obs = np.empty((n_sites, n_cells))
+    obs = np.empty((n_sites, n_cells), dtype=np.float64)
     for t in tree.leaf_node_iter():
         cell_id = int(t.label)
         if obs_type == 'pois':
