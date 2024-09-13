@@ -17,10 +17,10 @@ if __name__=='__main__':
     # save records in a csv file
     quick_test = False
     # take num processors as input
-    if len(sys.argv) == 1:
+    if len(sys.argv) == 2:
         num_processors = int(sys.argv[1])
         print(f"Using {num_processors} processor(s)")
-    elif len(sys.argv) > 1:
+    elif len(sys.argv) > 2:
         print("Usage: python synth_performance.py [<num_processors>]")
         sys.exit(1)
     else:
