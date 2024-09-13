@@ -28,7 +28,8 @@ class Dataset(TypedDict):
 def simulate_quadruplet(n_states, n_sites, alpha=1., l_mean=None) -> Dataset:
     """
     Simulate a quadruplet tree with 2 leaves, one internal node and a root.
-    The tree is rooted and the edge lengths are generated from an exponential distribution if l_mean is None.
+    The tree is rooted and the edge lengths are generated from an exponential distribution if l_mean is None,
+    otherwise they are set to a fixed value: [0.01, 0.03, 0.008].
     The copy number profiles are simulated from the tree and the observations are emitted from the leaves.
     Indices are r, u, v, w = 3, 2, 0, 1.
     Parameters
@@ -53,7 +54,7 @@ def simulate_quadruplet(n_states, n_sites, alpha=1., l_mean=None) -> Dataset:
         l_true[:] = np.array([0.01, 0.03, 0.008])
     else:
         for i in range(3):
-            l_true[i] = ss.expon(scale=l_mean).rvs()
+            l_true[i] = ss.expon(scale=l_mean / alpha).rvs()
     r, u, v, w = tuple(map(str, [3, 2, 0, 1]))
     for edge in tree.preorder_edge_iter():
         # centroid to root
@@ -141,7 +142,7 @@ def get_root_distance(centroid):
 def get_ctr_table(tree: dpy.Tree) -> np.ndarray:
     n_cells = len(tree.leaf_nodes())
     assert n_cells == len(tree.taxon_namespace)
-    ctr_table = np.zeros((n_cells, n_cells, 3))
+    ctr_table = - np.ones((n_cells, n_cells, 3))
     for r, s in combinations(range(n_cells), 2):
         assert r < s, "r must be less than s to ensure upper triangular matrix"
         # most recent common ancestor
@@ -172,7 +173,12 @@ def rand_ann_dataset(n_cells: int, n_states: int, n_sites: int, **kwargs):
 def rand_dataset(n_cells: int, n_states: int, n_sites: int, alpha=1., obs_type='norm', p_change: float = .2,
                  seed=None) -> Dataset:
     # generate random sc binary tree
-    tree = random_binary_tree(n_cells, length_mean=l_from_p(p_change, n_states), seed=seed)
+    if seed is not None:
+        np.random.seed(seed)
+        random.seed(seed)
+        dpy.utility.GLOBAL_RNG.seed(seed)
+    # seed already set, no need to set it again
+    tree = random_binary_tree(n_cells, length_mean=l_from_p(p_change, n_states) / alpha, seed=None)
     # set tree to rooted
     tree.is_rooted = True
     # simulate copy number chains

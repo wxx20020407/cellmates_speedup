@@ -38,6 +38,20 @@ class MyTestCase(unittest.TestCase):
                 self.assertTrue(np.all(ctr_table[r, s, :] != -1))
                 self.assertTrue(np.all(ctr_table[r, s, :] > 0))
 
+    # test rand_dataset random seed
+    def test_rand_dataset_seed(self):
+        seed = 1234
+        n_cells = 50
+        n_states = 7
+        n_sites = 200
+
+        data1 = rand_dataset(n_cells, n_states, n_sites, obs_type='pois', seed=seed)
+        data2 = rand_dataset(n_cells, n_states, n_sites, obs_type='pois', seed=seed)
+
+        self.assertTrue(np.all(data1['obs'] == data2['obs']))
+        self.assertTrue(np.all(data1['cn'] == data2['cn']))
+        self.assertTrue(data1['tree'].as_string('newick') == data2['tree'].as_string('newick'))
+
 
 if __name__ == '__main__':
     unittest.main()

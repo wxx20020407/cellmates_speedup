@@ -1,6 +1,7 @@
 import itertools
 import logging
 import operator
+import random
 import time
 import multiprocessing as mp
 from multiprocessing import shared_memory
@@ -386,12 +387,12 @@ Implementation of algorithm 6 in write-up
 
 
 def jcb_em_ctrtable(obs: np.ndarray, n_states: int = 7, alpha=1., l_init=None, max_iter: int = 200, rtol: float = 1e-6,
-                    num_processors: int = 1) -> np.ndarray:
+                    jc_correction: bool = False, num_processors: int = 1) -> np.ndarray:
     """
     Run the JCB EM algorithm to estimate the centroid-to-root distances for each pair of cells. Wrapper function
     that only returns the centroid-to-root distances.
     """
-    return jcb_em_alg(obs, n_states, alpha, l_init, max_iter, rtol, num_processors)['l_hat']
+    return jcb_em_alg(obs, n_states, alpha, l_init, max_iter, rtol, jc_correction, num_processors)['l_hat']
 
 
 def _pairwise_em(v: int, w: int, shared_obs_mem_name: str, n_cells: int, n_sites: int, l_init: np.ndarray,
@@ -410,12 +411,12 @@ def _pairwise_em(v: int, w: int, shared_obs_mem_name: str, n_cells: int, n_sites
     logging.debug(f'pairwise EM: {v}, {w}, iteration {it}, loglik = {loglik}')
     while not convergence and it < max_iter:
         # update l according to formula
-        if np.any((n_states - 1) * dp <= d):
+        # if l -> +inf, pDeltaDelta == pDeltaDelta'
+        log_arg = 1 - n_states/(n_states - 1) * d / (dp + d)
+        if np.any(log_arg <= 0):
             logging.error(f"too many changes detected: D = {d}, D' = {dp}\n"
                           f"...saturating l for cells {v},{w}")
-        # if l -> +inf, pDeltaDelta == pDeltaDelta'
-        num = np.clip((n_states - 1) * dp - d, a_min=zero_tol, a_max=None)
-        l_i = - 1 / (alpha * n_states) * np.log(num / ((n_states - 1) * (dp + d)))
+        l_i = - 1 / (alpha * n_states) * np.log(np.clip(log_arg, a_min=zero_tol, a_max=None))
 
         # compute D and D'
         d, dp, new_loglik = compute_exp_changes(l_i, obs[:, [v, w]], n_states, alpha=alpha)
@@ -437,7 +438,7 @@ def _pairwise_em(v: int, w: int, shared_obs_mem_name: str, n_cells: int, n_sites
 
 
 def jcb_em_alg(obs: np.ndarray, n_states: int = 7, alpha=1., l_init=None, max_iter: int = 200, rtol: float = 1e-6,
-               num_processors: int = 1) -> dict[str, np.ndarray | dict[tuple[int, int], int | float]]:
+               jc_correction: bool = False, num_processors: int = 1) -> dict[str, np.ndarray | dict[tuple[int, int], int | float]]:
     """
 Implementation of JCB EM algorithm in write-up
     Parameters
@@ -447,6 +448,7 @@ Implementation of JCB EM algorithm in write-up
     l_init array of shape (3,) with initial values for the triplet parameters, if None, initialized to an average of 5 changes over the whole length
     max_iter int, maximum number of EM iterations (updates)
     rtol float, relative tolerance for convergence
+    jc_correction if True, use Jukes-Cantor correction i.e. sets alpha = alpha / (n_states - 1)
     num_processors int, number of processors to use for parallel
     Returns
     -------
@@ -457,6 +459,8 @@ Implementation of JCB EM algorithm in write-up
     """
     # params
     n_sites, n_cells = obs.shape
+    # if correction, change alpha to alpha / (n_states - 1)
+    alpha = alpha / (n_states - 1) if jc_correction else alpha
     # init to an average of 5 changes over the whole length
     if l_init is None:
         l_init = np.array([l_from_p(5 / n_sites, n_states)] * 3)
@@ -613,12 +617,11 @@ if __name__ == '__main__':
     n_states = 7
     n_sites = 200
     data = rand_dataset(n_cells, n_states, n_sites, obs_type='pois', p_change=0.05, seed=seed)
-
     # true ctr_table
-    # ctr_table = get_ctr_table(data['tree'])
+    true_ctr_table = get_ctr_table(data['tree'])
 
     start_time = time.time()
-    jcb_out_dict = jcb_em_alg(data['obs'], n_states=n_states, max_iter=50, num_processors=5)
+    jcb_out_dict = jcb_em_alg(data['obs'], n_states=n_states, max_iter=50, jc_correction=False, num_processors=5)
     print(f"Total time: {time.time() - start_time}")
     print(f"Instance: {n_cells} cells, {n_states} states, {n_sites} sites")
     print("True tree")
@@ -631,6 +634,10 @@ if __name__ == '__main__':
     for (v, w) in loglikelihoods.keys():
         print(f"Pair ({v}, {w}): {loglikelihoods[(v, w)]}, {iterations[(v, w)]} iterations")
 
+    print("True tree")
+    data['tree'].print_plot(plot_metric='length')
+
+    # build tree with em table
     nx_em_tree = build_tree(ctr_table)
     em_tree = convert_networkx_to_dendropy(nx_em_tree, taxon_namespace=data['tree'].taxon_namespace,
                                            edge_length='length')
@@ -642,3 +649,4 @@ if __name__ == '__main__':
     print(f"Symmetric unweighted difference: {symmetric_difference(data['tree'], em_tree)}")
     print(f"Unweighted Robinson-Foulds distance: {unweighted_robinson_foulds_distance(data['tree'], em_tree)}")
     print(f"Robinson-Foulds distance: {robinson_foulds_distance(data['tree'], em_tree, edge_weight_attr='length')}")
+    print(f"CTR table difference: {np.linalg.norm(true_ctr_table - ctr_table)}")

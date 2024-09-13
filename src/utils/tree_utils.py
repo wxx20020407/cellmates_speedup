@@ -1,3 +1,5 @@
+import random
+
 import dendropy
 import numpy as np
 from dendropy import Tree
@@ -69,6 +71,7 @@ def random_binary_tree(n: int, length_mean: float, seed=None):
     if seed is not None:
         dendropy.utility.GLOBAL_RNG.seed(seed)
         np.random.seed(seed)
+        random.seed(seed)
     tns = dendropy.TaxonNamespace([dendropy.Taxon(str(i)) for i in range(n)], label='taxa')
     tree = dendropy.treesim.treesim.pure_kingman_tree(taxon_namespace=tns)
     tree.is_rooted = True
