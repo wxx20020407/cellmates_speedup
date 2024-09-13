@@ -480,7 +480,7 @@ Implementation of JCB EM algorithm in write-up
     shared_obs = np.ndarray(obs.shape, dtype=obs.dtype, buffer=shm_obs.buf)
     np.copyto(shared_obs, obs)
 
-    args = [(s, t, shm_obs.name, n_sites, n_cells, l_init, n_states, alpha, max_iter, rtol, zero_tol)
+    args = [(s, t, shm_obs.name, n_cells, n_sites, l_init, n_states, alpha, max_iter, rtol, zero_tol)
             for s, t in itertools.combinations(range(n_cells), r=2)]
 
     if num_processors > 1:

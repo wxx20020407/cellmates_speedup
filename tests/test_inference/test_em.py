@@ -463,14 +463,15 @@ class EMTestCase(unittest.TestCase):
         p_change = 0.02
 
         data = rand_dataset(n_cells, n_states, n_sites, obs_type='pois', p_change=p_change, seed=seed)
+        self.assertEqual(data['obs'].shape, (n_sites, n_cells))
 
         l_init = np.random.exponential(scale=l_from_p(p_change, n_states), size=3)
         start_time = time.time()
-        ctr_table_5p = jcb_em_ctrtable(data['obs'], l_init=l_init, n_states=n_states, max_iter=50, num_processors=5)
+        ctr_table_5p = jcb_em_ctrtable(data['obs'], n_states=n_states, l_init=l_init, max_iter=50, num_processors=5)
         tot_time_5_proc = time.time() - start_time
 
         start_time = time.time()
-        ctr_table_1p = jcb_em_ctrtable(data['obs'], l_init=l_init, n_states=n_states, max_iter=50, num_processors=1)
+        ctr_table_1p = jcb_em_ctrtable(data['obs'], n_states=n_states, l_init=l_init, max_iter=50, num_processors=1)
         tot_time_1_proc = time.time() - start_time
 
         print(f"5proc: {tot_time_5_proc}, 1proc: {tot_time_1_proc}")
