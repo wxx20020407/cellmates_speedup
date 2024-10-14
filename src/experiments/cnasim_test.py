@@ -1,7 +1,10 @@
 """
 Try Cellmates on CNAsim dataset
 """
+import json
 import os.path
+import sys
+import argparse
 
 import anndata
 import dendropy as dpy
@@ -27,7 +30,18 @@ def load_cnasim_data(adata_path: str) -> anndata.AnnData:
     return adata
 
 
-def run(data_path):
+def run(data_path, num_processors=4, **kwargs):
+    # folders for output files
+    out_dir = kwargs.get('out_dir', os.path.dirname(data_path))
+    if not os.path.exists(out_dir):
+        os.makedirs(out_dir)
+        # make file with metadata
+        with open(os.path.join(out_dir, 'metadata.txt'), 'w') as f:
+            f.write(f"Data path: {data_path}\n")
+            f.write(f"Number of processors: {num_processors}\n")
+            for k, v in kwargs.items():
+                f.write(f"{k}: {v}\n")
+
     print("Running Cellmates on CNAsim dataset")
     adata = load_cnasim_data(data_path)
     print(f"Loaded CNAsim data: n_cells={adata.n_obs}, n_bins={adata.n_vars}")
@@ -44,11 +58,16 @@ def run(data_path):
     print(f"Expected mean reads per copy: {pois_mean_percopy:.2f}")
 
     # run cellmates
-    em_out_dict = jcb_em_alg(adata.X.T, n_states=7, max_iter=40, num_processors=4, lam=pois_mean_percopy)
+    max_iter = kwargs.get('max_iter', 40)
+    em_out_dict = jcb_em_alg(adata.X.T, n_states=7, max_iter=max_iter, num_processors=num_processors,
+                             lam=pois_mean_percopy)
     print("EM done")
-    l_hat_path = os.path.join(os.path.basename(data_path), 'em_l_hat.numpy')
+    l_hat_path = os.path.join(out_dir, 'em_l_hat.numpy')
     em_out_dict['l_hat'].dump(l_hat_path)
-    print(f"l_hat saved: {l_hat_path}")
+    # save these dicts as json
+    json.dump(em_out_dict['loglikelihoods'], open(os.path.join(out_dir, 'loglikelihoods.json'), 'w'))
+    json.dump(em_out_dict['iterations'], open(os.path.join(out_dir, 'iterations.json'), 'w'))
+    print(f"EM output saved: {l_hat_path}, loglikelihoods.json, iterations.json")
 
     # build tree from EM output
     nx_em_tree = build_tree(ctr_table=em_out_dict['l_hat'])
@@ -60,9 +79,32 @@ def run(data_path):
     print("EM tree")
     em_tree.print_plot(plot_metric='length')
     print("RF distance between true and EM tree:", true_tree.robinson_foulds_distance(em_tree))
+    # save tree
+    em_tree.write(path=os.path.join(out_dir, 'em_tree.nwk'), schema='newick')
+    print(f"EM tree saved: {os.path.join(out_dir, 'em_tree.nwk')}")
     print("Done")
 
 
 if __name__ == '__main__':
+
     data_path = '/Users/zemp/phd/scilife/cellmates-experiments/data/test.h5ad'
-    run(data_path)
+    num_processors = 4
+    if len(sys.argv) > 1:
+        data_path = sys.argv[1]
+        num_processors = int(sys.argv[2])
+
+    if not os.path.isfile(data_path):
+        print("Data file not found:", data_path)
+        print("Usage: python cnasim_test.py <data_path> <num_processors>")
+        sys.exit(1)
+    # rewrite with argparse
+    cli = argparse.ArgumentParser(
+        description="Run Cellmates on CNAsim dataset"
+    )
+    cli.add_argument('-i', '--input-data', type=str, help="path to CNAsim data in h5ad format")
+    cli.add_argument('-o', '--out-dir', type=str, default=None, help="output directory")
+    cli.add_argument('-p', '--num-processors', type=int, default=4, help="number of processors to use")
+    cli.add_argument('-m', '--max-iter', type=int, default=40, help="maximum number of EM iterations")
+    args = cli.parse_args()
+
+    run(data_path=args.input_data, num_processors=args.num_processors, max_iter=args.max_iter, out_dir=args.out_dir)
