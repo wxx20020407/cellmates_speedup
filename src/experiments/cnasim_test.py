@@ -8,6 +8,7 @@ import argparse
 
 import anndata
 import dendropy as dpy
+import numpy as np
 
 from inference.em import jcb_em_alg, build_tree
 from utils.tree_utils import convert_networkx_to_dendropy
@@ -44,6 +45,7 @@ def run(data_path, num_processors=4, **kwargs):
 
     print("Running Cellmates on CNAsim dataset")
     adata = load_cnasim_data(data_path)
+    n_cells = adata.n_obs
     print(f"Loaded CNAsim data: n_cells={adata.n_obs}, n_bins={adata.n_vars}")
     # get true tree dendropy
     print("tree newick:", adata.uns['clonal-tree-newick'])
@@ -57,20 +59,33 @@ def run(data_path, num_processors=4, **kwargs):
                          / (2 * params['bin_length']))
     print(f"Expected mean reads per copy: {pois_mean_percopy:.2f}")
 
-    # run cellmates
-    max_iter = kwargs.get('max_iter', 40)
-    em_out_dict = jcb_em_alg(adata.X.T, n_states=7, max_iter=max_iter, num_processors=num_processors,
-                             lam=pois_mean_percopy)
-    print("EM done")
-    l_hat_path = os.path.join(out_dir, 'em_l_hat.numpy')
-    em_out_dict['l_hat'].dump(l_hat_path)
-    # save these dicts as json
-    json.dump(em_out_dict['loglikelihoods'], open(os.path.join(out_dir, 'loglikelihoods.json'), 'w'))
-    json.dump(em_out_dict['iterations'], open(os.path.join(out_dir, 'iterations.json'), 'w'))
-    print(f"EM output saved: {l_hat_path}, loglikelihoods.json, iterations.json")
+    distances_path: str | None = kwargs.get('distances_path', None)
+    if distances_path is not None:
+        print("Distances file provided")
+        distances_tensor = np.load(distances_path)
+    else:
+        # run cellmates
+        print("Running EM...")
+        max_iter = kwargs.get('max_iter', 40)
+        em_out_dict = jcb_em_alg(adata.X.T, n_states=7, max_iter=max_iter, num_processors=num_processors,
+                                 lam=pois_mean_percopy)
+        print("EM done")
+        distances_tensor = em_out_dict['l_hat']
+        l_hat_path = os.path.join(out_dir, 'em_l_hat.npy')
+        np.save(l_hat_path, distances_tensor)
+        # loglikelihoods and iterations to numpy matrices
+        ll_arr = np.zeros((n_cells, n_cells))
+        it_arr = np.zeros((n_cells, n_cells))
+        for k in em_out_dict['loglikelihoods']:
+            ll_arr[k[0], k[1]] = em_out_dict['loglikelihoods'][k]
+            it_arr[k[0], k[1]] = em_out_dict['iterations'][k]
+        np.save(os.path.join(out_dir, 'loglikelihoods.npy'), ll_arr)
+        np.save(os.path.join(out_dir, 'iterations.npy'), it_arr)
+        print(f"EM output saved: {l_hat_path}, loglikelihoods.npy, iterations.npy")
 
     # build tree from EM output
-    nx_em_tree = build_tree(ctr_table=em_out_dict['l_hat'])
+    print("Building tree from EM output")
+    nx_em_tree = build_tree(ctr_table=distances_tensor)
     em_tree = convert_networkx_to_dendropy(nx_em_tree, taxon_namespace=true_tree.taxon_namespace, edge_length='length')
     # compare trees (draw and compute RF distance)
     print("Comparing trees")
@@ -94,6 +109,8 @@ if __name__ == '__main__':
     cli.add_argument('-o', '--out-dir', type=str, default=None, help="output directory")
     cli.add_argument('-p', '--num-processors', type=int, default=4, help="number of processors to use")
     cli.add_argument('-m', '--max-iter', type=int, default=40, help="maximum number of EM iterations")
+    cli.add_argument('-D', '--distances-path', type=str, default=None, help="path to distances file (npy)")
     args = cli.parse_args()
 
-    run(data_path=args.input_data, num_processors=args.num_processors, max_iter=args.max_iter, out_dir=args.out_dir)
+    run(data_path=args.input_data, num_processors=args.num_processors, max_iter=args.max_iter, out_dir=args.out_dir,
+        distances_path=args.distances_path)
