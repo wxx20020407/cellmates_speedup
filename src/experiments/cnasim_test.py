@@ -87,17 +87,6 @@ def run(data_path, num_processors=4, **kwargs):
 
 if __name__ == '__main__':
 
-    data_path = '/Users/zemp/phd/scilife/cellmates-experiments/data/test.h5ad'
-    num_processors = 4
-    if len(sys.argv) > 1:
-        data_path = sys.argv[1]
-        num_processors = int(sys.argv[2])
-
-    if not os.path.isfile(data_path):
-        print("Data file not found:", data_path)
-        print("Usage: python cnasim_test.py <data_path> <num_processors>")
-        sys.exit(1)
-    # rewrite with argparse
     cli = argparse.ArgumentParser(
         description="Run Cellmates on CNAsim dataset"
     )
