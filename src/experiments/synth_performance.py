@@ -1,6 +1,7 @@
 import sys
 import random
 import time
+import logging
 
 import numpy as np
 from dendropy.calculate import treecompare
@@ -10,6 +11,7 @@ from simulation.datagen import rand_dataset, get_ctr_table
 from utils.tree_utils import convert_networkx_to_dendropy
 
 if __name__=='__main__':
+    logging.basicConfig(level=logging.DEBUG)
     # generate 10 datasets for each of data parameters (p_change = 0.05, 0.01) and (n_cells = 10, 20, 50, 100),
     # with n_sites = 500, n_states = 7, alpha = 1.
     # save records for each run with: seed, time, tot_likelihood, avg_likelihood_pair,

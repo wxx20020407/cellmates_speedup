@@ -35,7 +35,8 @@ def tree_to_newick(g: nx.DiGraph, root=None, weight=None, is_internal_call=False
     return newick
 
 
-def convert_networkx_to_dendropy(nx_tree, labels_mapping: dict = None, taxon_namespace = None, edge_length= None) -> dendropy.Tree:
+def convert_networkx_to_dendropy(nx_tree, labels_mapping: dict = None,
+                                 taxon_namespace=None, edge_length=None) -> dendropy.Tree:
     """
     Converts a NetworkX tree to a DendroPy tree through newick string.
 

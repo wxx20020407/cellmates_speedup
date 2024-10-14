@@ -431,7 +431,7 @@ class EMTestCase(unittest.TestCase):
 
         # rebuild tree
         nx_tree = build_tree(ctr_table)
-        new_dpy_tree = convert_networkx_to_dendropy(nx_tree, taxon_namespace=tree.taxon_namespace)
+        new_dpy_tree = convert_networkx_to_dendropy(nx_tree, taxon_namespace=tree.taxon_namespace, edge_length='length')
         print("--- Rebuilt tree ---")
         print(f'txnsp: {new_dpy_tree.taxon_namespace}')
         label_tree(new_dpy_tree, method='group')

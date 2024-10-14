@@ -61,19 +61,20 @@ class EM():
         model.fit(y, lengths)
 
 
-def compute_log_emissions(obs_vw: np.ndarray, n_states, pois_mean_eps=1e-5) -> np.ndarray:
+def compute_log_emissions(obs_vw: np.ndarray, n_states, lam: float = 100, pois_mean_eps=1e-5) -> np.ndarray:
     """
     returns the log probability of the observations for each site, and each pair of copy number states (v, w)
     Parameters
     ----------
-    obs_vw
-    n_states
+    obs_vw, array of shape (n_sites, 2) with observations for pair of leaves
+    n_states, number of copy number states
+    lam, per-copy mean read count
+    pois_mean_eps, small constant to avoid log(0)
 
     Returns
     -------
     array of shape (n_sites, n_states, n_states), log p(y_m^{vw} | C_m^v = i, C_m^w = j) for each m, i, j
     """
-    lam = 100.
     assert obs_vw.shape[1] == 2
     n_sites = obs_vw.shape[0]
     log_emissions = np.empty((n_sites, n_states, n_states))
@@ -207,7 +208,7 @@ def backward_pass(obs_vw, trans_mat, log_emissions):
     return beta
 
 
-def two_slice_marginals(obs_vw, theta: np.ndarray, n_states: int, jcb: bool = False, alpha: float = 1.) \
+def two_slice_marginals(obs_vw, theta: np.ndarray, n_states: int, jcb: bool = False, alpha: float = 1., lam=100) \
         -> tuple[np.ndarray, float]:
     """
     Computes the two slice marginals of a hidden markov model with three latent chains.
@@ -234,7 +235,7 @@ def two_slice_marginals(obs_vw, theta: np.ndarray, n_states: int, jcb: bool = Fa
 
     # define emission prob (for emission pair)
     # log emission shape (n_sites, n_states, n_states)
-    log_emissions = compute_log_emissions(obs_vw, n_states)
+    log_emissions = compute_log_emissions(obs_vw, n_states, lam=lam)
     # compute forward: shape (n_sites, n_states, n_states, n_states)
     alpha_probs, loglik = _forward_pass_likelihood(obs_vw, start_prob, trans_mat, log_emissions)
     # compute backward: shape (n_sites, n_states, n_states, n_states)
@@ -264,7 +265,7 @@ def get_start_transition_probs(alpha, jcb, n_states, theta):
     return start_prob, trans_mat
 
 
-def compute_exp_changes(theta, obs_vw, n_states: int, alpha=1., jcb=True) -> tuple[np.ndarray, np.ndarray, float]:
+def compute_exp_changes(theta, obs_vw, n_states: int, alpha=1., jcb=True, lam=100) -> tuple[np.ndarray, np.ndarray, float]:
     """
     Compute the sufficient statistics, i.e. the expected number of changes and no-changes for each pair
     of triplet states. Also returns the log likelihood of the observations.
@@ -285,7 +286,7 @@ def compute_exp_changes(theta, obs_vw, n_states: int, alpha=1., jcb=True) -> tup
     dp = np.empty_like(d)
     # compute two slice marginals
     # prob(Cm = ijk, Cm+1 = i'j'k' | Y)
-    log_xi, loglik = two_slice_marginals(obs_vw, theta, n_states, jcb=jcb, alpha=alpha)
+    log_xi, loglik = two_slice_marginals(obs_vw, theta, n_states, jcb=jcb, alpha=alpha, lam=lam)
 
     comut_mask0 = get_zipping_mask0(n_states).transpose()
     comut_mask = get_zipping_mask(n_states).transpose(tuple(reversed(range(4))))
@@ -311,9 +312,9 @@ def compute_exp_changes(theta, obs_vw, n_states: int, alpha=1., jcb=True) -> tup
     return d, dp, loglik
 
 
-def likelihood(obs_vw, theta, n_states, alpha=1., jcb=True) -> float:
+def likelihood(obs_vw, theta, n_states, lam=100, alpha=1., jcb=True) -> float:
     start_prob, trans_mat = get_start_transition_probs(alpha, jcb, n_states, theta)
-    log_emissions = compute_log_emissions(obs_vw, n_states)
+    log_emissions = compute_log_emissions(obs_vw, n_states, lam=lam)
     return _forward_pass_likelihood(obs_vw, start_prob, trans_mat, log_emissions)[1]
 
 
@@ -348,7 +349,7 @@ def update_eps(log_xi):
     return eps_new
 
 
-def em_alg(obs: np.ndarray, n_states: int = 7) -> np.ndarray:
+def em_alg(obs: np.ndarray, n_states: int = 7, lam=100) -> np.ndarray:
     """
 Implementation of algorithm 6 in write-up
     Parameters
@@ -373,7 +374,7 @@ Implementation of algorithm 6 in write-up
         while not convergence:
             # compute two slice marginals
             # shape (n_sites, n_states x 3, n_states x 3)
-            log_xi, loglik = two_slice_marginals(obs[:, [v, w]], epsilon_k, n_states)
+            log_xi, loglik = two_slice_marginals(obs[:, [v, w]], epsilon_k, n_states, lam=lam)
             # update epsilon_k
             epsilon_kp1 = update_eps(log_xi)
             # check for convergence
@@ -396,7 +397,8 @@ def jcb_em_ctrtable(obs: np.ndarray, n_states: int = 7, alpha=1., l_init=None, m
 
 
 def _pairwise_em(v: int, w: int, shared_obs_mem_name: str, n_cells: int, n_sites: int, l_init: np.ndarray,
-                 n_states: int, alpha: float, max_iter: int, rtol: float, zero_tol: float) -> (tuple, np.ndarray, float, int):
+                 n_states: int, alpha: float, max_iter: int, rtol: float, zero_tol: float,
+                 lam=100) -> (tuple, np.ndarray, float, int):
     """
     Pairwise EM algorithm for a pair of cells v, w with shared observations to be used in multiprocessing
     """
@@ -405,7 +407,7 @@ def _pairwise_em(v: int, w: int, shared_obs_mem_name: str, n_cells: int, n_sites
     shm = shared_memory.SharedMemory(name=shared_obs_mem_name)
     obs = np.ndarray((n_sites, n_cells), dtype=np.float64, buffer=shm.buf)
     l_i = l_init
-    d, dp, loglik = compute_exp_changes(l_i, obs[:, [v, w]], n_states, alpha=alpha)
+    d, dp, loglik = compute_exp_changes(l_i, obs[:, [v, w]], n_states, alpha=alpha, lam=lam)
     convergence = False
     it = 0
     logging.debug(f'pairwise EM: {v}, {w}, iteration {it}, loglik = {loglik}')
@@ -419,7 +421,7 @@ def _pairwise_em(v: int, w: int, shared_obs_mem_name: str, n_cells: int, n_sites
         l_i = - 1 / (alpha * n_states) * np.log(np.clip(log_arg, a_min=zero_tol, a_max=None))
 
         # compute D and D'
-        d, dp, new_loglik = compute_exp_changes(l_i, obs[:, [v, w]], n_states, alpha=alpha)
+        d, dp, new_loglik = compute_exp_changes(l_i, obs[:, [v, w]], n_states, alpha=alpha, lam=lam)
         logging.debug(f'pairwise EM: {v}, {w}, iteration {it}, loglik = {loglik}')
 
         if new_loglik < loglik:
@@ -438,7 +440,7 @@ def _pairwise_em(v: int, w: int, shared_obs_mem_name: str, n_cells: int, n_sites
 
 
 def jcb_em_alg(obs: np.ndarray, n_states: int = 7, alpha=1., l_init=None, max_iter: int = 200, rtol: float = 1e-6,
-               jc_correction: bool = False, num_processors: int = 1) -> dict[str, np.ndarray | dict[tuple[int, int], int | float]]:
+               jc_correction: bool = False, num_processors: int = 1, lam=100) -> dict[str, np.ndarray | dict[tuple[int, int], int | float]]:
     """
 Implementation of JCB EM algorithm in write-up
     Parameters
@@ -480,7 +482,7 @@ Implementation of JCB EM algorithm in write-up
     shared_obs = np.ndarray(obs.shape, dtype=obs.dtype, buffer=shm_obs.buf)
     np.copyto(shared_obs, obs)
 
-    args = [(s, t, shm_obs.name, n_cells, n_sites, l_init, n_states, alpha, max_iter, rtol, zero_tol)
+    args = [(s, t, shm_obs.name, n_cells, n_sites, l_init, n_states, alpha, max_iter, rtol, zero_tol, lam)
             for s, t in itertools.combinations(range(n_cells), r=2)]
 
     if num_processors > 1:
