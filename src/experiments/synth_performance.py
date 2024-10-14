@@ -30,12 +30,12 @@ if __name__=='__main__':
         num_processors = 1
 
     # data parameters
-    max_iter = 100
+    max_iter = 40
     n_sites = 500
     n_states = 7
     alpha = 1.
-    p_change_list = [0.05, 0.01]
-    n_cells_list = [10, 20, 50, 100]
+    p_change_list = [0.001]
+    n_cells_list = [100]
     n_datasets = 10
     if quick_test:
         n_datasets = 2
@@ -46,7 +46,8 @@ if __name__=='__main__':
         max_iter = 10
 
     # output file
-    output_file = 'synth_performance.csv'
+    timestamp = time.strftime('%y%m%d%H%M%S')
+    output_file = f'synth_performance{timestamp}.csv'
     with open(output_file, 'w') as f:
         f.write('seed,n_cells,p_change,time,tot_likelihood,avg_likelihood_pair,avg_iterations_pair,ctr_table_distance,'
                 'tree_distance,tree_rf_distance,num_processors,n_states,n_sites,max_iter,alpha\n')
