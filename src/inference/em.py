@@ -16,6 +16,8 @@ import scipy.stats as stats
 from scipy.special import logsumexp, comb
 import networkx as nx
 
+from models.evolutionary_models.jukes_cantor_breakpoint import JCBModel
+from models.observation_models.read_counts_models import QuadrupletSpecificPoissonModel
 from models.quadruplet import Quadruplet
 from simulation.datagen import rand_dataset, get_ctr_table
 
@@ -28,37 +30,155 @@ from utils.tree_utils import convert_networkx_to_dendropy
 # TODO: wrap EM function `jcb_em_alg` in class (sklearn style)
 class EM():
     """
-    Runs the EM-algorithm for a quadruplet. Requires the copy number sequence of the root and observations of a pair
-    of leaves.
+    Runs the EM-algorithm for a set of cells. Requires the copy number sequence of the root and observations
+    (read counts) leaves.
     """
+    def __init__(self, n_states: int = 7, obs_model='poisson',
+                 model_type='jcb',
+                 alpha=1., d_init=None, max_iter: int = 200, rtol: float = 1e-6,
+                 jc_correction: bool = False, num_processors: int = 1, verbose: int = 0):
+        # init distances
+        self._distances = None
+        self.evo_model = model_type  # make class
+        self.obs_model = obs_model
+        self._n_sites = None
+        self._n_cells = None
+        # set verbose level logger in the style of sklearn
+        self.verbose = verbose
+        self.logger = logging.getLogger(__class__.__name__)
+        if self.verbose == 0:
+            self.logger.setLevel(logging.ERROR)
+        elif self.verbose == 1:
+            self.logger.setLevel(logging.INFO)
+        else:
+            self.logger.setLevel(logging.DEBUG)
 
-    def __init__(self, quadruplet: Quadruplet):
-        self.quadruplet = quadruplet
 
-    def run_hmmlearn(self):
-        yv = self.quadruplet.data_v
-        yw = self.quadruplet.data_v
-        A = self.quadruplet.A
-        y = np.concatenate([yv, yw])
-        lengths = [len(yv), len(yw)]
-        eps_trans_matrix_prior = np.ones((A, A, A)) / A * 0.05
+    def fit(self, X: np.ndarray, max_iter: int = 200, rtol: float = 1e-6, num_processors: int = 1, **kwargs):
+        self.n_sites = X.shape[0]
+        self.n_cells = X.shape[1]
+        obs = X
 
-        lambdas_prior = np.ones((A, 2))
-        init_prior = np.zeros((3, A))
-        init_prior[:, 2] = 1.
-        model = hmm.PoissonHMM(n_components=(A, A, A),
-                               startprob_prior=init_prior,
-                               transmat_prior=eps_trans_matrix_prior,
-                               lambdas_prior=lambdas_prior,
-                               lambdas_weight=0.0,
-                               algorithm='viterbi',
-                               random_state=None,
-                               n_iter=10,
-                               tol=0.01,
-                               verbose=False,
-                               params='stl', init_params='', implementation='log')
-        model.startprob_ = init_prior
-        model.fit(y, lengths)
+        # if correction, change alpha to alpha / (n_states - 1)
+        alpha = kwargs.get('alpha', 1.)
+        alpha = alpha / (n_states - 1) if kwargs.get('jc_correction', False) else alpha
+        # init to an average of 5 changes over the whole length if not provided
+        l_init = kwargs.get('l_init', np.array([l_from_p(5 / n_sites, n_states)] * 3))
+
+        l_hat = -np.ones((n_cells, n_cells, 3))
+        zero_tol = kwargs.get('zero_tol', 1e-10)  # saturation level when dp << d (changes are much more prevalent)
+
+        # for each pair of cells
+        self.logger.debug(f'pairwise EM started: {comb(n_cells, 2)} pairs, {n_states} states,'
+                      f' {n_cells} cells, {n_sites} sites, {max_iter} max iterations, {rtol} rtol')
+        iterations = {}
+        loglikelihoods = {}
+
+        # create shared memory for observations, numpy array backed by shared memory and copy data
+        shm_obs = shared_memory.SharedMemory(create=True, size=obs.nbytes)
+        shared_obs = np.ndarray(obs.shape, dtype=obs.dtype, buffer=shm_obs.buf)
+        np.copyto(shared_obs, obs)
+
+        lam = kwargs.get('lam', 100)
+
+        args = [(s, t, shm_obs.name, n_cells, n_sites, l_init, n_states, alpha, max_iter, rtol, zero_tol, lam)
+                for s, t in itertools.combinations(range(n_cells), r=2)]
+
+        if num_processors > 1:
+            logging.debug(f'pairwise EM: using {num_processors} processors')
+            with mp.Pool(num_processors) as pool:
+                # main loop
+                results = pool.starmap(self._pairwise_em, args)
+        else:
+            logging.debug(f'pairwise EM: using single processor')
+            results = [self._pairwise_em(*arg) for arg in args]
+
+        for (s, t), l_i, loglik, it in results:
+            l_hat[s, t, :] = l_i
+            iterations[(s, t)] = it
+            loglikelihoods[(s, t)] = loglik
+
+        self._distances = l_hat
+        self.logger.info(f'pairwise EM: finished in {len(iterations)} iterations')
+        shm_obs.close()
+        return {
+            'l_hat': l_hat,
+            'iterations': iterations,
+            'loglikelihoods': loglikelihoods
+        }
+
+    def transform(self):
+        if self._distances is None:
+            raise AttributeError("Distances not set. Run `fit` or `fit_transform` first.")
+        return self._distances
+
+    def fit_transform(self, X):
+        self.fit(X)
+        return self._distances
+
+    @property
+    def n_sites(self):
+        if self._n_sites is None:
+            raise AttributeError("Number of sites is not set.")
+        return self._n_sites
+
+    @n_sites.setter
+    def n_sites(self, value):
+        self._n_sites = value
+
+    @property
+    def n_cells(self):
+        if self._n_cells is None:
+            raise AttributeError("Number of cells is not set.")
+        return self._n_cells
+
+    @n_cells.setter
+    def n_cells(self, value):
+        self._n_cells = value
+
+
+    def _pairwise_em(self, v: int, w: int, shared_obs_mem_name: str, n_cells: int, n_sites: int, l_init: np.ndarray,
+                     n_states: int, alpha: float, max_iter: int, rtol: float, zero_tol: float,
+                     lam=100) -> (tuple, np.ndarray, float, int):
+        """
+        Pairwise EM algorithm for a pair of cells v, w with shared observations to be used in multiprocessing
+        """
+        # initialize l = (l_ru, l_uv, l_uw)
+        # TODO: add logger to print out the progress
+        shm = shared_memory.SharedMemory(name=shared_obs_mem_name)
+        obs = np.ndarray((n_sites, n_cells), dtype=np.float64, buffer=shm.buf)
+        l_i = l_init
+        # compute changes is observation and evolution model specific
+        d, dp, loglik = compute_exp_changes(l_i, obs[:, [v, w]], n_states, alpha=alpha, lam=lam)
+        convergence = False
+        it = 0
+        self.logger.debug(f'pairwise EM: {v}, {w}, iteration {it}, loglik = {loglik}')
+        while not convergence and it < max_iter:
+            # update l according to formula
+            # if l -> +inf, pDeltaDelta == pDeltaDelta'
+            log_arg = 1 - n_states/(n_states - 1) * d / (dp + d)
+            if np.any(log_arg <= 0):
+                self.logger.error(f"too many changes detected: D = {d}, D' = {dp}\n"
+                              f"...saturating l for cells {v},{w}")
+            l_i = - 1 / (alpha * n_states) * np.log(np.clip(log_arg, a_min=zero_tol, a_max=None))
+
+            # compute D and D'
+            d, dp, new_loglik = compute_exp_changes(l_i, obs[:, [v, w]], n_states, alpha=alpha, lam=lam)
+            self.logger.debug(f'pairwise EM: {v}, {w}, iteration {it}, loglik = {loglik}')
+
+            if new_loglik < loglik:
+                self.logger.error(f'log likelihood decreased: {new_loglik} < {loglik}')
+            elif (new_loglik - loglik) / np.abs(loglik) < rtol:
+                convergence = True
+            loglik = new_loglik
+            it += 1
+
+        if it == max_iter and not convergence:
+            self.logger.warning(f'pairwise EM: {v}, {w}, did not converge after {max_iter} iterations')
+        else:
+            self.logger.debug(f'pairwise EM: {v}, {w}, converged after {it} iterations')
+        return (v, w), l_i, loglik, it
+    # end of _pairwise_em
 
 
 def compute_log_emissions(obs_vw: np.ndarray, n_states, lam: float = 100, pois_mean_eps=1e-5) -> np.ndarray:
@@ -623,7 +743,9 @@ if __name__ == '__main__':
     true_ctr_table = get_ctr_table(data['tree'])
 
     start_time = time.time()
-    jcb_out_dict = jcb_em_alg(data['obs'], n_states=n_states, max_iter=50, jc_correction=False, num_processors=5)
+    em = EM(n_states, verbose=2)
+    jcb_out_dict = em.fit(data['obs'], max_iter=50, num_processors=5, jc_correction=False)
+    # jcb_out_dict = jcb_em_alg(data['obs'], n_states=n_states, max_iter=50, jc_correction=False, num_processors=5)
     print(f"Total time: {time.time() - start_time}")
     print(f"Instance: {n_cells} cells, {n_states} states, {n_sites} sites")
     print("True tree")
