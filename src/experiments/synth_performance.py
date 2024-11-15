@@ -6,7 +6,8 @@ import logging
 import numpy as np
 from dendropy.calculate import treecompare
 
-from inference.em import jcb_em_alg, build_tree
+from inference.em import jcb_em_alg
+from inference.neighbor_joining import build_tree
 from simulation.datagen import rand_dataset, get_ctr_table
 from utils.tree_utils import convert_networkx_to_dendropy
 
