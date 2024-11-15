@@ -4,7 +4,7 @@ import numpy as np
 import numpy.testing as npt
 
 from inference.em import compute_l_start_prob, compute_l_trans_mat
-from models.copy_tree import p_delta
+from models.evolutionary_models import p_delta
 
 
 class MyTestCase(unittest.TestCase):

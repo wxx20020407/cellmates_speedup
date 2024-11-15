@@ -1,13 +1,15 @@
 import numpy as np
 
+from models.observation_models import ObsModel
 
-class QuadrupletSpecificCellbaselineAndPrecisionModel:
+
+class NormalModel(ObsModel):
     """
     Implementation of the Cell baseline and precision model.
     p(y_m^v |C^v, mu_v, tau_v) = N(y_vm |mu_v * C_m^v, 1/tau_v)
     """
 
-    def __init__(self, M, mu_v_prior, mu_w_prior, tau_v_prior, tau_w_prior):
+    def __init__(self, n_states: int, mu_v_prior=1., mu_w_prior=1., tau_v_prior=1., tau_w_prior=1., M=200, **kwargs):
         self.M = M
         self.mu_v_prior = mu_v_prior
         self.mu_w_prior = mu_w_prior
@@ -19,6 +21,7 @@ class QuadrupletSpecificCellbaselineAndPrecisionModel:
         self.true_tau_w = None
         self.y_v = None
         self.y_w = None
+        super().__init__(n_states, **kwargs)
 
     def simulate_data(self, c_v, c_w, obs_param_v=None, obs_param_w=None):
         """

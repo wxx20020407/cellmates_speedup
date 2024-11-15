@@ -10,13 +10,15 @@ import numpy as np
 from dendropy.calculate import treecompare
 from scipy.special import logsumexp
 
-from models.copy_tree import p_delta_change
-from simulation.datagen import rand_dataset, get_ctr_table, emit_raw_obs, simulate_cn, simulate_quadruplet
-from inference.em import jcb_em_ctrtable, compute_exp_changes, two_slice_marginals, likelihood
+from models.evolutionary_models import p_delta_change
+from simulation.datagen import rand_dataset, get_ctr_table, emit_raw_obs, simulate_quadruplet
+from inference.em import jcb_em_ctrtable, compute_exp_changes, two_slice_marginals
+from models.evolutionary_models.copy_tree import likelihood
 from utils.tree_utils import convert_networkx_to_dendropy, get_node2node_distance, random_binary_tree, label_tree
 from utils.math_utils import l_from_p
 
-from inference.em import em_alg, build_tree
+from inference.em import em_alg
+from inference.neighbor_joining import build_tree
 
 
 def _generate_obs(noise=0):
@@ -120,14 +122,14 @@ class EMTestCase(unittest.TestCase):
         # print cn in order r, u, v, w (check simulate_quadruplet doc for sorting info)
         print(f"CN (r, u, v, w):\n{data['cn'][[3, 2, 0, 1], :20]}")
 
-        # print tree with lengths
+        # print tree with _lengths
         l_true = gt_ctr_table[0, 1, :].tolist()
         data['tree'].print_plot(plot_metric='length')
-        print(f"True edge lengths: {l_true}")
+        print(f"True edge _lengths: {l_true}")
 
         # run EM
         ctr_table = jcb_em_ctrtable(data['obs'], n_states=n_states)
-        # change tree lengths to match the estimated ones
+        # change tree _lengths to match the estimated ones
         for edge in data['tree'].preorder_edge_iter():
             if edge.head_node.label == 2:
                 edge.length = ctr_table[0, 1, 0]
@@ -137,7 +139,7 @@ class EMTestCase(unittest.TestCase):
                 edge.length = ctr_table[0, 1, 2]
         data['tree'].print_plot(plot_metric='length')
         l_est = ctr_table[0, 1, :].tolist()
-        print("Estimated edge lengths:")
+        print("Estimated edge _lengths:")
         print(l_est)
 
         # check likelihood
@@ -158,7 +160,7 @@ class EMTestCase(unittest.TestCase):
         np.random.seed(seed)
         n_states = 5
         n_sites = 500
-        p_change = 0.02  # for random edge lengths
+        p_change = 0.02  # for random edge _lengths
 
         alpha = 1.
         data = simulate_quadruplet(n_states, n_sites, alpha=alpha, l_mean=l_from_p(p_change, n_states))
@@ -166,15 +168,15 @@ class EMTestCase(unittest.TestCase):
         # print cn in order r, u, v, w (check simulate_quadruplet doc for sorting info)
         print(f"CN (r, u, v, w):\n{data['cn'][[3, 2, 0, 1], :20]}")
 
-        # print tree with lengths
+        # print tree with _lengths
         l_true = gt_ctr_table[0, 1, :].tolist()
         data['tree'].print_plot(plot_metric='length')
-        print(f"True edge lengths: {l_true}")
+        print(f"True edge _lengths: {l_true}")
 
         # run EM
         ctr_table = jcb_em_ctrtable(data['obs'], n_states=n_states, max_iter=30)
 
-        # change tree lengths to match the estimated ones
+        # change tree _lengths to match the estimated ones
         for edge in data['tree'].preorder_edge_iter():
             if edge.head_node.label == 2:
                 edge.length = ctr_table[0, 1, 0]
@@ -184,7 +186,7 @@ class EMTestCase(unittest.TestCase):
                 edge.length = ctr_table[0, 1, 2]
         data['tree'].print_plot(plot_metric='length')
         l_est = ctr_table[0, 1, :].tolist()
-        print("Estimated edge lengths:")
+        print("Estimated edge _lengths:")
         print(l_est)
 
         # check likelihood
@@ -212,14 +214,14 @@ class EMTestCase(unittest.TestCase):
         # print cn in order r, u, v, w (check simulate_quadruplet doc for sorting info)
         print(f"CN (r, u, v, w):\n{data['cn'][[3, 2, 0, 1], :20]}")
 
-        # print tree with lengths
+        # print tree with _lengths
         l_true = gt_ctr_table[0, 1, :].tolist()
         data['tree'].print_plot(plot_metric='length')
-        print(f"True edge lengths: {l_true}")
+        print(f"True edge _lengths: {l_true}")
 
         # run EM
         ctr_table = jcb_em_ctrtable(data['obs'], n_states=n_states, l_init=gt_ctr_table[0, 1, :], max_iter=30)
-        # change tree lengths to match the estimated ones
+        # change tree _lengths to match the estimated ones
         for edge in data['tree'].preorder_edge_iter():
             if edge.head_node.label == 2:
                 edge.length = ctr_table[0, 1, 0]
@@ -229,7 +231,7 @@ class EMTestCase(unittest.TestCase):
                 edge.length = ctr_table[0, 1, 2]
         data['tree'].print_plot(plot_metric='length')
         l_est = ctr_table[0, 1, :].tolist()
-        print("Estimated edge lengths:")
+        print("Estimated edge _lengths:")
         print(l_est)
 
         # check likelihood
@@ -305,7 +307,7 @@ class EMTestCase(unittest.TestCase):
         print(f"[2 changes] n_sites: {n_sites}, t0 (1->2): {t0}, t1 (2->3): {t1}")
 
         n_states = 4
-        # reasonable lengths computed by setting the change probability to
+        # reasonable _lengths computed by setting the change probability to
         p_change = 3 / n_sites
         ll = l_from_p(p_change * 2, n_states)
         sl = l_from_p(0, n_states)

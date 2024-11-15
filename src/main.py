@@ -2,7 +2,8 @@ import networkx as nx
 
 from networkx.drawing.nx_pydot import graphviz_layout
 
-from inference.em import em_alg, build_tree
+from inference.em import em_alg
+from inference.neighbor_joining import build_tree
 
 if __name__ == '__main__':
     print("main not ready yet... exiting program")

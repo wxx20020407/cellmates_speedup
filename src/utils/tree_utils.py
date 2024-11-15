@@ -77,7 +77,7 @@ def random_binary_tree(n: int, length_mean: float, seed=None):
     tree = dendropy.treesim.treesim.pure_kingman_tree(taxon_namespace=tns)
     tree.is_rooted = True
     label_tree(tree)
-    # traverse the tree and assign lengths
+    # traverse the tree and assign _lengths
     for edge in tree.preorder_edge_iter():
         # scale = 1 / lambda
         edge.length = ss.expon(scale=length_mean).rvs()

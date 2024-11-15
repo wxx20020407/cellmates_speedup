@@ -11,7 +11,7 @@ import dendropy as dpy
 import random
 import anndata
 
-from models.copy_tree import p_delta_change
+from models.evolutionary_models import p_delta_change
 from utils.math_utils import l_from_p
 from utils.tree_utils import random_binary_tree, get_node2node_distance, label_tree
 
@@ -28,7 +28,7 @@ class Dataset(TypedDict):
 def simulate_quadruplet(n_states, n_sites, alpha=1., l_mean=None) -> Dataset:
     """
     Simulate a quadruplet tree with 2 leaves, one internal node and a root.
-    The tree is rooted and the edge lengths are generated from an exponential distribution if l_mean is None,
+    The tree is rooted and the edge _lengths are generated from an exponential distribution if l_mean is None,
     otherwise they are set to a fixed value: [0.01, 0.03, 0.008].
     The copy number profiles are simulated from the tree and the observations are emitted from the leaves.
     Indices are r, u, v, w = 3, 2, 0, 1.
@@ -37,7 +37,7 @@ def simulate_quadruplet(n_states, n_sites, alpha=1., l_mean=None) -> Dataset:
     n_states: int, number of copy number states
     n_sites: int, number of sites
     alpha: float, alpha parameter for evolution model
-    l_mean: float, mean of the exponential distribution for edge lengths
+    l_mean: float, mean of the exponential distribution for edge _lengths
 
     Returns
     -------
@@ -48,7 +48,7 @@ def simulate_quadruplet(n_states, n_sites, alpha=1., l_mean=None) -> Dataset:
     tree = dpy.Tree.get(data="((0,1)2)3;", schema='newick', taxon_namespace=dpy.TaxonNamespace(['0', '1']))
     label_tree(tree)
     tree.is_rooted = True
-    # generate edge lengths
+    # generate edge _lengths
     l_true = np.empty(3)
     if l_mean is None:
         l_true[:] = np.array([0.01, 0.03, 0.008])
@@ -197,7 +197,7 @@ def rand_dataset(n_cells: int, n_states: int, n_sites: int, alpha=1., obs_type='
     # return dict with observations and all latent variables
     data = {
         'obs': obs,
-        'tree': tree,  # contains lengths as edges
+        'tree': tree,  # contains _lengths as edges
         'cn': cn
     }
     return data

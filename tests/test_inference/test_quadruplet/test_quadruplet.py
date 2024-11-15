@@ -1,13 +1,12 @@
 import unittest
-from random import random
 
 import networkx as nx
 
 from inference.em import em_alg
-from models.copy_tree import CopyTree
-from models.observation_models.read_counts_models import QuadrupletSpecificPoissonModel
+from models.evolutionary_models.copy_tree import CopyTree
+from models.observation_models.read_counts_models import PoissonModel
 from models.observation_models.normalized_read_counts_models import (
-    QuadrupletSpecificCellbaselineAndPrecisionModel,
+    NormalModel,
 )
 import numpy as np
 
@@ -31,9 +30,8 @@ class QuadrupletTestCase(unittest.TestCase):
         tau_w = 100.0
         obs_param_v = {'mu': mu_v, 'tau': tau_v}
         obs_param_w = {'mu': mu_w, 'tau': tau_w}
-        obs_model = QuadrupletSpecificCellbaselineAndPrecisionModel(M, mu_v, mu_w, tau_v, tau_w)
-
-        quadruplet = Quadruplet(M, A, CN_model=None, obs_model=obs_model)
+        obs_model = NormalModel(A, mu_v, mu_w, tau_v, tau_w, M)
+        quadruplet = Quadruplet(M, A, evo_model=None, obs_model=obs_model)
         out = quadruplet.simulate_data(eps_a, eps_b, eps_0, obs_param_v, obs_param_w)
 
         expected_Y_v = out['c_v'] * out['obs_param_v']['mu']
@@ -52,9 +50,9 @@ class QuadrupletTestCase(unittest.TestCase):
         eps_0 = 0.05
         lambda_v = 1.0
         lambda_w = 1.0
-        obs_model = QuadrupletSpecificPoissonModel(M, lambda_v, lambda_w)
-        cn_model = CopyTree(M, A, nx.DiGraph([(0, 1), (1, 2), (1, 3)]))
-        quadruplet = Quadruplet(M, A, CN_model=cn_model, obs_model=obs_model)
+        obs_model = PoissonModel(A, lambda_v, lambda_w)
+        cn_model = CopyTree(A, nx.DiGraph([(0, 1), (1, 2), (1, 3)]))
+        quadruplet = Quadruplet(M, A, evo_model=cn_model, obs_model=obs_model)
 
         out = quadruplet.simulate_data(eps_a, eps_b, eps_0, lambda_v, lambda_w)
 
