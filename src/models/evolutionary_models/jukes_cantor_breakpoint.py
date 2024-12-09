@@ -76,7 +76,6 @@ class JCBModel(EvoModel):
          over the copy number conditional distribution for the three branches:
          (r, u), (u, v), (u, w).
 
-        # TODO: verify this following formula
         $$
         D(l) = E_{p(C|Y,l)}[ \sum_{m=1}^M \sum_{i,i',j,j'} 1(i'-i \neq j'-j) ]
         $$
@@ -128,10 +127,12 @@ class JCBModel(EvoModel):
         n_states number of copy number states
         jcb if True, use Jukes-Cantor-Breakpoint model, otherwise use the CopyTree model
         alpha float, alpha parameter for the JCB model, length scaling factor
+        Notation as in wiki page: https://en.wikipedia.org/wiki/Baum%E2%80%93Welch_algorithm#Update
 
         Returns
         -------
-        tuple of array of shape (n_sites - 1,) + (n_states,) * 6, log two slice marginals and float, log likelihood
+        array of shape (n_sites - 1,) + (n_states,) * 6, log two slice marginals
+        (n_sites -1, n_states, n_states, n_states, n_states, n_states, n_states)
 
         """
         n_states = self.n_states
