@@ -1,4 +1,7 @@
+import itertools
+
 import numpy as np
+import scipy.stats as ss
 
 from models.observation_models import ObsModel
 
@@ -47,3 +50,16 @@ class NormalModel(ObsModel):
         self.y_v = y_v
         self.y_w = y_w
         return y_v, y_w, obs_param_v, obs_param_w
+
+    def log_emission(self, obs_vw, **kwargs):
+
+        normal_mean_eps = 1e-10  # not the epsilon parameter of main model
+        n_sites = obs_vw.shape[0]
+        log_emissions = np.empty((n_sites, self.n_states, self.n_states))
+        lam = np.array([self.mu_v_prior, self.mu_w_prior])
+        for m, i, j in itertools.product(range(n_sites), range(self.n_states), range(self.n_states)):
+            # log p(y_m^v | . ) + log p(y_m^w | . )
+            log_emissions[m, i, j] = ss.norm.logpdf(obs_vw[m], np.clip(lam * np.array([i, j]),
+                                                                          a_min=normal_mean_eps, a_max=None)).sum()
+
+        return log_emissions
