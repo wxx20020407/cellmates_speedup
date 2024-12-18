@@ -1,14 +1,23 @@
 # Cellmates – a proper distance method for single-cell cancer data
 
+## Execution
+
+To run tests, check out the main script in the [em.py](src/inference/em.py) file.
+For example, run
+```bash
+python src/inference/em.py
+```
+
 ## Project status
 
 This project is currently under development. The functionalities that have been implemented are described below.
 
 - [x] Data simulation (main code in function `rand_dataset()` at [datagen.py](src/simulation/datagen.py))
-- [x] EM algorithm for root-to-centroid distance (main code in function `jcb_em()` at [em.py](src/inference/em.py))
+- [x] EM algorithm for root-to-centroid distance (main code in class `EM` at [em.py](src/inference/em.py))
 - [x] Tree reconstruction algorithm from distance matrix
 (main code in function `build_tree()` at [em.py](src/inference/em.py))
 - [x] Testing for the execution of all three steps described above in [test_tree_inference_synth()](tests/test_inference/test_em.py)
+- [x] JCB and CopyTree models for distance estimation in [evolutionary_models](src/evolutionary_models)
 
 The pseudo-algorithm with the first distance model (with $\varepsilon \in [0,1]$) is explained in the
 [general writeup](https://www.overleaf.com/project/62e11c46a9cd5d7659fc29b4)
