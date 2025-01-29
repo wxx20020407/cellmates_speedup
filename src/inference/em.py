@@ -166,7 +166,6 @@ class EM:
         """
         Pairwise EM algorithm for a pair of cells v, w with shared observations to be used in multiprocessing
         """
-        # TODO: add logger to print out the progress
         shm = shared_memory.SharedMemory(name=shared_obs_mem_name)
         obs_vw = np.ndarray((self.n_sites, self.n_cells), dtype=np.float64, buffer=shm.buf)[..., [v, w]]
         return self._fit_quadruplet(v, w, obs_vw, l_init, max_iter, rtol)
@@ -310,7 +309,7 @@ if __name__ == '__main__':
     n_cells = 4
     n_states = 7
     n_sites = 200
-    data = rand_dataset(n_cells, n_states, n_sites, obs_model='poisson', p_change=0.05, seed=seed)
+    data = rand_dataset(n_states, n_sites, obs_model='poisson', p_change=0.05, n_cells=n_cells, seed=seed)
     # true ctr_table
     true_ctr_table = get_ctr_table(data['tree'])
 

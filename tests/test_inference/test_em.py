@@ -44,6 +44,7 @@ class EMTestCase(unittest.TestCase):
         random.seed(101)
         np.random.seed(seed=101)
         logging.basicConfig(level=logging.DEBUG)
+        self.DEFAULT_GAMMA_PARAMS = [(1*1000, 0.01/1000), (1*500, 0.03/500), (1*200, 0.008/200)]
 
     def test_em_alg(self):
         # generate toy data
@@ -77,7 +78,7 @@ class EMTestCase(unittest.TestCase):
         n_states = 5
         n_sites = 500
         n_cells = 8
-        data = rand_dataset(n_cells, n_states, n_sites, obs_model='poisson', alpha=1., p_change=0.05, seed=seed)
+        data = rand_dataset(n_states, n_sites, obs_model='poisson', alpha=1., p_change=0.05, n_cells=n_cells, seed=seed)
         print("Generated tree")
         data['tree'].print_plot(plot_metric='length')
         for node in data['tree'].preorder_node_iter():
@@ -183,7 +184,7 @@ class EMTestCase(unittest.TestCase):
         print(f"True edge _lengths: {l_true}")
 
         # run EM
-        out = jcb_em_alg(data['obs'], n_states=n_states, max_iter=30, rtol=1e-3, num_processors=8)
+        out = jcb_em_alg(data['obs'], n_states=n_states, max_iter=30, rtol=1e-5, num_processors=8)
         ctr_table = out['l_hat']
 
         # change tree _lengths to match the estimated ones
@@ -223,10 +224,10 @@ class EMTestCase(unittest.TestCase):
         n_states = 5
         n_sites = 500
 
-        data = simulate_quadruplet(n_sites, gamma_params=(1., 0.055), n_states=n_states)
+        data = simulate_quadruplet(n_sites, gamma_params=self.DEFAULT_GAMMA_PARAMS, n_states=n_states)
         gt_ctr_table = get_ctr_table(data['tree'])
         # print cn in order r, u, v, w (check simulate_quadruplet doc for sorting info)
-        print(f"CN (r, u, v, w):\n{data['cn'][[3, 2, 0, 1], :20]}")
+        print(f"CN (first 20) (r, u, v, w):\n{data['cn'][[3, 2, 0, 1], :20]}")
 
         # print tree with _lengths
         l_true = gt_ctr_table[0, 1, :].tolist()
@@ -271,7 +272,8 @@ class EMTestCase(unittest.TestCase):
         n_sites = 1000
 
         alpha = 1.
-        data = rand_dataset(n_cells, n_states, n_sites, obs_model='poisson', alpha=alpha, p_change=20 / n_sites, seed=seed)
+        data = rand_dataset(n_states, n_sites, obs_model='poisson', alpha=alpha, p_change=20 / n_sites, n_cells=n_cells,
+                            seed=seed)
         print(f"True CTR table")
         true_ctr_table = get_ctr_table(data['tree'])
         print(true_ctr_table)
@@ -436,14 +438,14 @@ class EMTestCase(unittest.TestCase):
         quad_model.lengths = np.array([l_ru, l_uv, l_uw])
 
         # compute expected changes given true l
-        d, dp, loglik = quad_model.expected_changes(vw_obs.T, obs_model=pois_model)
+        d, dp, loglik = quad_model.expected_changes(vw_obs, obs_model=pois_model)
         print(f"expected p statistic: p: {d / (d + dp)}"
               f" D = {d}, D' = {dp}, loglik = {loglik}")
 
         # test with eps model
         quad_model = CopyTree(n_states=n_states)
         quad_model.eps = np.array([eps_ru, eps_uv, eps_uw])
-        d, dp, loglik = quad_model.expected_changes(vw_obs.T, obs_model=pois_model)
+        d, dp, loglik = quad_model.expected_changes(vw_obs, obs_model=pois_model)
         print(f"expected p statistic via eps ({[eps_ru, eps_uv, eps_uw]}):\n"
               f"\tp: {d / (d + dp)}, D = {d}, D' = {dp}, loglik = {loglik}")
 
@@ -492,7 +494,7 @@ class EMTestCase(unittest.TestCase):
         n_sites = 100
         p_change = 0.02
 
-        data = rand_dataset(n_cells, n_states, n_sites, obs_model='poisson', p_change=p_change, seed=seed)
+        data = rand_dataset(n_states, n_sites, obs_model='poisson', p_change=p_change, n_cells=n_cells, seed=seed)
         self.assertEqual(data['obs'].shape, (n_sites, n_cells))
 
         l_init = np.random.exponential(scale=l_from_p(p_change, n_states), size=3)
@@ -516,9 +518,9 @@ class EMTestCase(unittest.TestCase):
         random.seed(seed)
         np.random.seed(seed)
         n_states = 5
-        n_sites = 100
+        n_sites = 500
 
-        data = simulate_quadruplet(n_sites, evo_model='copytree', n_states=n_states, gamma_params=(1, 0.055))
+        data = simulate_quadruplet(n_sites, evo_model='copytree', n_states=n_states, gamma_params=self.DEFAULT_GAMMA_PARAMS)
         gt_ctr_table = get_ctr_table(data['tree'])  # eps
         # print cn in order r, u, v, w (check simulate_quadruplet doc for sorting info)
         print(f"CN (r, u, v, w):\n{data['cn'][[3, 2, 0, 1], :20]}")
@@ -528,7 +530,7 @@ class EMTestCase(unittest.TestCase):
         print(f"True edge _eps: {gt_ctr_table[0, 1, :].tolist()}")
 
         # run EM
-        out = em_alg(data['obs'], n_states=n_states, max_iter=50, rtol=1e-5, num_processors=8, eps_init=np.array([0.1, 0.1, 0.1]))
+        out = em_alg(data['obs'], n_states=n_states, max_iter=50, rtol=1e-5, num_processors=1, eps_init=np.array([0.1, 0.1, 0.1]))
         ctr_table = out['l_hat']
         ll_est = out['loglikelihoods'][0, 1]
         # change tree _lengths to match the estimated ones

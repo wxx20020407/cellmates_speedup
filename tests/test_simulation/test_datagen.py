@@ -15,7 +15,7 @@ class DatagenTestCase(unittest.TestCase):
         n_states = 7
         n_sites = 200
 
-        data = rand_dataset(n_cells, n_states, n_sites, obs_model='poisson')
+        data = rand_dataset(n_states, n_sites, obs_model='poisson', n_cells=n_cells)
 
         self.assertEqual(data['obs'].shape, (n_sites, n_cells))
         self.assertEqual(data['cn'].shape, (2 * n_cells - 1, n_sites))
@@ -30,7 +30,7 @@ class DatagenTestCase(unittest.TestCase):
         n_states = 7
         n_sites = 20
 
-        data = rand_dataset(n_cells, n_states, n_sites, obs_model='poisson')
+        data = rand_dataset(n_states, n_sites, obs_model='poisson', n_cells=n_cells)
         ctr_table = get_ctr_table(data['tree'])
         for r, s in itertools.combinations(range(n_cells), 2):
             centroid = data['tree'].mrca(taxon_labels=[str(r), str(s)])
@@ -46,8 +46,8 @@ class DatagenTestCase(unittest.TestCase):
         n_states = 7
         n_sites = 200
 
-        data1 = rand_dataset(n_cells, n_states, n_sites, obs_model='poisson', seed=seed)
-        data2 = rand_dataset(n_cells, n_states, n_sites, obs_model='poisson', seed=seed)
+        data1 = rand_dataset(n_states, n_sites, obs_model='poisson', n_cells=n_cells, seed=seed)
+        data2 = rand_dataset(n_states, n_sites, obs_model='poisson', n_cells=n_cells, seed=seed)
 
         self.assertTrue(np.all(data1['obs'] == data2['obs']))
         self.assertTrue(np.all(data1['cn'] == data2['cn']))
