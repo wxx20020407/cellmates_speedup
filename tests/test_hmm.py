@@ -3,22 +3,24 @@ import unittest
 import numpy as np
 import numpy.testing as npt
 
-from inference.em import compute_l_start_prob, compute_l_trans_mat
 from models.evolutionary_models import p_delta
+from models.evolutionary_models.jukes_cantor_breakpoint import JCBModel
 
 
-class MyTestCase(unittest.TestCase):
+class HMMTestCase(unittest.TestCase):
     def test_start_prob(self):
         # n_states == K + 1
         n_states = 7
         l = np.array([0.07, 0.1, 0.03])
         self.assertTrue(np.all(l <= 1 / (n_states-1)))
         self.assertTrue(np.all(l >= 0.))
+        evo_model = JCBModel(n_states=n_states)
+        evo_model.lengths = l
 
-        start_prob = compute_l_start_prob(l_trip=l, n_states=n_states)
+        start_prob = evo_model.start_prob
         self.assertTrue(np.isclose(np.sum(start_prob), 1.))
 
-        trans_mat = compute_l_trans_mat(l, n_states)
+        trans_mat = evo_model.trans_mat
         npt.assert_allclose(np.sum(trans_mat, axis=(3, 4, 5)), 1.)
 
     def test_pdelta_jcb(self):

@@ -28,7 +28,7 @@ class Quadruplet:
         c_v = c[2, :]
         c_w = c[3, :]
         data_v, data_w, obs_param_v, obs_param_w = \
-            self.observation_model.simulate_data(c_v, c_w, obs_param_v, obs_param_w)
+            self.observation_model.simulate_pair_data(c_v, c_w, obs_param_v, obs_param_w)
         self.data_v = data_v
         self.data_w = data_w
         out = {'data_v': data_v, 'data_w': data_w,
