@@ -1,5 +1,3 @@
-import itertools
-
 import numpy as np
 import scipy.stats as ss
 
@@ -29,26 +27,26 @@ class PoissonModel(ObsModel):
         self.M = None
         super().__init__(n_states, **kwargs)
 
-    def simulate_data(self, c_v, c_w, lambda_v=None, lambda_w=None):
+    def sample(self, cnp: np.ndarray, lambda_: np.ndarray | float = None, **kwargs):
         """
+        Sample emissions from array of copy number profiles.
         Simulate data for the model using prior parameters as default.
+        Parameters
+        ----------
+        cnp : np.ndarray, shape (n_cells, n_sites), copy numbers for each site m for batch of cells
+        lambda_: np.ndarray or float or None, Poisson baseline parameter(s) for the read-counts,
+         if None use model default
+
+        Returns
+        -------
+        np.ndarray, shape (n_sites, n_cells), read counts for each site m for parent v and child w
         """
-        lambda_v = lambda_v if lambda_v is not None else self.lambda_v_prior
-        lambda_w = lambda_w if lambda_w is not None else self.lambda_w_prior
-
-        self.M = len(c_v)
-
-        r_v = np.zeros(self.M)
-        r_w = np.zeros(self.M)
-        for m in range(self.M):
-            r_v[m] = np.random.poisson(lambda_v * c_v[m])
-            r_w[m] = np.random.poisson(lambda_w * c_w[m])
-
-        self.true_lambda_v = lambda_v
-        self.true_lambda_w = lambda_w
-        self.r_v = r_v
-        self.r_w = r_w
-        return r_v, r_w, lambda_v, lambda_w
+        if lambda_ is None:
+            lambda_ = self.lambda_v_prior
+        elif isinstance(lambda_, np.ndarray) and (lambda_.shape[0] != cnp.shape[0] and lambda_.shape[0] != 1):
+            raise ValueError(f"lambda_ has shape {lambda_.shape} but expected (1,) or (n_cells,)")
+        r_vw = np.random.poisson(lambda_ * cnp)
+        return r_vw.transpose()
 
     def log_emission(self, obs_vw, **kwargs):
         """
@@ -70,11 +68,11 @@ class PoissonModel(ObsModel):
         n_sites = obs_vw.shape[0]
         log_emissions = np.empty((n_sites, self.n_states, self.n_states))
         lam = np.array([self.lambda_v_prior, self.lambda_w_prior])
-        # TODO: vectorize this
-        for m, i, j in itertools.product(range(n_sites), range(self.n_states), range(self.n_states)):
-            # log p(y_m^v | . ) + log p(y_m^w | . )
-            log_emissions[m, i, j] = ss.poisson.logpmf(obs_vw[m], np.clip(lam * np.array([i, j]),
-                                                                          a_min=pois_mean_eps, a_max=None)).sum()
+        cn_mesh = np.meshgrid(*[range(self.n_states)] * 2, indexing='ij')
+        poisson_params = np.clip(lam[:, None, None] * cn_mesh, a_min=pois_mean_eps, a_max=None)
+        # log p(y_m^v | . ) + log p(y_m^w | . )
+        # loc param: (n_bins, n_states, n_states)
+        log_emissions[...] = ss.poisson.logpmf(obs_vw[..., None, None], poisson_params[None, ...]).sum(axis=1)
 
         return log_emissions
 

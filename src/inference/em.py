@@ -16,7 +16,6 @@ from inference.neighbor_joining import build_tree
 from models.evolutionary_models.copy_tree import CopyTree
 from models.evolutionary_models.jukes_cantor_breakpoint import JCBModel
 from models.observation_models import ObsModel
-from models.observation_models.normalized_read_counts_models import NormalModel
 from models.observation_models.read_counts_models import PoissonModel
 from simulation.datagen import rand_dataset, get_ctr_table
 
@@ -34,19 +33,8 @@ class EM:
                  evo_model: EvoModel | str = 'jcb', tree_build='ctr',
                  alpha=1., verbose: int = 0):
         # model variables
-        if isinstance(evo_model, str):
-            if evo_model == 'jcb':
-                evo_model = JCBModel(n_states=n_states, alpha=alpha)
-            elif evo_model == 'copytree':
-                evo_model = CopyTree(n_states=n_states)
-
-        self.evo_model: EvoModel = evo_model  # evolutionary model (JCB, CopyTree, ...)
-        if isinstance(obs_model, str):
-            if obs_model == 'poisson':
-                obs_model = PoissonModel(n_states=n_states)
-            elif obs_model == 'normal':
-                obs_model = NormalModel(n_states=n_states)
-        self.obs_model: ObsModel = obs_model  # observation model (Poisson, Normal, ...)
+        self.evo_model: EvoModel = EvoModel.get_instance(evo_model, n_states)  # evolutionary model (JCB, CopyTree, ...)
+        self.obs_model: ObsModel = ObsModel.get_instance(obs_model, n_states)  # observation model (Poisson, Normal, ...)
         self.tree_build = tree_build  # algorithm for tree reconstruction
         self._n_sites = None
         self._n_cells = None
@@ -69,6 +57,16 @@ class EM:
 
 
     def fit(self, X: np.ndarray, max_iter: int = 200, rtol: float = 1e-6, num_processors: int = 1, **kwargs):
+        """
+        Run the EM algorithm for the given observations X.
+        Parameters
+        ----------
+        X array of shape (n_sites, n_cells)
+        max_iter maximum number of iterations
+        rtol relative tolerance for convergence
+        num_processors number of processors to use for parallel
+        kwargs additional keyword arguments
+        """
         self.n_sites = X.shape[0]
         self.n_cells = X.shape[1]
         obs = X
@@ -77,14 +75,15 @@ class EM:
         alpha = kwargs.get('alpha', 1.)
         alpha = alpha / (self.n_states - 1) if kwargs.get('jc_correction', False) else alpha
         # init to an average of 5 changes over the whole length if not provided
-        l_init = kwargs.get('l_init', np.array([l_from_p(5 / n_sites, self.n_states)] * 3))
+        p_init_default = 5 / self.n_sites
+        l_init = kwargs.get('l_init', np.array([l_from_p(p_init_default, self.n_states)] * 3) if isinstance(self.evo_model, JCBModel) else np.array([p_init_default] * 3))
 
-        l_hat = -np.ones((n_cells, n_cells, 3))
+        l_hat = -np.ones((self.n_cells, self.n_cells, 3))
         zero_tol = kwargs.get('zero_tol', 1e-10)  # saturation level when dp << d (changes are much more prevalent)
 
         # for each pair of cells
-        self.logger.debug(f'starting inference for {int(comb(n_cells, 2))} pairs, {self.n_states} states,'
-                      f' {n_cells} cells, {n_sites} sites, {max_iter} max iterations, {rtol} rtol')
+        self.logger.debug(f'starting inference for {int(comb(self.n_cells, 2))} pairs, {self.n_states} states,'
+                      f' {self.n_cells} cells, {self.n_sites} sites, {max_iter} max iterations, {rtol} rtol')
         iterations = {}
         loglikelihoods = {}
 
@@ -97,7 +96,7 @@ class EM:
             shared_obs = np.ndarray(obs.shape, dtype=obs.dtype, buffer=shm_obs.buf)
             np.copyto(shared_obs, obs)
             args = [(s, t, shm_obs.name, l_init, alpha, max_iter, rtol, zero_tol, self.obs_model)
-                    for s, t in itertools.combinations(range(n_cells), r=2)]
+                    for s, t in itertools.combinations(range(self.n_cells), r=2)]
             with mp.Pool(num_processors) as pool:
                 # main loop
                 results = pool.starmap(self._fit_quadruplet_shared_mem, args)
@@ -107,7 +106,7 @@ class EM:
             # single processor
             self.logger.debug(f'using single processor')
             results = []
-            for s, t in itertools.combinations(range(n_cells), r=2):
+            for s, t in itertools.combinations(range(self.n_cells), r=2):
                 results.append(self._fit_quadruplet(s, t, obs[:, [s, t]], l_init, max_iter, rtol))
 
         # collect results
@@ -167,7 +166,6 @@ class EM:
         """
         Pairwise EM algorithm for a pair of cells v, w with shared observations to be used in multiprocessing
         """
-        # TODO: add logger to print out the progress
         shm = shared_memory.SharedMemory(name=shared_obs_mem_name)
         obs_vw = np.ndarray((self.n_sites, self.n_cells), dtype=np.float64, buffer=shm.buf)[..., [v, w]]
         return self._fit_quadruplet(v, w, obs_vw, l_init, max_iter, rtol)
@@ -221,7 +219,7 @@ class EM:
         return self._n_iterations
 
     @property
-    def loglikelihoods(self):
+    def loglikelihoods(self) -> dict[tuple[int, int], float]:
         if self._loglikelihoods is None:
             raise AttributeError("Loglikelihoods not set. Run `fit` or `fit_transform` first.")
         return self._loglikelihoods
@@ -279,9 +277,24 @@ Implementation of JCB EM algorithm in write-up
     'loglikelihoods' dict with keys (v, w) and values log likelihood of the observations
     """
     logging.warning('outdated function, use the new class EM instead')
-    em = EM(n_states=n_states, obs_model='poisson', evo_model='jcb', alpha=alpha, max_iter=max_iter, rtol=rtol,
-            jc_correction=jc_correction, num_processors=num_processors)
-    em.fit(obs)
+    em = EM(n_states=n_states, obs_model='poisson', evo_model='jcb', alpha=alpha)
+    em.fit(obs, max_iter=max_iter, rtol=rtol, num_processors=num_processors, jc_correction=jc_correction)
+    return {
+        'l_hat': em.distances,
+        'iterations': em.n_iterations,
+        'loglikelihoods': em.loglikelihoods
+    }
+
+def em_alg(obs: np.ndarray, n_states: int = 7, eps_init=None, max_iter: int = 200, rtol: float = 1e-6,
+           num_processors: int = 1) -> dict[str, np.ndarray | dict[tuple[int, int], int | float]]:
+    """
+    CopyTree
+    """
+    logging.warning('outdated function, use the new class EM instead')
+    if eps_init is None:
+        eps_init = np.array([0.01] * 3)
+    em = EM(n_states=n_states, obs_model='poisson', evo_model='copytree')
+    em.fit(obs, max_iter=max_iter, rtol=rtol, num_processors=num_processors, l_init=eps_init)
     return {
         'l_hat': em.distances,
         'iterations': em.n_iterations,
@@ -296,7 +309,7 @@ if __name__ == '__main__':
     n_cells = 4
     n_states = 7
     n_sites = 200
-    data = rand_dataset(n_cells, n_states, n_sites, obs_type='pois', p_change=0.05, seed=seed)
+    data = rand_dataset(n_states, n_sites, obs_model='poisson', p_change=0.05, n_cells=n_cells, seed=seed)
     # true ctr_table
     true_ctr_table = get_ctr_table(data['tree'])
 

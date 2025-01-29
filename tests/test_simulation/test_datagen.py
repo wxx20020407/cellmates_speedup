@@ -3,10 +3,11 @@ import random
 import unittest
 import numpy as np
 
-from simulation.datagen import rand_dataset, get_ctr_table
+from simulation.datagen import rand_dataset, get_ctr_table, simulate_quadruplet
 
 
-class MyTestCase(unittest.TestCase):
+class DatagenTestCase(unittest.TestCase):
+
     def test_rand_dataset(self):
         random.seed(1234)
         np.random.seed(1234)
@@ -14,7 +15,7 @@ class MyTestCase(unittest.TestCase):
         n_states = 7
         n_sites = 200
 
-        data = rand_dataset(n_cells, n_states, n_sites, obs_type='pois')
+        data = rand_dataset(n_states, n_sites, obs_model='poisson', n_cells=n_cells)
 
         self.assertEqual(data['obs'].shape, (n_sites, n_cells))
         self.assertEqual(data['cn'].shape, (2 * n_cells - 1, n_sites))
@@ -29,7 +30,7 @@ class MyTestCase(unittest.TestCase):
         n_states = 7
         n_sites = 20
 
-        data = rand_dataset(n_cells, n_states, n_sites, obs_type='pois')
+        data = rand_dataset(n_states, n_sites, obs_model='poisson', n_cells=n_cells)
         ctr_table = get_ctr_table(data['tree'])
         for r, s in itertools.combinations(range(n_cells), 2):
             centroid = data['tree'].mrca(taxon_labels=[str(r), str(s)])
@@ -45,12 +46,20 @@ class MyTestCase(unittest.TestCase):
         n_states = 7
         n_sites = 200
 
-        data1 = rand_dataset(n_cells, n_states, n_sites, obs_type='pois', seed=seed)
-        data2 = rand_dataset(n_cells, n_states, n_sites, obs_type='pois', seed=seed)
+        data1 = rand_dataset(n_states, n_sites, obs_model='poisson', n_cells=n_cells, seed=seed)
+        data2 = rand_dataset(n_states, n_sites, obs_model='poisson', n_cells=n_cells, seed=seed)
 
         self.assertTrue(np.all(data1['obs'] == data2['obs']))
         self.assertTrue(np.all(data1['cn'] == data2['cn']))
         self.assertTrue(data1['tree'].as_string('newick') == data2['tree'].as_string('newick'))
+
+    def test_simulate_quadruplet(self):
+        n_states = 7
+        n_sites = 200
+        data = simulate_quadruplet(n_sites, n_states=n_states)
+        self.assertEqual(data['obs'].shape, (n_sites, 2))
+        self.assertEqual(data['cn'].shape, (4, n_sites))
+        self.assertTrue({n.label for n in data['tree'].nodes()} == set(map(str, range(4))))
 
 
 if __name__ == '__main__':
