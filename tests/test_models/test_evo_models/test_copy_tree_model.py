@@ -8,7 +8,22 @@ from models.evolutionary_models import p_delta_change, p_delta_trans_mat, p_delt
 
 
 class CopyTreeTestCase(unittest.TestCase):
-    # TODO: Find good asserts
+    def test_copy_tree_init(self):
+        n_states = 5
+        copytree_model = CopyTree(n_states)
+        self.assertEqual(copytree_model.n_states, n_states)
+        self.assertTrue(copytree_model.eps is None)
+
+    def test_trans_prob(self):
+        n_states = 5
+        eps_init = np.random.rand(3)
+        copytree_model = CopyTree(n_states)
+        copytree_model.eps = eps_init
+        self.assertTrue(np.allclose(copytree_model.eps, eps_init))
+        self.assertEqual(copytree_model.start_prob.shape, (n_states, n_states, n_states))
+        self.assertEqual(copytree_model.trans_mat.shape, (n_states,) * 6)
+        self.assertAlmostEqual(np.sum(copytree_model.start_prob), 1)
+        self.assertTrue(np.allclose(np.sum(copytree_model.trans_mat, axis=(3, 4, 5)), np.ones((n_states,) * 3)))
 
     def test_p_delta_change(self):
         n_states = 5

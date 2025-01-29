@@ -11,13 +11,14 @@ from dendropy.calculate import treecompare
 from scipy.special import logsumexp
 
 from models.evolutionary_models import p_delta_change
-from simulation.datagen import rand_dataset, get_ctr_table, emit_raw_obs, simulate_quadruplet
-from inference.em import jcb_em_ctrtable, compute_exp_changes, two_slice_marginals
-from models.evolutionary_models.copy_tree import likelihood
+from models.evolutionary_models.jukes_cantor_breakpoint import JCBModel
+from models.observation_models.read_counts_models import PoissonModel
+from simulation.datagen import rand_dataset, get_ctr_table, simulate_quadruplet
+from inference.em import jcb_em_ctrtable, EM, jcb_em_alg, em_alg
+from models.evolutionary_models.copy_tree import CopyTree
 from utils.tree_utils import convert_networkx_to_dendropy, get_node2node_distance, random_binary_tree, label_tree
-from utils.math_utils import l_from_p
+from utils.math_utils import l_from_p, p_from_l
 
-from inference.em import em_alg
 from inference.neighbor_joining import build_tree
 
 
@@ -46,9 +47,12 @@ class EMTestCase(unittest.TestCase):
 
     def test_em_alg(self):
         # generate toy data
+        n_states = 5
         obs, eps = _generate_obs(noise=10)
         # run em
-        ctr_table = em_alg(obs, n_states)
+        em = EM(n_states, PoissonModel(n_states, 100, 100), 'copytree', tree_build='ctr', verbose=2)
+        em.fit(obs, max_iter=30, rtol=1e-3, num_processors=8)
+        ctr_table = em.distances
         # assert epsilons
         for v, w in itertools.combinations(range(obs.shape[1]), r=2):
             print(f"eps({v},{w}) = {ctr_table[v, w]:.3f}")
@@ -60,7 +64,6 @@ class EMTestCase(unittest.TestCase):
         # generate toy data
         obs, eps = _generate_obs(noise=10)
         # run em
-        # ctr_table = em_alg(obs)
         ctr_table = jcb_em_ctrtable(obs, n_states=5)
         print(ctr_table)
         # build tree
@@ -74,7 +77,7 @@ class EMTestCase(unittest.TestCase):
         n_states = 5
         n_sites = 500
         n_cells = 8
-        data = rand_dataset(n_cells, n_states, n_sites, alpha=1., obs_type='pois', p_change=0.05, seed=seed)
+        data = rand_dataset(n_cells, n_states, n_sites, obs_model='poisson', alpha=1., p_change=0.05, seed=seed)
         print("Generated tree")
         data['tree'].print_plot(plot_metric='length')
         for node in data['tree'].preorder_node_iter():
@@ -115,9 +118,7 @@ class EMTestCase(unittest.TestCase):
         n_states = 5
         n_sites = 500
 
-        alpha = 1.
-
-        data = simulate_quadruplet(n_states, n_sites, alpha=alpha)
+        data = simulate_quadruplet(n_sites, n_states=n_states, gamma_params=(1., 0.055))
         gt_ctr_table = get_ctr_table(data['tree'])
         # print cn in order r, u, v, w (check simulate_quadruplet doc for sorting info)
         print(f"CN (r, u, v, w):\n{data['cn'][[3, 2, 0, 1], :20]}")
@@ -128,7 +129,9 @@ class EMTestCase(unittest.TestCase):
         print(f"True edge _lengths: {l_true}")
 
         # run EM
-        ctr_table = jcb_em_ctrtable(data['obs'], n_states=n_states)
+        out = jcb_em_alg(data['obs'], n_states=n_states, max_iter=30, rtol=1e-3, num_processors=1)
+        ctr_table = out['l_hat']
+
         # change tree _lengths to match the estimated ones
         for edge in data['tree'].preorder_edge_iter():
             if edge.head_node.label == 2:
@@ -143,8 +146,14 @@ class EMTestCase(unittest.TestCase):
         print(l_est)
 
         # check likelihood
-        ll_true = likelihood(data['obs'], l_true, n_states)
-        ll_est = likelihood(data['obs'], l_est, n_states)
+        evo_model = JCBModel(n_states=n_states)
+        evo_model.lengths = l_true
+
+        obs_model = PoissonModel(n_states, 100, 100)
+        log_emissions = obs_model.log_emission(data['obs'])
+        _, ll_true = evo_model._forward_pass_likelihood(data['obs'], log_emissions)
+
+        ll_est = out['loglikelihoods'][0, 1]
         self.assertGreater(ll_est, ll_true)
 
         # if these tests don't pass, it's likely that they are wrong
@@ -174,7 +183,8 @@ class EMTestCase(unittest.TestCase):
         print(f"True edge _lengths: {l_true}")
 
         # run EM
-        ctr_table = jcb_em_ctrtable(data['obs'], n_states=n_states, max_iter=30)
+        out = jcb_em_alg(data['obs'], n_states=n_states, max_iter=30, rtol=1e-3, num_processors=8)
+        ctr_table = out['l_hat']
 
         # change tree _lengths to match the estimated ones
         for edge in data['tree'].preorder_edge_iter():
@@ -190,8 +200,13 @@ class EMTestCase(unittest.TestCase):
         print(l_est)
 
         # check likelihood
-        ll_true = likelihood(data['obs'], l_true, n_states)
-        ll_est = likelihood(data['obs'], l_est, n_states)
+        ll_est = out['loglikelihoods'][0, 1]
+        evo_model = JCBModel(n_states=n_states)
+        evo_model.lengths = l_true
+
+        obs_model = PoissonModel(n_states, 100, 100)
+        log_emissions = obs_model.log_emission(data['obs'])
+        _, ll_true = evo_model._forward_pass_likelihood(data['obs'], log_emissions)
         self.assertGreater(ll_est, ll_true)
 
         # if these tests don't pass, it's likely that they are wrong
@@ -208,8 +223,7 @@ class EMTestCase(unittest.TestCase):
         n_states = 5
         n_sites = 500
 
-        alpha = 1.
-        data = simulate_quadruplet(n_states, n_sites, alpha=alpha)
+        data = simulate_quadruplet(n_sites, gamma_params=(1., 0.055), n_states=n_states)
         gt_ctr_table = get_ctr_table(data['tree'])
         # print cn in order r, u, v, w (check simulate_quadruplet doc for sorting info)
         print(f"CN (r, u, v, w):\n{data['cn'][[3, 2, 0, 1], :20]}")
@@ -218,9 +232,11 @@ class EMTestCase(unittest.TestCase):
         l_true = gt_ctr_table[0, 1, :].tolist()
         data['tree'].print_plot(plot_metric='length')
         print(f"True edge _lengths: {l_true}")
+        print(f"(from p: {p_from_l(gt_ctr_table[0, 1, :], n_states)}")
 
         # run EM
-        ctr_table = jcb_em_ctrtable(data['obs'], n_states=n_states, l_init=gt_ctr_table[0, 1, :], max_iter=30)
+        out = jcb_em_alg(data['obs'], n_states=n_states, l_init=gt_ctr_table[0, 1, :], max_iter=30, rtol=1e-5, num_processors=1)
+        ctr_table = out['l_hat']
         # change tree _lengths to match the estimated ones
         for edge in data['tree'].preorder_edge_iter():
             if edge.head_node.label == 2:
@@ -235,8 +251,13 @@ class EMTestCase(unittest.TestCase):
         print(l_est)
 
         # check likelihood
-        ll_true = likelihood(data['obs'], l_true, n_states)
-        ll_est = likelihood(data['obs'], l_est, n_states)
+        ll_est = out['loglikelihoods'][0, 1]
+        evo_model = JCBModel(n_states=n_states)
+        evo_model.lengths = l_true
+
+        obs_model = PoissonModel(n_states, 100, 100)
+        log_emissions = obs_model.log_emission(data['obs'])
+        _, ll_true = evo_model._forward_pass_likelihood(data['obs'], log_emissions)
         self.assertGreater(ll_est, ll_true)
 
     def test_two_cells(self):
@@ -250,8 +271,7 @@ class EMTestCase(unittest.TestCase):
         n_sites = 1000
 
         alpha = 1.
-        data = rand_dataset(n_cells, n_states, n_sites,
-                            alpha=alpha, obs_type='pois', p_change=20 / n_sites, seed=seed)
+        data = rand_dataset(n_cells, n_states, n_sites, obs_model='poisson', alpha=alpha, p_change=20 / n_sites, seed=seed)
         print(f"True CTR table")
         true_ctr_table = get_ctr_table(data['tree'])
         print(true_ctr_table)
@@ -288,7 +308,7 @@ class EMTestCase(unittest.TestCase):
         print(f"Estimated CTR table")
         print(ctr_table)
         self.assertAlmostEqual(ctr_table[0, 1, 0], true_ctr_table[c1, c2, 0],
-                               msg=f"cell {c1} and {c2} CTR: {ctr_table[0, 1, 0]} != {true_ctr_table[c1, c2, 0]}")
+                               msg=f"cell {c1} and {c2} CTR: {ctr_table[0, 1, 0]} != {true_ctr_table[c1, c2, 0]}", places=3)
         # build tree
         em_tree = build_tree(ctr_table)
 
@@ -311,6 +331,7 @@ class EMTestCase(unittest.TestCase):
         p_change = 3 / n_sites
         ll = l_from_p(p_change * 2, n_states)
         sl = l_from_p(0, n_states)
+        jcb_model = JCBModel(n_states=n_states)
         print(f"LONG l prop of change: 1 - pdd = {1 - p_delta_change(n_states, ll, change=False)}")
         print(f"SHORT l prop of change: 1 - pdd = {1 - p_delta_change(n_states, sl, change=False)}")
         obs_vw = np.array([
@@ -322,10 +343,14 @@ class EMTestCase(unittest.TestCase):
         n_sites = obs_vw.shape[0]
         # the best explanation is that centroid and root are further apart than centroid and v,u
         # compute two-slice marginals assuming centroid is placed closer to the root
-        log_xi_early_centroid, loglik_early = two_slice_marginals(obs_vw, np.array([sl, ll, ll]), n_states, jcb=True)
+        jcb_model.lengths = np.array([sl, ll, ll])
+        log_xi_early_centroid = jcb_model.two_slice_marginals(obs_vw)
+        loglik_early = jcb_model.loglikelihood
 
         # compute two-slice marginals assuming centroid is placed closer to the leaves
-        log_xi_late_centroid, loglik_late = two_slice_marginals(obs_vw, np.array([ll, sl, sl]), n_states, jcb=True)
+        jcb_model.lengths = np.array([ll, sl, sl])
+        log_xi_late_centroid = jcb_model.two_slice_marginals(obs_vw)
+        loglik_late = jcb_model.loglikelihood
         self.assertGreater(loglik_late, loglik_early)
 
         self.assertEqual(log_xi_late_centroid.shape, (n_sites - 1,) + (n_states,) * 6)
@@ -401,21 +426,24 @@ class EMTestCase(unittest.TestCase):
         v_cn = ([2] * t0 + [1] * t0) * 100  # no distance from centroid
         w_cn = ([2] * t0 + [3] * (t0 // 2) + [1] * (t0 // 2 + 1)) * 100  # 100 more changes than v
 
-        v_obs = emit_raw_obs(v_cn)
-        w_obs = emit_raw_obs(w_cn)
+        # generate observations
+        pois_model = PoissonModel(n_states=n_states)
+        vw_obs = pois_model.sample(np.array([v_cn, w_cn]))
 
-        print(f"V obs: {v_obs[:20]}")
-        print(f"W obs: {w_obs[:20]}")
+        print(f"V,W obs:\n {vw_obs[:, :20]}")
+
+        quad_model = JCBModel(n_states=n_states)
+        quad_model.lengths = np.array([l_ru, l_uv, l_uw])
 
         # compute expected changes given true l
-        d, dp, loglik = compute_exp_changes(np.array([l_ru, l_uv, l_uw]), np.stack([v_obs, w_obs], axis=1),
-                                            n_states=n_states, alpha=alpha)
+        d, dp, loglik = quad_model.expected_changes(vw_obs.T, obs_model=pois_model)
         print(f"expected p statistic: p: {d / (d + dp)}"
               f" D = {d}, D' = {dp}, loglik = {loglik}")
 
         # test with eps model
-        d, dp, loglik = compute_exp_changes(np.array([eps_ru, eps_uv, eps_uw]), np.stack([v_obs, w_obs], axis=1),
-                                            n_states=n_states, alpha=alpha, jcb=False)
+        quad_model = CopyTree(n_states=n_states)
+        quad_model.eps = np.array([eps_ru, eps_uv, eps_uw])
+        d, dp, loglik = quad_model.expected_changes(vw_obs.T, obs_model=pois_model)
         print(f"expected p statistic via eps ({[eps_ru, eps_uv, eps_uw]}):\n"
               f"\tp: {d / (d + dp)}, D = {d}, D' = {dp}, loglik = {loglik}")
 
@@ -464,7 +492,7 @@ class EMTestCase(unittest.TestCase):
         n_sites = 100
         p_change = 0.02
 
-        data = rand_dataset(n_cells, n_states, n_sites, obs_type='pois', p_change=p_change, seed=seed)
+        data = rand_dataset(n_cells, n_states, n_sites, obs_model='poisson', p_change=p_change, seed=seed)
         self.assertEqual(data['obs'].shape, (n_sites, n_cells))
 
         l_init = np.random.exponential(scale=l_from_p(p_change, n_states), size=3)
@@ -480,4 +508,54 @@ class EMTestCase(unittest.TestCase):
 
         self.assertLess(tot_time_5_proc, tot_time_1_proc)
         self.assertTrue(np.allclose(ctr_table_5p, ctr_table_1p))
+
+    def test_quadruplet_copytree(self):
+        # seed for reproducibility
+        seed = 120
+        # dendropy seed
+        random.seed(seed)
+        np.random.seed(seed)
+        n_states = 5
+        n_sites = 100
+
+        data = simulate_quadruplet(n_sites, evo_model='copytree', n_states=n_states, gamma_params=(1, 0.055))
+        gt_ctr_table = get_ctr_table(data['tree'])  # eps
+        # print cn in order r, u, v, w (check simulate_quadruplet doc for sorting info)
+        print(f"CN (r, u, v, w):\n{data['cn'][[3, 2, 0, 1], :20]}")
+
+        # print tree with _lengths
+        data['tree'].print_plot(plot_metric='length')
+        print(f"True edge _eps: {gt_ctr_table[0, 1, :].tolist()}")
+
+        # run EM
+        out = em_alg(data['obs'], n_states=n_states, max_iter=50, rtol=1e-5, num_processors=8, eps_init=np.array([0.1, 0.1, 0.1]))
+        ctr_table = out['l_hat']
+        ll_est = out['loglikelihoods'][0, 1]
+        # change tree _lengths to match the estimated ones
+        for edge in data['tree'].preorder_edge_iter():
+            if edge.head_node.label == 2:
+                edge.length = ctr_table[0, 1, 0]
+            elif edge.head_node.label == 0:
+                edge.length = ctr_table[0, 1, 1]
+            elif edge.head_node.label == 1:
+                edge.length = ctr_table[0, 1, 2]
+        data['tree'].print_plot(plot_metric='length')
+        print("Estimated edge _lengths:")
+        eps_est = ctr_table[0, 1, :].tolist()
+        print(eps_est)
+
+        # check likelihood
+        evo_model = CopyTree(n_states=n_states)
+        evo_model.eps = gt_ctr_table[0, 1, :]
+
+        obs_model = PoissonModel(n_states, 100, 100)
+        log_emissions = obs_model.log_emission(data['obs'])
+        _, ll_true = evo_model._forward_pass_likelihood(data['obs'], log_emissions)
+
+        self.assertGreater(ll_est, ll_true)
+
+        # if these tests don't pass, it's likely that they are wrong
+        self.assertAlmostEqual(ctr_table[0, 1, 0], gt_ctr_table[0, 1, 0], delta=0.02)
+        self.assertAlmostEqual(ctr_table[0, 1, 1], gt_ctr_table[0, 1, 1], delta=0.02)
+        self.assertAlmostEqual(ctr_table[0, 1, 2], gt_ctr_table[0, 1, 2], delta=0.01)
 

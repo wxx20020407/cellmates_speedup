@@ -11,8 +11,13 @@ import dendropy as dpy
 import random
 import anndata
 
-from models.evolutionary_models import p_delta_change
-from utils.math_utils import l_from_p
+from models.evolutionary_models import p_delta_change, EvoModel
+from models.evolutionary_models.copy_tree import CopyTree
+from models.evolutionary_models.jukes_cantor_breakpoint import JCBModel
+from models.observation_models import ObsModel
+from models.observation_models.normalized_read_counts_models import NormalModel
+from models.observation_models.read_counts_models import PoissonModel
+from utils.math_utils import l_from_p, p_from_l
 from utils.tree_utils import random_binary_tree, get_node2node_distance, label_tree
 
 
@@ -24,92 +29,78 @@ class Dataset(TypedDict):
     tree: dpy.Tree
     cn: np.ndarray
 
-
-def simulate_quadruplet(n_states, n_sites, alpha=1., l_mean=None) -> Dataset:
+def simulate_quadruplet(n_sites,
+                        obs_model: ObsModel | str = 'poisson',
+                        evo_model: EvoModel | str = 'jcb',
+                        gamma_params: tuple | list[tuple] = (1, 1),
+                        n_states: int = None) -> Dataset:
     """
     Simulate a quadruplet tree with 2 leaves, one internal node and a root.
-    The tree is rooted and the edge _lengths are generated from an exponential distribution if l_mean is None,
+    The tree is rooted and the edge_lengths are generated from an exponential distribution if l_mean is None,
     otherwise they are set to a fixed value: [0.01, 0.03, 0.008].
     The copy number profiles are simulated from the tree and the observations are emitted from the leaves.
     Indices are r, u, v, w = 3, 2, 0, 1.
     Parameters
     ----------
-    n_states: int, number of copy number states
     n_sites: int, number of sites
     alpha: float, alpha parameter for evolution model
     l_mean: float, mean of the exponential distribution for edge _lengths
+    gamma_params: tuple or list of tuples, parameters for gamma distribution for edge _lengths
+        if tuple, the same parameters are used for all edges, otherwise a list of tuples is expected, one for each edge
+    n_states: int, number of copy number states (if None, it will use the evolution model parameters)
 
     Returns
     -------
     dict with keys 'obs', 'tree', 'cn'
 
     """
+    # generate tree
     # generate dendropy tree with 2 leaves, one internal node and root
     tree = dpy.Tree.get(data="((0,1)2)3;", schema='newick', taxon_namespace=dpy.TaxonNamespace(['0', '1']))
     label_tree(tree)
     tree.is_rooted = True
-    # generate edge _lengths
-    l_true = np.empty(3)
-    if l_mean is None:
-        l_true[:] = np.array([0.01, 0.03, 0.008])
-    else:
-        for i in range(3):
-            l_true[i] = ss.expon(scale=l_mean / alpha).rvs()
-    r, u, v, w = tuple(map(str, [3, 2, 0, 1]))
+    evo_model = EvoModel.get_instance(evo_model, n_states)
+    obs_model = ObsModel.get_instance(obs_model, n_states)
+
+    if isinstance(gamma_params, tuple):
+        gamma_params = [gamma_params] * 3
+    if isinstance(gamma_params, list):
+        if len(gamma_params) == 1:
+            gamma_params = gamma_params * 3
+        elif len(gamma_params) == 2:
+            gamma_params.append(gamma_params[1])
+        elif len(gamma_params) > 3:
+            logging.error(f"too many gamma_params provided, using the first 3")
+            gamma_params = gamma_params[:3]
+    assert len(gamma_params) == 3 and all(len(gamma_params[i]) == 2 for i in range(3)), "gamma_params must be a tuple or list of 3 tuples"
+    gamma_params = np.stack(gamma_params)
+
+    # simulate edge_lengths (or epsilon param for 'copytree')
+    edge_lengths = ss.gamma.rvs(gamma_params[:, 0], scale=gamma_params[:, 1])
+    if isinstance(evo_model, CopyTree):
+        edge_lengths = p_from_l(edge_lengths, n_states=n_states)
     for edge in tree.preorder_edge_iter():
         # centroid to root
-        if edge.head_node.label == u:
-            edge.length = l_true[0]
+        if edge.head_node.label == '2':
+            edge.length = edge_lengths[0]
         # centroid to v
-        elif edge.head_node.label == v:
-            edge.length = l_true[1]
+        elif edge.head_node.label == '0':
+            edge.length = edge_lengths[1]
         # centroid to w
-        elif edge.head_node.label == w:
-            edge.length = l_true[2]
+        elif edge.head_node.label == '1':
+            edge.length = edge_lengths[2]
 
-    # and cn profiles
-    cn = simulate_cn(tree, n_sites, n_states, alpha=alpha)
+    # simulate copy number profiles
+    cn = evo_model.simulate_cn(tree, n_sites)
+
     # emit observations from tree leaves
-    obs = np.empty((n_sites, 2))
-    for t in tree.leaf_node_iter():
-        cell_id = int(t.label)
-        obs[:, cell_id] = emit_raw_obs(cn[cell_id, :])
+    obs = obs_model.sample(cn[2:4, :])
+
     return {
         'obs': obs,
         'tree': tree,
         'cn': cn
     }
-
-
-def simulate_cn_seq(prev_cn, n_states, l, alpha=1.):
-    node_cn = np.empty_like(prev_cn)
-    # scale l if needed
-    pdd = p_delta_change(n_states, l, change=False, alpha=alpha)
-    # simulate first copy number
-    u = random.random()
-    if u < pdd:
-        node_cn[0] = prev_cn[0]
-    else:
-        node_cn[0] = random.choice([j for j in range(n_states) if j != prev_cn[0]])
-
-    for m in range(1, len(prev_cn)):
-        u = random.random()
-        no_change_cn = prev_cn[m] - prev_cn[m - 1] + node_cn[m - 1]
-        if prev_cn[m] == 0:
-            # 0 absorption
-            no_change_cn = 0
-
-        if 0 <= no_change_cn < n_states:
-            if u < pdd:
-                node_cn[m] = no_change_cn
-            else:
-                node_cn[m] = random.choice([j for j in range(n_states) if j != no_change_cn])
-        elif no_change_cn < 0:
-            node_cn[m] = 0
-        else:
-            node_cn[m] = random.choice([j for j in range(n_states)])
-    return node_cn
-
 
 def emit_normalized_obs(cn_seq, mu=1.0, scale=1.0):
     eps = ss.norm(loc=0., scale=scale).rvs(size=len(cn_seq))
@@ -118,17 +109,6 @@ def emit_normalized_obs(cn_seq, mu=1.0, scale=1.0):
 
 def emit_raw_obs(cn_seq, lam=100.):
     return ss.poisson.rvs(mu=np.clip(cn_seq, a_min=.01, a_max=None) * lam, size=len(cn_seq))
-
-
-def simulate_cn(tree, n_sites, n_states, alpha=1.):
-    cn = np.empty((len(tree.nodes()), n_sites))
-    cn[int(tree.seed_node.label), :] = 2
-    # tree needs index-labeled node
-    assert tree.seed_node.label is not None
-    for n in tree.preorder_node_iter():
-        if n != tree.seed_node:
-            cn[int(n.label)] = simulate_cn_seq(cn[int(n.parent_node.label)], n_states, n.edge_length, alpha=alpha)
-    return cn
 
 
 def get_root_distance(centroid):
@@ -170,29 +150,30 @@ def rand_ann_dataset(n_cells: int, n_states: int, n_sites: int, **kwargs):
     return anndataset
 
 
-def rand_dataset(n_cells: int, n_states: int, n_sites: int, alpha=1., obs_type='norm', p_change: float = .2,
-                 seed=None) -> Dataset:
+def rand_dataset(n_cells: int, n_states: int, n_sites: int, evo_model: EvoModel | str = 'jcb',
+                 obs_model: ObsModel | str = 'normal', alpha=1.,
+                 p_change: float = .2, seed=None) -> Dataset:
     # generate random sc binary tree
     if seed is not None:
         np.random.seed(seed)
         random.seed(seed)
         dpy.utility.GLOBAL_RNG.seed(seed)
+
+    # parse evo_model and obs_model params
+    evo_model = EvoModel.get_instance(evo_model, n_states)
+    obs_model = ObsModel.get_instance(obs_model, n_states)
+
     # seed already set, no need to set it again
     tree = random_binary_tree(n_cells, length_mean=l_from_p(p_change, n_states) / alpha, seed=None)
     # set tree to rooted
     tree.is_rooted = True
     # simulate copy number chains
-    cn = simulate_cn(tree, n_sites, n_states, alpha=alpha)
+    cn = evo_model.simulate_cn(tree, n_sites)
     # emit observations from tree leaves
     obs = np.empty((n_sites, n_cells), dtype=np.float64)
     for t in tree.leaf_node_iter():
         cell_id = int(t.label)
-        if obs_type == 'pois':
-            obs[:, cell_id] = emit_raw_obs(cn[cell_id])
-        elif obs_type == 'norm':
-            obs[:, cell_id] = emit_normalized_obs(cn[cell_id], scale=.7)
-        else:
-            logging.debug(f"type {obs_type} not supported for obs model")
+        obs[:, cell_id] = obs_model.sample(cn[cell_id])
 
     # return dict with observations and all latent variables
     data = {
