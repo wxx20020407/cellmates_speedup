@@ -57,8 +57,8 @@ if __name__=='__main__':
         for n_cells in n_cells_list:
             for i in range(n_datasets):
                 seed = random.randint(0, 100000)
-                data = rand_dataset(n_cells, n_states, n_sites, obs_model='poisson', alpha=alpha, p_change=p_change,
-                                    seed=seed)
+                data = rand_dataset(n_states, n_sites, obs_model='poisson', alpha=alpha, p_change=p_change,
+                                    n_cells=n_cells, seed=seed)
                 true_ctr_table = get_ctr_table(data['tree'])
 
                 start = time.time()

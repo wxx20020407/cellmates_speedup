@@ -20,7 +20,7 @@ class NJTestCase(unittest.TestCase):
         n_states = 6
         n_sites = 30
         n_cells = 10
-        data = rand_dataset(n_cells, n_states, n_sites, obs_model='poisson', alpha=.02)
+        data = rand_dataset(n_states, n_sites, obs_model='poisson', alpha=.02, n_cells=n_cells)
 
         # Extract the true tree from the data
 

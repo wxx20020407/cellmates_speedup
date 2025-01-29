@@ -11,12 +11,9 @@ import dendropy as dpy
 import random
 import anndata
 
-from models.evolutionary_models import p_delta_change, EvoModel
+from models.evolutionary_models import EvoModel
 from models.evolutionary_models.copy_tree import CopyTree
-from models.evolutionary_models.jukes_cantor_breakpoint import JCBModel
 from models.observation_models import ObsModel
-from models.observation_models.normalized_read_counts_models import NormalModel
-from models.observation_models.read_counts_models import PoissonModel
 from utils.math_utils import l_from_p, p_from_l
 from utils.tree_utils import random_binary_tree, get_node2node_distance, label_tree
 
@@ -33,7 +30,7 @@ def simulate_quadruplet(n_sites,
                         obs_model: ObsModel | str = 'poisson',
                         evo_model: EvoModel | str = 'jcb',
                         gamma_params: tuple | list[tuple] = (1, 1),
-                        n_states: int = None) -> Dataset:
+                        n_states: int = None, seed: int = None) -> Dataset:
     """
     Simulate a quadruplet tree with 2 leaves, one internal node and a root.
     The tree is rooted and the edge_lengths are generated from an exponential distribution if l_mean is None,
@@ -59,8 +56,6 @@ def simulate_quadruplet(n_sites,
     tree = dpy.Tree.get(data="((0,1)2)3;", schema='newick', taxon_namespace=dpy.TaxonNamespace(['0', '1']))
     label_tree(tree)
     tree.is_rooted = True
-    evo_model = EvoModel.get_instance(evo_model, n_states)
-    obs_model = ObsModel.get_instance(obs_model, n_states)
 
     if isinstance(gamma_params, tuple):
         gamma_params = [gamma_params] * 3
@@ -90,17 +85,7 @@ def simulate_quadruplet(n_sites,
         elif edge.head_node.label == '1':
             edge.length = edge_lengths[2]
 
-    # simulate copy number profiles
-    cn = evo_model.simulate_cn(tree, n_sites)
-
-    # emit observations from tree leaves
-    obs = obs_model.sample(cn[2:4, :])
-
-    return {
-        'obs': obs,
-        'tree': tree,
-        'cn': cn
-    }
+    return rand_dataset(n_states, n_sites, evo_model=evo_model, obs_model=obs_model, tree=tree, seed=seed)
 
 def emit_normalized_obs(cn_seq, mu=1.0, scale=1.0):
     eps = ss.norm(loc=0., scale=scale).rvs(size=len(cn_seq))
@@ -145,14 +130,13 @@ def rand_ann_dataset(n_cells: int, n_states: int, n_sites: int, **kwargs):
     anndataset = anndata.AnnData()
     # TODO: implement
     #   using different hmms for each chromosome
-    data = rand_dataset(n_cells, n_states, n_sites, **kwargs)
+    data = rand_dataset(n_states, n_sites, n_cells=n_cells, **kwargs)
 
     return anndataset
 
 
-def rand_dataset(n_cells: int, n_states: int, n_sites: int, evo_model: EvoModel | str = 'jcb',
-                 obs_model: ObsModel | str = 'normal', alpha=1.,
-                 p_change: float = .2, seed=None) -> Dataset:
+def rand_dataset(n_states: int, n_sites: int, evo_model: EvoModel | str = 'jcb', obs_model: ObsModel | str = 'normal',
+                 alpha=1., p_change: float = .2, n_cells: int = None, tree: dpy.Tree = None, seed=None) -> Dataset:
     # generate random sc binary tree
     if seed is not None:
         np.random.seed(seed)
@@ -163,8 +147,15 @@ def rand_dataset(n_cells: int, n_states: int, n_sites: int, evo_model: EvoModel 
     evo_model = EvoModel.get_instance(evo_model, n_states)
     obs_model = ObsModel.get_instance(obs_model, n_states)
 
-    # seed already set, no need to set it again
-    tree = random_binary_tree(n_cells, length_mean=l_from_p(p_change, n_states) / alpha, seed=None)
+    if n_cells is None:
+        assert tree is not None, "n_cells must be provided if tree is not given"
+        n_cells = len(tree.leaf_nodes())
+    else:
+        if tree is not None:
+            assert n_cells == len(tree.leaf_nodes()), "n_cells must match the number of leaf nodes in the tree"
+        else:
+            tree = random_binary_tree(n_cells, length_mean=l_from_p(p_change, n_states) / alpha, seed=None)
+
     # set tree to rooted
     tree.is_rooted = True
     # simulate copy number chains

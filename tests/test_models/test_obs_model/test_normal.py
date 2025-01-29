@@ -15,9 +15,9 @@ class NormalModelTestCase(unittest.TestCase):
             [2, 2, 3, 3, 4, 4]
         ], dtype=int)
         r_vw = model.sample(cn_vw)
-        self.assertEqual(r_vw.shape, (2, 6))
+        self.assertEqual(r_vw.shape, (6, 2))
         self.assertTrue(np.all(r_vw >= 0))
-        self.assertTrue(np.all(cn_vw == np.round(r_vw, 0)))
+        self.assertTrue(np.all(cn_vw.T == np.round(r_vw, 0)))
 
     def test_log_emission(self):
         model = NormalModel(n_states=7, mu_v_prior=100, tau_v_prior=1)
@@ -25,7 +25,7 @@ class NormalModelTestCase(unittest.TestCase):
             [2, 2, 3, 3, 3, 3],
             [2, 2, 3, 3, 4, 4]
         ], dtype=int)
-        r_vw = model.sample(cn_vw).T
+        r_vw = model.sample(cn_vw)
         self.assertEqual(r_vw.shape, (6, 2))
         log_p = model.log_emission(r_vw)  # should have shape (n_sites, n_states, n_states)
 
@@ -44,7 +44,7 @@ class NormalModelTestCase(unittest.TestCase):
             [2] * n_sites,
             [2] * n_sites
         ], dtype=int)
-        r_vw = model.sample(cn_vw).T
+        r_vw = model.sample(cn_vw)
         self.assertEqual(r_vw.shape, (n_sites, 2))
         # time
         start = time.time()
