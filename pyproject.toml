@@ -10,6 +10,11 @@ authors = ["Vittorio Zampinetti <vz@kth.se>", "Harald Melin <haraldme@kth.se>"]
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
+packages = [{include = ["inference",
+  "models",
+  "utils",
+  "simulation"
+], from="src"}]
 
 [tool.pytest.ini_options]
 pythonpath = [
