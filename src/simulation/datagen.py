@@ -12,8 +12,11 @@ import random
 import anndata
 
 from models.evolutionary_models import EvoModel
+from models.evolutionary_models.jukes_cantor_breakpoint import JCBModel
 from models.evolutionary_models.copy_tree import CopyTree
 from models.observation_models import ObsModel
+from models.observation_models.normalized_read_counts_models import NormalModel
+from models.observation_models.read_counts_models import PoissonModel
 from utils.math_utils import l_from_p, p_from_l
 from utils.tree_utils import random_binary_tree, get_node2node_distance, label_tree
 
@@ -144,8 +147,10 @@ def rand_dataset(n_states: int, n_sites: int, evo_model: EvoModel | str = 'jcb',
         dpy.utility.GLOBAL_RNG.seed(seed)
 
     # parse evo_model and obs_model params
-    evo_model = EvoModel.get_instance(evo_model, n_states)
-    obs_model = ObsModel.get_instance(obs_model, n_states)
+    if isinstance(evo_model, str):
+        evo_model = JCBModel(n_states, alpha=alpha) if evo_model == 'jcb' else PoissonModel(n_states)
+    if isinstance(obs_model, str):
+        obs_model = PoissonModel(n_states) if obs_model == 'poisson' else NormalModel(n_states)
 
     if n_cells is None:
         assert tree is not None, "n_cells must be provided if tree is not given"

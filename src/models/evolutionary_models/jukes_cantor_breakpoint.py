@@ -3,8 +3,6 @@ import scipy.stats as ss
 import dendropy as dpy
 
 from models.evolutionary_models import EvoModel, p_delta_trans_mat, p_delta_start_prob
-from models.observation_models import ObsModel
-from models.observation_models.read_counts_models import PoissonModel
 from utils.tree_utils import label_tree
 
 

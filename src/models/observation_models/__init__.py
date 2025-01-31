@@ -39,32 +39,32 @@ class ObsModel:
         """
         return False
 
-    @classmethod
-    def get_instance(cls, obs_model, n_states):
-        """
-        Factory method to get an instance of an observation model given a string.
-        Parameters
-        ----------
-        obs_model
-        n_states
-
-        Returns
-        -------
-
-        """
-        # avoid circular import (https://stackoverflow.com/questions/72569089/factory-composite-design-patterns-combo-in-python-circular-imports)
-        from models.observation_models.normalized_read_counts_models import NormalModel
-        from models.observation_models.read_counts_models import PoissonModel
-
-        if isinstance(obs_model, ObsModel):
-            if obs_model.n_states != n_states:
-                logging.warning(f"Number of states mismatch: {obs_model.n_states} != {n_states},"
-                                f" keeping n_states = {obs_model.n_states} from the model object")
-            return obs_model
-        elif obs_model == 'normal':
-            return NormalModel(n_states)
-        elif obs_model == 'poisson':
-            return PoissonModel(n_states)
-        else:
-            raise ValueError(f"Unknown observation model {obs_model}")
-
+    # @classmethod
+    # def get_instance(cls, obs_model, n_states):
+    #     """
+    #     Factory method to get an instance of an observation model given a string.
+    #     Parameters
+    #     ----------
+    #     obs_model
+    #     n_states
+    #
+    #     Returns
+    #     -------
+    #
+    #     """
+    #     # avoid circular import (https://stackoverflow.com/questions/72569089/factory-composite-design-patterns-combo-in-python-circular-imports)
+    #     from models.observation_models.normalized_read_counts_models import NormalModel
+    #     from models.observation_models.read_counts_models import PoissonModel
+    #
+    #     if isinstance(obs_model, ObsModel):
+    #         if obs_model.n_states != n_states:
+    #             logging.warning(f"Number of states mismatch: {obs_model.n_states} != {n_states},"
+    #                             f" keeping n_states = {obs_model.n_states} from the model object")
+    #         return obs_model
+    #     elif obs_model == 'normal':
+    #         return NormalModel(n_states)
+    #     elif obs_model == 'poisson':
+    #         return PoissonModel(n_states)
+    #     else:
+    #         raise ValueError(f"Unknown observation model {obs_model}")
+    #

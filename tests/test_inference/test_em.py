@@ -44,7 +44,7 @@ class EMTestCase(unittest.TestCase):
         random.seed(101)
         np.random.seed(seed=101)
         logging.basicConfig(level=logging.DEBUG)
-        self.DEFAULT_GAMMA_PARAMS = [(1*1000, 0.01/1000), (1*500, 0.03/500), (1*200, 0.008/200)]
+        self.DEFAULT_GAMMA_PARAMS = [(1*1000, 0.01/1000), (1*500, 0.03/500), (1*200, 0.008/200)]  # with 500 bins
 
     def test_em_alg(self):
         # generate toy data

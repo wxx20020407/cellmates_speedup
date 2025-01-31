@@ -16,6 +16,7 @@ from inference.neighbor_joining import build_tree
 from models.evolutionary_models.copy_tree import CopyTree
 from models.evolutionary_models.jukes_cantor_breakpoint import JCBModel
 from models.observation_models import ObsModel
+from models.observation_models.normalized_read_counts_models import NormalModel
 from models.observation_models.read_counts_models import PoissonModel
 from simulation.datagen import rand_dataset, get_ctr_table
 
@@ -33,8 +34,14 @@ class EM:
                  evo_model: EvoModel | str = 'jcb', tree_build='ctr',
                  alpha=1., verbose: int = 0):
         # model variables
-        self.evo_model: EvoModel = EvoModel.get_instance(evo_model, n_states)  # evolutionary model (JCB, CopyTree, ...)
-        self.obs_model: ObsModel = ObsModel.get_instance(obs_model, n_states)  # observation model (Poisson, Normal, ...)
+        if isinstance(obs_model, str):
+            self.evo_model: EvoModel = JCBModel(n_states, alpha=alpha) if evo_model == 'jcb' else CopyTree(n_states)
+        else:
+            self.evo_model: EvoModel = evo_model
+        if isinstance(obs_model, str):
+            self.obs_model: ObsModel = PoissonModel(n_states=n_states) if obs_model == 'poisson' else NormalModel(n_states=n_states)
+        else:
+            self.obs_model: ObsModel = obs_model
         self.tree_build = tree_build  # algorithm for tree reconstruction
         self._n_sites = None
         self._n_cells = None
@@ -178,6 +185,14 @@ class EM:
         self.fit(X)
         return self._distances
 
+    def compute_pair_likelihood(self, obs_vw, theta: np.ndarray = None):
+        """
+        Compute the log likelihood of the observations given the model parameters.
+        """
+        # run forward algorithm
+        _, _, loglik, _ = self._fit_quadruplet(0, 1, obs_vw, theta, max_iter=0, rtol=0)
+        return loglik
+
     @property
     def n_sites(self):
         if self._n_sites is None:
@@ -246,7 +261,6 @@ def compute_exp_changes(theta, obs_vw, n_states: int, alpha=1., jcb=True, lam=10
     obs_model = PoissonModel(n_states=n_states, lambda_v_prior=lam, lambda_w_prior=lam)
 
     return evo_model.expected_changes(obs_vw=obs_vw, obs_model=obs_model)
-
 
 def jcb_em_ctrtable(obs: np.ndarray, n_states: int = 7, alpha=1., l_init=None, max_iter: int = 200, rtol: float = 1e-6,
                     jc_correction: bool = False, num_processors: int = 1) -> np.ndarray:

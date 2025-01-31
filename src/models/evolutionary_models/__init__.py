@@ -5,7 +5,6 @@ import random
 
 import dendropy as dpy
 import numpy as np
-import scipy.special as sp
 from scipy import special as sp
 
 from models.observation_models import ObsModel
@@ -137,23 +136,23 @@ class EvoModel:
     def update(self, exp_changes, exp_no_changes, **kwargs):
         pass
 
-    @classmethod
-    def get_instance(cls, evo_model, n_states):
-        # avoid circular import
-        from models.evolutionary_models.copy_tree import CopyTree
-        from models.evolutionary_models.jukes_cantor_breakpoint import JCBModel
-
-        if isinstance(evo_model, EvoModel):
-            if evo_model.n_states != n_states:
-                logging.warning(f"Number of states mismatch: {evo_model.n_states} != {n_states},"
-                                f" keeping n_states = {evo_model.n_states} from the model object")
-            return evo_model
-        elif evo_model == 'copytree':
-            return CopyTree(n_states=n_states)
-        elif evo_model == 'jcb':
-            return JCBModel(n_states=n_states)
-        else:
-            raise ValueError(f"Unknown evolutionary model {evo_model}")
+    # @classmethod
+    # def get_instance(cls, evo_model, n_states):
+    #     # avoid circular import
+    #     from models.evolutionary_models.copy_tree import CopyTree
+    #     from models.evolutionary_models.jukes_cantor_breakpoint import JCBModel
+    #
+    #     if isinstance(evo_model, EvoModel) and n_states is not None:
+    #         if evo_model.n_states != n_states:
+    #             logging.warning(f"Number of states mismatch: {evo_model.n_states} != {n_states},"
+    #                             f" keeping n_states = {evo_model.n_states} from the model object")
+    #         return evo_model
+    #     elif evo_model == 'copytree':
+    #         return CopyTree(n_states=n_states)
+    #     elif evo_model == 'jcb':
+    #         return JCBModel(n_states=n_states)
+    #     else:
+    #         raise ValueError(f"Unknown evolutionary model {evo_model}")
 
     def two_slice_marginals(self, obs_vw, obs_model: ObsModel) -> np.ndarray:
         """
@@ -262,8 +261,8 @@ class EvoModel:
             # update log likelihood to save computation
             log_likelihood += norm
 
-        assert (np.allclose(sp.logsumexp(alpha, axis=(1, 2, 3)), np.zeros(n_sites)),
-                f"Forward pass normalization error:{sp.logsumexp(alpha, axis=(1, 2, 3))}")
+        assert np.allclose(sp.logsumexp(alpha, axis=(1, 2, 3)), np.zeros(n_sites)),\
+            f"Forward pass normalization error:{sp.logsumexp(alpha, axis=(1, 2, 3))}"
         return alpha, log_likelihood
 
     @property
