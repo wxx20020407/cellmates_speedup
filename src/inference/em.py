@@ -239,29 +239,6 @@ class EM:
             raise AttributeError("Loglikelihoods not set. Run `fit` or `fit_transform` first.")
         return self._loglikelihoods
 
-def compute_exp_changes(theta, obs_vw, n_states: int, alpha=1., jcb=True, lam=100) -> tuple[np.ndarray, np.ndarray, float]:
-    """
-    Compute the sufficient statistics, i.e. the expected number of changes and no-changes for each pair
-    of triplet states. Also returns the log likelihood of the observations.
-    Parameters
-    ----------
-    theta array of shape (3,) with the triplet parameters
-    obs_vw array of shape (n_sites, 2)
-    n_states number of copy number states
-    alpha float, alpha parameter for the JCB model, length scaling factor
-    jcb if True, use Jukes-Cantor-Breakpoint model, otherwise use the CopyTree model
-
-    Returns
-    -------
-    tuple of arrays of shape (3,), expected number of changes and no-changes, and float, log likelihood
-
-    """
-    evo_model = JCBModel(n_states=n_states, alpha=alpha) if jcb else CopyTree(n_states=n_states)
-    evo_model.theta = theta
-    obs_model = PoissonModel(n_states=n_states, lambda_v_prior=lam, lambda_w_prior=lam)
-
-    return evo_model.expected_changes(obs_vw=obs_vw, obs_model=obs_model)
-
 def jcb_em_ctrtable(obs: np.ndarray, n_states: int = 7, alpha=1., l_init=None, max_iter: int = 200, rtol: float = 1e-6,
                     jc_correction: bool = False, num_processors: int = 1) -> np.ndarray:
     """
