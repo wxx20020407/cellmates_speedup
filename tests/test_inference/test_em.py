@@ -17,7 +17,7 @@ from simulation.datagen import rand_dataset, get_ctr_table, simulate_quadruplet
 from inference.em import jcb_em_ctrtable, EM, jcb_em_alg, em_alg
 from models.evolutionary_models.copy_tree import CopyTree
 from utils.tree_utils import convert_networkx_to_dendropy, get_node2node_distance, random_binary_tree, label_tree
-from utils.math_utils import l_from_p, p_from_l
+from utils.math_utils import l_from_p, p_from_l, compute_cn_changes
 
 from inference.neighbor_joining import build_tree
 
@@ -519,8 +519,13 @@ class EMTestCase(unittest.TestCase):
         np.random.seed(seed)
         n_states = 5
         n_sites = 500
+        poisson_param = 10
 
-        data = simulate_quadruplet(n_sites, evo_model='copytree', n_states=n_states, gamma_params=self.DEFAULT_GAMMA_PARAMS)
+        obs_model = PoissonModel(n_states, poisson_param, poisson_param)
+        evo_model = CopyTree(n_states=n_states)
+
+        data = simulate_quadruplet(n_sites, evo_model=evo_model, obs_model=obs_model,
+                                   n_states=n_states, gamma_params=self.DEFAULT_GAMMA_PARAMS)
         gt_ctr_table = get_ctr_table(data['tree'])  # eps
         # print cn in order r, u, v, w (check simulate_quadruplet doc for sorting info)
         print(f"CN (r, u, v, w):\n{data['cn'][[3, 2, 0, 1], :20]}")
@@ -530,9 +535,10 @@ class EMTestCase(unittest.TestCase):
         print(f"True edge _eps: {gt_ctr_table[0, 1, :].tolist()}")
 
         # run EM
-        out = em_alg(data['obs'], n_states=n_states, max_iter=50, rtol=1e-5, num_processors=1, eps_init=np.array([0.1, 0.1, 0.1]))
-        ctr_table = out['l_hat']
-        ll_est = out['loglikelihoods'][0, 1]
+        em = EM(n_states, obs_model, evo_model)
+        em.fit(data['obs'], max_iter=50, rtol=1e-5, num_processors=1, eps_init=gt_ctr_table[0, 1])
+        ctr_table = em.distances
+        ll_est = em.loglikelihoods[0, 1]
         # change tree _lengths to match the estimated ones
         for edge in data['tree'].preorder_edge_iter():
             if edge.head_node.label == 2:
@@ -546,13 +552,12 @@ class EMTestCase(unittest.TestCase):
         eps_est = ctr_table[0, 1, :].tolist()
         print(eps_est)
 
-        # check likelihood
-        evo_model = CopyTree(n_states=n_states)
-        evo_model.eps = gt_ctr_table[0, 1, :]
+        copy_number_changes = compute_cn_changes(data['cn'], pairs=[(3, 2), (2, 0), (2, 1)])
+        print(f"True CN changes")
+        print([c / n_sites for c in copy_number_changes])
 
-        obs_model = PoissonModel(n_states, 100, 100)
-        log_emissions = obs_model.log_emission(data['obs'])
-        _, ll_true = evo_model._forward_pass_likelihood(data['obs'], log_emissions)
+        # check likelihood
+        ll_true = em.compute_pair_likelihood(data['obs'], theta=gt_ctr_table[0, 1])
 
         self.assertGreater(ll_est, ll_true)
 

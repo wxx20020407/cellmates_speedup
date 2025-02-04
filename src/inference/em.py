@@ -63,7 +63,7 @@ class EM:
             self.logger.setLevel(logging.DEBUG)
 
 
-    def fit(self, X: np.ndarray, max_iter: int = 200, rtol: float = 1e-6, num_processors: int = 1, **kwargs):
+    def fit(self, X: np.ndarray, max_iter: int = 200, rtol: float = 1e-6, num_processors: int = 1, theta_init=None, **kwargs):
         """
         Run the EM algorithm for the given observations X.
         Parameters
@@ -72,6 +72,7 @@ class EM:
         max_iter maximum number of iterations
         rtol relative tolerance for convergence
         num_processors number of processors to use for parallel
+        theta_init initial values for the triplet parameters, if None, initialized to an average of 5 changes over the whole length
         kwargs additional keyword arguments
         """
         self.n_sites = X.shape[0]
@@ -84,6 +85,8 @@ class EM:
         # init to an average of 5 changes over the whole length if not provided
         p_init_default = 5 / self.n_sites
         l_init = kwargs.get('l_init', np.array([l_from_p(p_init_default, self.n_states)] * 3) if isinstance(self.evo_model, JCBModel) else np.array([p_init_default] * 3))
+        if theta_init is not None:
+            l_init = theta_init
 
         l_hat = -np.ones((self.n_cells, self.n_cells, 3))
         zero_tol = kwargs.get('zero_tol', 1e-10)  # saturation level when dp << d (changes are much more prevalent)
