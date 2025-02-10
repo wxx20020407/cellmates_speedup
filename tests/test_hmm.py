@@ -3,8 +3,8 @@ import unittest
 import numpy as np
 import numpy.testing as npt
 
-from models.evolutionary_models import p_delta
-from models.evolutionary_models.jukes_cantor_breakpoint import JCBModel
+from models.evo import JCBModel
+from models.evo.basefunc import p_delta
 
 
 class HMMTestCase(unittest.TestCase):

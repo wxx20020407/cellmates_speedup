@@ -1,9 +1,7 @@
 import networkx as nx
 
-from models.evolutionary_models import EvoModel
-from models.evolutionary_models.copy_tree import CopyTree
-from models.observation_models import ObsModel
-from models.observation_models.normalized_read_counts_models import NormalModel
+from models.evo import EvoModel, CopyTree
+from models.obs import ObsModel, NormalModel
 
 
 class Quadruplet:

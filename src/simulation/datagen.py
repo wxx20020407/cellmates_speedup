@@ -11,12 +11,8 @@ import dendropy as dpy
 import random
 import anndata
 
-from models.evolutionary_models import EvoModel
-from models.evolutionary_models.jukes_cantor_breakpoint import JCBModel
-from models.evolutionary_models.copy_tree import CopyTree
-from models.observation_models import ObsModel
-from models.observation_models.normalized_read_counts_models import NormalModel
-from models.observation_models.read_counts_models import PoissonModel
+from models.evo import EvoModel, CopyTree, JCBModel
+from models.obs import ObsModel, NormalModel, PoissonModel
 from utils.math_utils import l_from_p, p_from_l
 from utils.tree_utils import random_binary_tree, get_node2node_distance, label_tree
 
@@ -169,7 +165,7 @@ def rand_dataset(n_states: int, n_sites: int, evo_model: EvoModel | str = 'jcb',
     obs = np.empty((n_sites, n_cells), dtype=np.float64)
     for t in tree.leaf_node_iter():
         cell_id = int(t.label)
-        obs[:, cell_id] = obs_model.sample(cn[cell_id])
+        obs[:, cell_id] = obs_model.sample(cn[cell_id][None, :]).ravel()
 
     # return dict with observations and all latent variables
     data = {

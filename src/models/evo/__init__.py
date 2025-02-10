@@ -1,14 +1,17 @@
 import itertools
 import logging
-import math
 import random
 
 import dendropy as dpy
+import networkx as nx
 import numpy as np
-from scipy import special as sp
+from scipy import special as sp, stats as sp_stats, stats as ss
 
-from models.observation_models import ObsModel
-from models.observation_models.read_counts_models import PoissonModel
+from models.evo.basefunc import get_zipping_mask, get_zipping_mask0, p_delta_change, p_delta_trans_mat, \
+    p_delta_start_prob, h_eps, h_eps0
+
+from models.obs import ObsModel, PoissonModel
+from utils.tree_utils import label_tree
 
 
 class EvoModel:
@@ -139,8 +142,8 @@ class EvoModel:
     # @classmethod
     # def get_instance(cls, evo_model, n_states):
     #     # avoid circular import
-    #     from models.evolutionary_models.copy_tree import CopyTree
-    #     from models.evolutionary_models.jukes_cantor_breakpoint import JCBModel
+    #     from models.evo.copy_tree import CopyTree
+    #     from models.evo.jukes_cantor_breakpoint import JCBModel
     #
     #     if isinstance(evo_model, EvoModel) and n_states is not None:
     #         if evo_model.n_states != n_states:
@@ -280,148 +283,238 @@ class EvoModel:
         return self._trans_mat
 
 
-def get_zipping_mask(n_states) -> np.ndarray:
-    """Build a mask on the i - i' == j - j' condition
+class CopyTree(EvoModel):
 
-    Parameters
-    ----------
-    n_states :
-        Number of total copy number states (cn = 0, 1, ..., n_states - 1)
-    Returns
-    -------
-    np boolean tensor of shape (n_states, n_states, n_states, n_states),
-    true where the indices satisfy the condition.
-    Idx order is `mask[j', j, i', i]`
-    """
-    ind_arr = np.indices((n_states, n_states))
-    # i - j
-    imj = ind_arr[0] - ind_arr[1]
-    # i - j == k - l
-    mask = imj == imj[:, :, np.newaxis, np.newaxis]
-    return mask
+    def __init__(self, n_states, **kwargs):
+        self._eps = None
+        super().__init__(n_states=n_states, **kwargs)
 
+    @property
+    def eps(self):
+        return self._eps
 
-def get_zipping_mask0(n_states) -> np.ndarray:
-    """Build a mask on the i == j condition
+    @eps.setter
+    def eps(self, value):
+        """
+        Set the epsilon parameters for the CopyTree model and recompute the transition matrix.
+        """
+        self._eps = value
+        self._compute_transitions()
 
-    Parameters
-    ----------
-    n_states :
-        Number of total copy number states (cn = 0, 1, ..., n_states - 1)
-    Returns
-    -------
-    np boolean tensor of shape (n_states, n_states),
-    true where the indices satisfy the condition
-    """
-    ind_arr = np.indices((n_states, n_states))
-    # i = j (diagonal)
-    mask = ind_arr[0] == ind_arr[1]
-    return mask
+    @property
+    def theta(self):
+        return self.eps
 
+    @theta.setter
+    def theta(self, value):
+        self.eps = value
 
-def p_delta(n_states, l, i, ii, j, jj, alpha=1.):
-    """
-    Returns the transition probability given the length and the
-    copy number configurations.
-    Parameters
-    ----------
-    n_states int, number of copy number states 0, ..., K (equals K + 1) with K max cn
-    l float, length parameter
-    i int, C_{m-1}^p
-    ii int, C_m^p
-    j int, C_{m-1}^v
-    jj int, C_m^v
+    @property
+    def trans_mat(self):
+        return self._trans_mat
 
-    Returns
-    -------
-    normalized transition probability
-    """
-    if ii - i + j < 0 or ii - i + j > n_states - 1:
-        return 1 / n_states
-    else:
-        change = ii - i != jj - j
-        return p_delta_change(n_states, l, change, alpha=alpha)
+    @property
+    def start_prob(self):
+        return self._start_prob
 
+    def simulate_cn(self, tree: dpy.Tree, n_sites: int) -> np.ndarray:
+        cn = np.empty((len(tree.nodes()), n_sites))
+        cn[int(tree.seed_node.label), :] = 2
+        # tree needs index-labeled node
+        assert tree.seed_node.label is not None, "seed node must be labeled (rooted tree)"
+        for n in tree.preorder_node_iter():
+            if n != tree.seed_node:
+                cn[int(n.label)] = self.sample_cn_child(cn[int(n.parent_node.label)], p_change=n.edge_length)
+        return cn
 
-def p_delta_change(n_states, l, change: bool, alpha: float = 1.):
-    if not change:
-        p_out = 1 / n_states + (n_states - 1) / n_states * math.exp(- n_states * alpha * l)
-        # p_out = 1 / n_states + (n_states - 1) / n_states * math.exp(- n_states / (n_states - 1) * alpha * l)
-    else:
-        p_out = 1 / n_states - math.exp(- n_states * alpha * l) / n_states
-        # p_out = 1 / n_states - math.exp(- n_states / (n_states - 1) * alpha * l) / n_states
-    return p_out
+    def simulate_data(self, eps_a, eps_b, eps_0, M: int = 100):
+        eps = np.zeros((self.K, self.K))
+        logging.debug(f'Copy Tree data simulation - eps_a: {eps_a}, eps_b: {eps_b}, eps_0:{eps_0} ')
+        eps_dist = sp_stats.beta(eps_a, eps_b)
+        if eps_dist.std()**2 > 0.1 * eps_dist.mean():
+            logging.warning(
+                f'Large variance for epsilon: {eps_dist.std()**2} (mean: {eps_dist.mean()}. Consider increasing '
+                f'eps_b param.')
 
+        tree = self.true_tree
+        for u, v in tree.edges:
+            eps[u, v] = eps_dist.rvs()
+            tree.edges[u, v]['weight'] = eps[u, v]
 
-def p_delta_trans_mat(n_states, l, alpha: float = 1.):
-    """
-    Indexing order: [j', j, i', i]. Invariant: sum(dim=0) = 1.
-    Args:
-        n_states: total number of copy number states
-        l: arc distance parameter
+        # generate copy numbers
+        c = np.empty((self.K, M), dtype=int)
+        c[0, :] = 2 * np.ones(M, )
+        h_eps0_cached = h_eps0(self.n_states, eps_0)
+        for u, v in nx.bfs_edges(tree, source=0):
+            t0 = h_eps0_cached[c[u, 0], :]
+            c[v, 0] = np.argmax(sp_stats.multinomial(n=1, p=t0).rvs())
+            h_eps_uv = h_eps(self.n_states, eps[u, v])
+            for m in range(1, M):
+                # j', j, i', i
+                transition = h_eps_uv[:, c[v, m - 1], c[u, m], c[u, m - 1]]
+                c[v, m] = np.argmax(sp_stats.multinomial(n=1, p=transition).rvs())
 
-    Returns:
-        tensor of shape (A x A x A x A) with A = n_states
-    """
-    mat = np.empty((n_states,) * 4)
+        return eps, c
 
-    for (i, ii, j, jj) in itertools.product(range(n_states), repeat=4):
-        mat[jj, j, ii, i] = p_delta(n_states, l, i, ii, j, jj, alpha=alpha)
-    return mat
+    def new(self):
+        return CopyTree(self.n_states)
 
+    def update(self, exp_changes, exp_no_changes, **kwargs) -> None:
+        self.eps[:] = exp_changes / (exp_changes + exp_no_changes)
 
-def p_delta_start_prob(n_states, l, alpha: float = 1.):
-    """
-    p_delta(C_1^v | C_1^p) initial probability
-    Indexing order: [j, i]. Invariant: sum(dim=0) = 1.
-    Args:
-        n_states: total number of copy number states
-        l: arc distance parameter
+    def _compute_transitions(self):
+        self._trans_mat = self._compute_trans_mat()
+        self._start_prob = self._compute_start_prob()
 
-    Returns:
-        tensor of shape (A x A) with A = n_states
-    """
-    mat = np.empty((n_states,) * 2)
+    def _compute_trans_mat(self):
+        n_states = self.n_states
+        eps_trip = self.eps
 
-    for (i, j) in itertools.product(range(n_states), repeat=2):
-        mat[j, i] = p_delta_change(n_states, l, j != i, alpha=alpha)
-    return mat
+        trans_mat = np.empty((n_states,) * 6)
+        # transition from r -> u (fix r = 2)
+        a_ru = h_eps(n_states, eps=eps_trip[0])[:, :, 2, 2]
+        a_uv = h_eps(n_states, eps=eps_trip[1])
+        a_uw = h_eps(n_states, eps=eps_trip[2])
+        # results is state i, j, k -> x, y, z
+        trans_mat[...] = np.einsum('xi,yjxi,zkxi->ijkxyz', a_ru, a_uv, a_uw)
+        return trans_mat
 
+    def _compute_start_prob(self):
+        # probability of cn u,v,w = i,j,k is the product of P(u = i), P(v=j | u=i) and P(w=k | u=i)
+        # this can easily be done with einsum
 
-def h_eps(n_states: int, eps: float) -> np.ndarray:
-    """
-Zipping function tensor for given epsilon. In arc u->v, for each
-combination, P(Cv_m=j'| Cv_{m-1}=j, Cu_m=i', Cu_{m-1}=i) = h(j'|j, i', i).
-Indexing order: [j', j, i', i]. Invariant: sum(dim=0) = 1.
-    Args:
-        n_states: total number of copy number states
-        eps: arc distance parameter
-
-    Returns:
-        tensor of shape (A x A x A x A) with A = n_states
-    """
-    # TODO: add zero-absorption P(Cu>0 | Cp=0) = 0
-    mask_arr = get_zipping_mask(n_states=n_states)
-    # put 1-eps where j'-j = i'-i
-    a = mask_arr * (1 - eps)
-    # put either 1 or 1-eps in j'-j != i'-i  and divide by the cases
-    b = (1 - np.sum(a, axis=0)) / np.sum(~mask_arr, axis=0)
-    # combine the two arrays
-    out_arr = b * (~mask_arr) + a
-    return out_arr
+        n_states = self.n_states
+        trip_start = np.empty((n_states,) * 3)
+        a_ru = h_eps0(n_states, self.eps[0])[:, 2]
+        a_uv = h_eps0(n_states, self.eps[1])
+        a_uw = h_eps0(n_states, self.eps[2])
+        # results is state i, j, k
+        trip_start[...] = np.einsum('i, ij, ik -> ijk', a_ru, a_uv, a_uw)
+        return trip_start
 
 
-def h_eps0(n_states: int, eps0: float) -> np.ndarray:
-    """
-Simple zipping function tensor. P(Cv_1=j| Cu_1=i) = h0(j|i), indexing order: [j, i]. Invariant: sum(dim=0) = 1.
-    Args:
-        n_states: total number of copy number states
-        eps: arc distance parameter
+class JCBModel(EvoModel):
 
-    Returns:
-        tensor of shape (A x A) with A = n_states
-    """
-    heps0_arr = eps0 / (n_states - 1) * np.ones((n_states, n_states))
-    diag_mask = get_zipping_mask0(n_states)
-    heps0_arr[diag_mask] = 1 - eps0
-    return heps0_arr
+    def __init__(self, n_states, alpha: float = 1., **kwargs):
+        self.alpha = alpha
+        self._lengths = None
+        super().__init__(n_states=n_states, **kwargs)
+
+    @property
+    def lengths(self):
+        return self._lengths
+
+    @lengths.setter
+    def lengths(self, value):
+        self._lengths = value
+        self._compute_transitions()
+
+    @property
+    def theta(self):
+        return self.lengths
+
+    @theta.setter
+    def theta(self, value):
+        self.lengths = value
+
+    def update(self, exp_changes, exp_no_changes, **kwargs):
+        zero_tol = kwargs.get('zero_tol', 1e-10)
+        d, dp = exp_changes, exp_no_changes
+        # update l according to formula
+        # if l -> +inf, pDeltaDelta == pDeltaDelta'
+        log_arg = 1 - self.n_states / (self.n_states - 1) * d / (dp + d)
+        assert np.all(log_arg > 0)
+        # if np.any(log_arg <= 0):
+        #     logger.error(f"too many changes detected: D = {d}, D' = {dp}\n"
+        #                       f"...saturating l for cells {v},{w}")
+        l_i = - 1 / (self.alpha * self.n_states) * np.log(np.clip(log_arg, a_min=zero_tol, a_max=None))
+        self.lengths = l_i
+
+    def new(self):
+        return JCBModel(self.n_states, self.alpha)
+
+    def _compute_transitions(self):
+        """
+        Compute the transition matrix for the JCB model using the current lengths.
+        """
+        self._trans_mat = self._compute_trans_mat()
+        self._start_prob = self._compute_start_prob()
+
+    def _compute_trans_mat(self):
+        n_states = self.n_states
+        l_trip = self.lengths
+        alpha = self.alpha
+
+        trans_mat = np.empty((n_states,) * 6)
+        # transition from r -> u (fix r = 2)
+        a_ru = p_delta_trans_mat(n_states, l_trip[0], alpha=alpha)[:, :, 2, 2]
+        a_uv = p_delta_trans_mat(n_states, l_trip[1], alpha=alpha)
+        a_uw = p_delta_trans_mat(n_states, l_trip[2], alpha=alpha)
+        # results is state (m-1) i, j, k -> (m) x, y, z
+        trans_mat[...] = np.einsum('xi,yjxi,zkxi->ijkxyz', a_ru, a_uv, a_uw)
+        return trans_mat
+
+    def _compute_start_prob(self):
+        n_states = self.n_states
+        l_trip = self.lengths
+        alpha = self.alpha
+
+        trip_start = np.empty((n_states,) * 3)
+
+        # transition from r -> u (fix r = 2)
+        a_ru = p_delta_start_prob(n_states, l_trip[0], alpha=alpha)[:, 2]
+        # transition from u -> v, w
+        a_uv = p_delta_start_prob(n_states, l_trip[1], alpha=alpha)
+        a_uw = p_delta_start_prob(n_states, l_trip[2], alpha=alpha)
+        # results is state i, j, k
+        trip_start[...] = np.einsum('i, ij, ik -> ijk', a_ru, a_uv, a_uw)
+        return trip_start
+
+    def simulate_cn(self, tree: dpy.Tree, n_sites: int) -> np.ndarray:
+        cn = np.empty((len(tree.nodes()), n_sites))
+        cn[int(tree.seed_node.label), :] = 2
+        # tree needs index-labeled node
+        assert tree.seed_node.label is not None, "seed node must be labeled (rooted tree)"
+        for n in tree.preorder_node_iter():
+            if n != tree.seed_node:
+                cn[int(n.label)] = self.sample_cn_child(cn[int(n.parent_node.label)], n.edge_length, alpha=self.alpha)
+        return cn
+
+    def simulate_data(self, n_sites: int, l_mean: float = None):
+        """
+        Simulate copy number profiles for a quadruplet.
+        Parameters
+        ----------
+        n_sites, number of sites
+        l_mean, mean edge length for the JCB model
+
+        Returns
+        -------
+        np.ndarray with shape (4, n_sites) with copy number profiles
+        """
+        tree = dpy.Tree.get(data="((0,1)2)3;", schema='newick', taxon_namespace=dpy.TaxonNamespace(['0', '1']))
+        label_tree(tree)
+        tree.is_rooted = True
+        # generate edge _lengths
+        l_true = np.empty(3)
+        if l_mean is None:
+            l_true[:] = np.array([0.01, 0.03, 0.008])
+        else:
+            for i in range(3):
+                l_true[i] = ss.expon(scale=l_mean / self.alpha).rvs()
+        r, u, v, w = tuple(map(str, [3, 2, 0, 1]))
+        for edge in tree.preorder_edge_iter():
+            # centroid to root
+            if edge.head_node.label == u:
+                edge.length = l_true[0]
+            # centroid to v
+            elif edge.head_node.label == v:
+                edge.length = l_true[1]
+            # centroid to w
+            elif edge.head_node.label == w:
+                edge.length = l_true[2]
+
+        # and cn profiles
+        cn = self.simulate_cn(tree, n_sites)
+
+        return cn

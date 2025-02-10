@@ -13,14 +13,10 @@ from dendropy.calculate.treecompare import (
 from scipy.special import comb
 
 from inference.neighbor_joining import build_tree
-from models.evolutionary_models.copy_tree import CopyTree
-from models.evolutionary_models.jukes_cantor_breakpoint import JCBModel
-from models.observation_models import ObsModel
-from models.observation_models.normalized_read_counts_models import NormalModel
-from models.observation_models.read_counts_models import PoissonModel
+from models.obs import ObsModel, NormalModel, PoissonModel
 from simulation.datagen import rand_dataset, get_ctr_table
 
-from models.evolutionary_models import EvoModel
+from models.evo import EvoModel, CopyTree, JCBModel
 from utils.math_utils import l_from_p
 from utils.tree_utils import convert_networkx_to_dendropy
 

@@ -2,7 +2,7 @@ import unittest
 
 import numpy as np
 
-from models.observation_models.read_counts_models import PoissonModel
+from models.obs import PoissonModel
 
 
 class PoissonModelTestCase(unittest.TestCase):

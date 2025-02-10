@@ -5,8 +5,8 @@ import numpy as np
 import multiprocessing as mp
 
 from inference.em import EM
-from models.evolutionary_models.jukes_cantor_breakpoint import JCBModel
-from models.observation_models.read_counts_models import PoissonModel
+from models.evo import JCBModel
+from models.obs import PoissonModel
 from simulation.datagen import simulate_quadruplet, get_ctr_table
 from utils.math_utils import p_from_l, l_from_p
 

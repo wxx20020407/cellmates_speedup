@@ -3,7 +3,8 @@ import unittest
 
 import numpy as np
 
-from models.observation_models.normalized_read_counts_models import NormalModel
+from models.obs import NormalModel
+
 
 class NormalModelTestCase(unittest.TestCase):
 

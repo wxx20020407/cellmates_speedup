@@ -3,11 +3,8 @@ import unittest
 import networkx as nx
 
 from inference.em import em_alg
-from models.evolutionary_models.copy_tree import CopyTree
-from models.observation_models.read_counts_models import PoissonModel
-from models.observation_models.normalized_read_counts_models import (
-    NormalModel,
-)
+from models.evo import CopyTree
+from models.obs import NormalModel, PoissonModel
 import numpy as np
 
 from models.quadruplet import Quadruplet

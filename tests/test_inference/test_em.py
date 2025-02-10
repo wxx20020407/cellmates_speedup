@@ -10,12 +10,10 @@ import numpy as np
 from dendropy.calculate import treecompare
 from scipy.special import logsumexp
 
-from models.evolutionary_models import p_delta_change
-from models.evolutionary_models.jukes_cantor_breakpoint import JCBModel
-from models.observation_models.read_counts_models import PoissonModel
+from models.evo import p_delta_change, CopyTree, JCBModel
+from models.obs import NormalModel, PoissonModel
 from simulation.datagen import rand_dataset, get_ctr_table, simulate_quadruplet
 from inference.em import jcb_em_ctrtable, EM, jcb_em_alg, em_alg
-from models.evolutionary_models.copy_tree import CopyTree
 from utils.tree_utils import convert_networkx_to_dendropy, get_node2node_distance, random_binary_tree, label_tree
 from utils.math_utils import l_from_p, p_from_l, compute_cn_changes
 
@@ -143,7 +141,7 @@ class EMTestCase(unittest.TestCase):
                 edge.length = ctr_table[0, 1, 2]
         data['tree'].print_plot(plot_metric='length')
         l_est = ctr_table[0, 1, :].tolist()
-        print("Estimated edge _lengths:")
+        print("Estimated edge _eps:")
         print(l_est)
 
         # check likelihood
@@ -518,10 +516,13 @@ class EMTestCase(unittest.TestCase):
         random.seed(seed)
         np.random.seed(seed)
         n_states = 5
-        n_sites = 500
+        n_sites = 1000
         poisson_param = 10
+        normal_param = 1., 10.  # mean and precision
 
-        obs_model = PoissonModel(n_states, poisson_param, poisson_param)
+        # obs_model = PoissonModel(n_states, poisson_param, poisson_param)
+        obs_model = NormalModel(n_states, normal_param[0], normal_param[0],
+                                tau_v_prior=normal_param[1], tau_w_prior=normal_param[1])
         evo_model = CopyTree(n_states=n_states)
 
         data = simulate_quadruplet(n_sites, evo_model=evo_model, obs_model=obs_model,
