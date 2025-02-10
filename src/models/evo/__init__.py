@@ -197,36 +197,38 @@ class EvoModel:
         assert np.allclose(sp.logsumexp(log_xi, axis=(1, 2, 3, 4, 5, 6)), np.zeros(n_sites - 1))
         return log_xi
 
-    def backward_pass(self, obs_vw, log_emissions):
+    def backward_pass(self, obs_vw, log_emissions, normalization=True) -> np.ndarray:
         n_sites = obs_vw.shape[0]
         n_states = self.trans_mat.shape[0]
-        beta = np.empty((n_sites, n_states, n_states, n_states))
-        # initialize beta[M] = 1. (in log form) - normalized
-        beta[-1, ...] = - 3 * np.log(n_states)
+
+        # initialize beta[M] = 1. (in log form)
+        beta = np.zeros((n_sites, n_states, n_states, n_states))
+        if normalization:
+            beta[-1, ...] = - 3 * np.log(n_states)
 
         # compute iteratively
         for m in reversed(range(n_sites - 1)):
             # -- ORIGINAL IMPLEMENTATION --
-            # beta[m, ...] = logsumexp(beta[m + 1, ...] +
-            #                          np.log(trans_mat)
-            #                          + log_emissions[m + 1, np.newaxis, np.newaxis, np.newaxis, ...],
-            #                          axis=(3, 4, 5))
-
-            #  -- ALTERNATIVE IMPLEMENTATION --
-            log_acc = -np.inf * np.ones((n_states, n_states, n_states))
-            for x, y, z in itertools.product(range(n_states), repeat=3):
-                log_acc = np.logaddexp(beta[m + 1, x, y, z] +
-                                       np.log(self.trans_mat[..., x, y, z]) +
-                                       log_emissions[m + 1, y, z],  # ]
-                                       log_acc)
-            beta[m, ...] = log_acc
+            beta[m, ...] = sp.logsumexp(beta[m + 1, None, None, None, :, :, :] +
+                                  np.log(self.trans_mat) +
+                                  log_emissions[m + 1, None, None, None, None, :, :], axis=(3, 4, 5))
+            #  -- ALTERNATIVE IMPLEMENTATION -- (slower but doesn't use broadcasting)
+            # log_acc = -np.inf * np.ones((n_states, n_states, n_states))
+            # for x, y, z in itertools.product(range(n_states), repeat=3):
+            #     log_acc = np.logaddexp(beta[m + 1, x, y, z] +
+            #                            np.log(self.trans_mat[..., x, y, z]) +
+            #                            log_emissions[m + 1, y, z],  # ]
+            #                            log_acc)
+            # beta[m, ...] = log_acc
 
             # normalization step
-            beta[m] -= sp.logsumexp(beta[m])
+            if normalization:
+                beta[m] -= sp.logsumexp(beta[m])
+            # print(f"beta{m} sum: {sp.logsumexp(beta[m])}")
 
         return beta
 
-    def _forward_pass_likelihood(self, obs_vw, log_emissions) -> tuple[np.ndarray, float]:
+    def _forward_pass_likelihood(self, obs_vw, log_emissions, normalization=True) -> tuple[np.ndarray, float]:
         """
         Compute the forward pass of the hidden markov model with three latent chains and return the forward probabilities
         as well as the log likelihood of the observations.
@@ -248,24 +250,32 @@ class EvoModel:
         alpha = np.empty((n_sites, n_states, n_states, n_states))
 
         # init alpha[0] = start_prob * emission[0] (in log-form)
-        alpha[0, ...] = np.log(self.start_prob.clip(eps)) + log_emissions[0, np.newaxis, ...]
-        alpha[0] -= sp.logsumexp(alpha[0])
+        alpha[0, ...] = np.log(self.start_prob.clip(eps)) + log_emissions[0, None, ...]
+        norm = sp.logsumexp(alpha[0])
+        if normalization:
+            alpha[0] -= norm
 
-        log_likelihood = 0.
+        log_likelihood = norm
         for m in range(1, n_sites):
             # [ \sum_{x,y,z} alpha_{m-1}(x, y, z) p(i, j, k | x, y, z) ] p(y_m^{vw} | i, j, k)
-            log_acc = -np.inf * np.ones((n_states, n_states, n_states))
-            for x, y, z in itertools.product(range(n_states), repeat=3):
-                log_acc = np.logaddexp(alpha[m - 1, x, y, z] + np.log(self.trans_mat[x, y, z, ...]), log_acc)
-            alpha[m, ...] = log_acc + log_emissions[m, np.newaxis, ...]
-            # normalization step
+            # -- ORIGINAL IMPLEMENTATION -- (slower)
+            # log_acc = -np.inf * np.ones((n_states, n_states, n_states))
+            # for x, y, z in itertools.product(range(n_states), repeat=3):
+            #     log_acc = np.logaddexp(alpha[m - 1, x, y, z] + np.log(self.trans_mat[x, y, z, ...]), log_acc)
+            # -- ALTERNATIVE IMPLEMENTATION -- (faster, no for loop)
+            log_acc = sp.logsumexp(alpha[m - 1, :, :, :, None, None, None] + np.log(self.trans_mat), axis=(0, 1, 2))
+            alpha[m, ...] = log_acc + log_emissions[m, None, :, :]
             norm = sp.logsumexp(alpha[m])
-            alpha[m] -= norm
+            if normalization:
+                # normalization step
+                alpha[m] -= norm
+
             # update log likelihood to save computation
             log_likelihood += norm
 
-        assert np.allclose(sp.logsumexp(alpha, axis=(1, 2, 3)), np.zeros(n_sites)),\
-            f"Forward pass normalization error:{sp.logsumexp(alpha, axis=(1, 2, 3))}"
+        if normalization:
+            assert np.allclose(sp.logsumexp(alpha, axis=(1, 2, 3)), np.zeros(n_sites)),\
+                f"Forward pass normalization error:{sp.logsumexp(alpha, axis=(1, 2, 3))}"
         return alpha, log_likelihood
 
     @property
@@ -278,6 +288,7 @@ class EvoModel:
     @property
     def trans_mat(self):
         """
+        Indexing: p(x, y, z | i, j, k) = trans_mat[i, j, k, x, y, z]
         array shape (n_states,) * 6
         """
         return self._trans_mat

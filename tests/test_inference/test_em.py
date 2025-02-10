@@ -49,12 +49,13 @@ class EMTestCase(unittest.TestCase):
         n_states = 5
         obs, eps = _generate_obs(noise=10)
         # run em
-        em = EM(n_states, PoissonModel(n_states, 100, 100), 'copytree', tree_build='ctr', verbose=2)
-        em.fit(obs, max_iter=30, rtol=1e-3, num_processors=8)
+        evo_model = CopyTree(n_states)
+        em = EM(n_states, PoissonModel(n_states, 100, 100), evo_model, tree_build='ctr', verbose=2)
+        em.fit(obs, max_iter=30, rtol=1e-6, num_processors=1)
         ctr_table = em.distances
         # assert epsilons
         for v, w in itertools.combinations(range(obs.shape[1]), r=2):
-            print(f"eps({v},{w}) = {ctr_table[v, w]:.3f}")
+            print(f"eps({v},{w}) = {ctr_table[v, w]}")
             print(np.round((obs[:, [v, w]] / 100)).astype(int).transpose())
             print(" ------- ")
         # print(ctr_table)
@@ -517,16 +518,17 @@ class EMTestCase(unittest.TestCase):
         np.random.seed(seed)
         n_states = 5
         n_sites = 1000
-        poisson_param = 10
-        normal_param = 1., 10.  # mean and precision
+        poisson_param = 100
+        # normal_param = 1., 20.  # mean and precision
 
-        # obs_model = PoissonModel(n_states, poisson_param, poisson_param)
-        obs_model = NormalModel(n_states, normal_param[0], normal_param[0],
-                                tau_v_prior=normal_param[1], tau_w_prior=normal_param[1])
+        obs_model = PoissonModel(n_states, poisson_param, poisson_param)
+        # obs_model = NormalModel(n_states, normal_param[0], normal_param[0],
+        #                         tau_v_prior=normal_param[1], tau_w_prior=normal_param[1])
         evo_model = CopyTree(n_states=n_states)
 
         data = simulate_quadruplet(n_sites, evo_model=evo_model, obs_model=obs_model,
                                    n_states=n_states, gamma_params=self.DEFAULT_GAMMA_PARAMS)
+        print(data['obs'][data['cn'][1] == 0,1])
         gt_ctr_table = get_ctr_table(data['tree'])  # eps
         # print cn in order r, u, v, w (check simulate_quadruplet doc for sorting info)
         print(f"CN (r, u, v, w):\n{data['cn'][[3, 2, 0, 1], :20]}")
@@ -536,8 +538,8 @@ class EMTestCase(unittest.TestCase):
         print(f"True edge _eps: {gt_ctr_table[0, 1, :].tolist()}")
 
         # run EM
-        em = EM(n_states, obs_model, evo_model)
-        em.fit(data['obs'], max_iter=50, rtol=1e-5, num_processors=1, eps_init=gt_ctr_table[0, 1])
+        em = EM(n_states, obs_model, evo_model, verbose=2)
+        em.fit(data['obs'], max_iter=50, rtol=1e-5, num_processors=1, theta_init=gt_ctr_table[0, 1])
         ctr_table = em.distances
         ll_est = em.loglikelihoods[0, 1]
         # change tree _lengths to match the estimated ones
@@ -558,9 +560,18 @@ class EMTestCase(unittest.TestCase):
         print([c / n_sites for c in copy_number_changes])
 
         # check likelihood
-        ll_true = em.compute_pair_likelihood(data['obs'], theta=gt_ctr_table[0, 1])
+        print(f"(EM) computing likelihood with theta:{ctr_table[0, 1]}")
+        ll_est = em.compute_pair_likelihood(data['obs'], theta=ctr_table[0, 1])
+        print(f"(gen) computing likelihood with theta:{gt_ctr_table[0, 1]}")
+        ll_generating = em.compute_pair_likelihood(data['obs'], theta=gt_ctr_table[0, 1])
+        print(f"(true) computing likelihood with theta:{np.array(copy_number_changes) / n_sites}")
+        ll_true = em.compute_pair_likelihood(data['obs'], theta=np.array(copy_number_changes) / n_sites)
 
-        self.assertGreater(ll_est, ll_true)
+        self.assertGreater(ll_true, ll_generating,
+                           msg="likelihood of eps given known copy numbers should be higher than data-generating eps likelihood")
+        self.assertGreater(ll_est, ll_generating,
+                           msg="likelihood of EM eps values should be higher than data-generating eps likelihood")
+        # self.assertGreater(ll_est, ll_true)
 
         # if these tests don't pass, it's likely that they are wrong
         self.assertAlmostEqual(ctr_table[0, 1, 0], gt_ctr_table[0, 1, 0], delta=0.02)

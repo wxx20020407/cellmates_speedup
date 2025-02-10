@@ -80,9 +80,10 @@ class EM:
         alpha = alpha / (self.n_states - 1) if kwargs.get('jc_correction', False) else alpha
         # init to an average of 5 changes over the whole length if not provided
         p_init_default = 5 / self.n_sites
-        l_init = kwargs.get('l_init', np.array([l_from_p(p_init_default, self.n_states)] * 3) if isinstance(self.evo_model, JCBModel) else np.array([p_init_default] * 3))
+        l_init = np.empty(3)
+        l_init[...] = kwargs.get('l_init', np.array([l_from_p(p_init_default, self.n_states)] * 3) if isinstance(self.evo_model, JCBModel) else np.array([p_init_default] * 3))
         if theta_init is not None:
-            l_init = theta_init
+            l_init[...] = theta_init
 
         l_hat = -np.ones((self.n_cells, self.n_cells, 3))
         zero_tol = kwargs.get('zero_tol', 1e-10)  # saturation level when dp << d (changes are much more prevalent)
