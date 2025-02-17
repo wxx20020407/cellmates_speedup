@@ -3,12 +3,14 @@ import time
 
 import numpy as np
 import multiprocessing as mp
+# import matplotlib.pyplot as plt
 
 from inference.em import EM
 from models.evo import JCBModel
 from models.obs import PoissonModel, NormalModel
 from simulation.datagen import simulate_quadruplet, get_ctr_table
 from utils.math_utils import p_from_l, l_from_p
+# from utils.visual import plot_cn_profile
 
 
 def parse_p_change_list(p_change):
@@ -44,6 +46,10 @@ def run_experiment(n_sites, length_size, seed, max_iter, file_name, n_states, ga
     # generate data
     data = simulate_quadruplet(n_sites=n_sites, obs_model=obs_model, evo_model=evo_model,
                                gamma_params=gamma_params, seed=i)
+    # fig, ax = plt.subplots(1, 1, figsize=(10, 5))
+    # plot_cn_profile(data['cn'].astype(int), ax=ax, title=f"length_params: {length_size_str}")
+    # plt.show()
+    # return True
 
     # run EM
     em = EM(n_states=n_states, obs_model=obs_model, evo_model=evo_model, tree_build='ctr')
@@ -77,17 +83,8 @@ def run_experiment(n_sites, length_size, seed, max_iter, file_name, n_states, ga
 
 def main():
     # parameters
-    """ parameters for synth_performance.py
-    max_iter = 40
-    n_sites = 500
-    n_states = 7
-    alpha = 1.
-    p_change_list = [0.001]
-    n_cells_list = [100]
-    n_datasets = 10
-    """
     max_iter = 60
-    parallel_experiments = 5 # cpus
+    parallel_experiments = 1 # cpus
     n_states = 7
     n_sites_list = [
         200,
@@ -100,9 +97,9 @@ def main():
         NormalModel(n_states=n_states, mu_v_prior=1., tau_v_prior=50),
     ]
     # define a range of p_change values (xs, s, m, l, xl)
-    p_change_arr = np.array([0.005, 0.01, 0.05, 0.1, 0.2])
+    p_change_arr = np.array([0.01, 0.02, 0.05, 0.1, 0.2])
     mean_l = l_from_p(p_change_arr, n_states=n_states)  # mean edge length
-    var_ = 0.0001
+    var_ = 0.0001 * mean_l  # variance
     scale_arr = var_ / mean_l
     shape_arr = mean_l / scale_arr
     gamma_params_dict = [(shape.item(), scale.item()) for shape, scale in zip(shape_arr, scale_arr)]
@@ -110,11 +107,11 @@ def main():
     gamma_params_dict = dict(zip(sizes, gamma_params_dict))
 
     length_sizes_list = (
-            # [ [p] for p in sizes ] +
+            [ [p] for p in sizes ] #+
             # [[sizes[0], sizes[4]], [sizes[1], sizes[3]] ] + # small r->u, large u->v,w
             # [[sizes[4], sizes[0]], [sizes[3], sizes[1]] ] + # large r->u, small u->v,w
             # [[sizes[2], sizes[0], sizes[4]], [sizes[2], sizes[1], sizes[3]]] + # medium r->u, small u->v, large u->w
-            [[sizes[4], sizes[2], sizes[0]], [sizes[3], sizes[2], sizes[1]]] # large r->u, medium u->v, small u->w
+            # [[sizes[4], sizes[2], sizes[0]], [sizes[3], sizes[2], sizes[1]]] # large r->u, medium u->v, small u->w
     )
 
     num_replicates = 1
