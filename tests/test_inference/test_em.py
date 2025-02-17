@@ -118,15 +118,20 @@ class EMTestCase(unittest.TestCase):
         n_states = 5
         n_sites = 500
 
-        data = simulate_quadruplet(n_sites, n_states=n_states, gamma_params=(1., 0.055))
+        data = simulate_quadruplet(n_sites, n_states=n_states, gamma_params=(1., 0.0055))
         gt_ctr_table = get_ctr_table(data['tree'])
         # print cn in order r, u, v, w (check simulate_quadruplet doc for sorting info)
         print(f"CN (r, u, v, w):\n{data['cn'][[3, 2, 0, 1], :20]}")
 
-        # print tree with _lengths
+        # print tree with _lengths (true actually means the _lengths used to generate the data)
         l_true = gt_ctr_table[0, 1, :].tolist()
         data['tree'].print_plot(plot_metric='length')
-        print(f"True edge _lengths: {l_true}")
+        print(f"Data generating edge _lengths: {l_true}")
+
+        # edge lengths estimated from copy number (likely more accurate than the true ones)
+        comp_eps = compute_cn_changes(data['cn'], [(3, 2), (2, 0), (2, 1)])
+        comp_lengths = l_from_p(np.array(comp_eps)/n_sites, n_states)
+        print(f"Est (CN) edge _lengths: {comp_lengths}")
 
         # run EM
         out = jcb_em_alg(data['obs'], n_states=n_states, max_iter=30, rtol=1e-3, num_processors=1)
@@ -142,7 +147,7 @@ class EMTestCase(unittest.TestCase):
                 edge.length = ctr_table[0, 1, 2]
         data['tree'].print_plot(plot_metric='length')
         l_est = ctr_table[0, 1, :].tolist()
-        print("Estimated edge _eps:")
+        print("Estimated edge lengths:")
         print(l_est)
 
         # check likelihood
@@ -152,8 +157,12 @@ class EMTestCase(unittest.TestCase):
         obs_model = PoissonModel(n_states, 100, 100)
         log_emissions = obs_model.log_emission(data['obs'])
         _, ll_true = evo_model._forward_pass_likelihood(data['obs'], log_emissions)
-
         ll_est = out['loglikelihoods'][0, 1]
+
+        evo_model = JCBModel(n_states=n_states)
+        evo_model.lengths = comp_lengths
+        _, ll_cn = evo_model._forward_pass_likelihood(data['obs'], log_emissions)
+        self.assertGreater(ll_cn, ll_true)
         self.assertGreater(ll_est, ll_true)
 
         # if these tests don't pass, it's likely that they are wrong
@@ -342,15 +351,16 @@ class EMTestCase(unittest.TestCase):
         cn_vw = np.round(obs_vw / 100).astype(int)
         print(f"CN VW: {cn_vw.transpose()}")
         n_sites = obs_vw.shape[0]
+        obs_model = PoissonModel(n_states, 100, 100)
         # the best explanation is that centroid and root are further apart than centroid and v,u
         # compute two-slice marginals assuming centroid is placed closer to the root
         jcb_model.lengths = np.array([sl, ll, ll])
-        log_xi_early_centroid = jcb_model.two_slice_marginals(obs_vw)
+        log_xi_early_centroid = jcb_model.two_slice_marginals(obs_vw, obs_model)
         loglik_early = jcb_model.loglikelihood
 
         # compute two-slice marginals assuming centroid is placed closer to the leaves
         jcb_model.lengths = np.array([ll, sl, sl])
-        log_xi_late_centroid = jcb_model.two_slice_marginals(obs_vw)
+        log_xi_late_centroid = jcb_model.two_slice_marginals(obs_vw, obs_model)
         loglik_late = jcb_model.loglikelihood
         self.assertGreater(loglik_late, loglik_early)
 

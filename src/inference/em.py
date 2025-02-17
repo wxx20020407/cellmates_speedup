@@ -30,6 +30,7 @@ class EM:
                  evo_model: EvoModel | str = 'jcb', tree_build='ctr',
                  alpha=1., verbose: int = 0):
         # model variables
+        self.min_iter = 3
         if isinstance(obs_model, str):
             self.evo_model: EvoModel = JCBModel(n_states, alpha=alpha) if evo_model == 'jcb' else CopyTree(n_states)
         else:
@@ -80,10 +81,12 @@ class EM:
         alpha = alpha / (self.n_states - 1) if kwargs.get('jc_correction', False) else alpha
         # init to an average of 5 changes over the whole length if not provided
         p_init_default = 5 / self.n_sites
-        l_init = np.empty(3)
-        l_init[...] = kwargs.get('l_init', np.array([l_from_p(p_init_default, self.n_states)] * 3) if isinstance(self.evo_model, JCBModel) else np.array([p_init_default] * 3))
+        theta_init_ = np.empty(3)
         if theta_init is not None:
-            l_init[...] = theta_init
+            theta_init_[:] = theta_init
+        else:
+            theta_init_[:] = p_init_default if isinstance(self.evo_model, CopyTree) else l_from_p(p_init_default,
+                                                                                                   self.n_states)
 
         l_hat = -np.ones((self.n_cells, self.n_cells, 3))
         zero_tol = kwargs.get('zero_tol', 1e-10)  # saturation level when dp << d (changes are much more prevalent)
@@ -102,7 +105,7 @@ class EM:
             shm_obs = shared_memory.SharedMemory(create=True, size=obs.nbytes)
             shared_obs = np.ndarray(obs.shape, dtype=obs.dtype, buffer=shm_obs.buf)
             np.copyto(shared_obs, obs)
-            args = [(s, t, shm_obs.name, l_init, alpha, max_iter, rtol, zero_tol, self.obs_model)
+            args = [(s, t, shm_obs.name, theta_init_, alpha, max_iter, rtol, zero_tol, self.obs_model)
                     for s, t in itertools.combinations(range(self.n_cells), r=2)]
             with mp.Pool(num_processors) as pool:
                 # main loop
@@ -114,7 +117,7 @@ class EM:
             self.logger.debug(f'using single processor')
             results = []
             for s, t in itertools.combinations(range(self.n_cells), r=2):
-                results.append(self._fit_quadruplet(s, t, obs[:, [s, t]], l_init, max_iter, rtol))
+                results.append(self._fit_quadruplet(s, t, obs[:, [s, t]], theta_init_, max_iter, rtol))
 
         # collect results
         for (s, t), l_i, loglik, it in results:
@@ -129,20 +132,22 @@ class EM:
         self.logger.info(f'finished in {len(iterations)} iterations')
 
 
-    def _fit_quadruplet(self, v: int, w: int, obs_vw: np.ndarray, l_init: np.ndarray, max_iter: int, rtol: float):
+    def _fit_quadruplet(self, v: int, w: int, obs_vw: np.ndarray, theta_init: np.ndarray, max_iter: int, rtol: float):
         # define quad logger with cell pair tag adding to the class logger
         logger = self.logger.getChild(f'{v},{w}')
         logger.setLevel(self.logger.level)
 
         # initialize l = (l_ru, l_uv, l_uw)
-        l_i = l_init
+        theta_init_ = np.empty(3)  # init desired size
+        theta_init_[:] = theta_init  # ...copy instead of referencing and validate input size with assignment
+        # (`theta_init_ = theta_init` is wrong, but also `theta_init_ = theta_init.copy()` is prone to error
         quad_model = self.evo_model.new()
-        quad_model.theta = l_i
+        quad_model.theta = theta_init_
         # compute changes is observation and evolution model specific
         d, dp, loglik = quad_model.expected_changes(obs_vw=obs_vw, obs_model=self.obs_model)
         convergence = False
         it = 0
-        logger.debug(f'[{it}/{max_iter}] LL = {loglik}')
+        logger.debug(f'[{it}/{max_iter}] LL = {loglik} d = {d} dp = {dp}')
         while not convergence and it < max_iter:
 
             # update theta
@@ -150,11 +155,11 @@ class EM:
 
             # compute D and D'
             d, dp, new_loglik = quad_model.expected_changes(obs_vw=obs_vw, obs_model=self.obs_model)
-            logger.debug(f"[{it + 1}/{max_iter}] LL = {new_loglik}")
+            logger.debug(f"[{it + 1}/{max_iter}] LL = {new_loglik}, d = {d}, dp = {dp}")
 
             if new_loglik < loglik:
                 logger.error(f'log likelihood decreased: {new_loglik} < {loglik}')
-            elif (new_loglik - loglik) / np.abs(loglik) < rtol:
+            elif (new_loglik - loglik) / np.abs(loglik) < rtol and it > self.min_iter:
                 convergence = True
             loglik = new_loglik
             it += 1

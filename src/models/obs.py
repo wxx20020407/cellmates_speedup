@@ -80,12 +80,12 @@ class NormalModel(ObsModel):
     p(y_m^v |C^v, mu_v, tau_v) = N(y_vm |mu_v * C_m^v, 1/tau_v)
     """
 
-    def __init__(self, n_states: int, mu_v_prior=1., mu_w_prior=1., tau_v_prior=1., tau_w_prior=1., M=200, **kwargs):
+    def __init__(self, n_states: int, mu_v_prior=1., mu_w_prior=None, tau_v_prior=50., tau_w_prior=None, M=200, **kwargs):
         self.M = M
         self.mu_v_prior = mu_v_prior
-        self.mu_w_prior = mu_w_prior
+        self.mu_w_prior = mu_w_prior if mu_w_prior is not None else mu_v_prior
         self.tau_v_prior = tau_v_prior
-        self.tau_w_prior = tau_w_prior
+        self.tau_w_prior = tau_w_prior if tau_w_prior is not None else tau_v_prior
         self.true_mu_v = None
         self.true_mu_w = None
         self.true_tau_v = None
@@ -239,7 +239,7 @@ class PoissonModel(ObsModel):
         r_vw = np.random.poisson(lambda_ * cnp)
         return r_vw.transpose()
 
-    def log_emission(self, obs_vw, **kwargs):
+    def log_emission(self, obs_vw, **kwargs) -> np.ndarray:
         """
         Compute the log probability of the observations for each site
         $$

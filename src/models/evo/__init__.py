@@ -90,8 +90,6 @@ class EvoModel:
         """
         Compute the expected number of changes which over the copy number conditional distribution for the three branches:
          (r, u), (u, v), (u, w).
-         This function depends on the specific instance of the model only
-         through the two slice marginals, which will is overridden in the subclass.
 
         $$
         D(l) = E_{p(C|Y,l)}[ \sum_{m=1}^M \sum_{i,i',j,j'} 1(i'-i \neq j'-j) ]
@@ -118,8 +116,8 @@ class EvoModel:
                 # l_ru (sum over m, j, k, j', k')
                 pair_tsm = sp.logsumexp(log_xi, axis=(0, 2, 3, 5, 6))
                 # use comut_mask0
-                d[0] = np.exp(sp.logsumexp(pair_tsm[~comut_mask0]))
-                dp[0] = np.exp(sp.logsumexp(pair_tsm[comut_mask0]))
+                d[0] = np.exp(sp.logsumexp(pair_tsm[~comut_mask0]))  # change
+                dp[0] = np.exp(sp.logsumexp(pair_tsm[comut_mask0]))  # no change
             else:
                 if e == 1:
                     # eps_uv (sum over m, i, i')
