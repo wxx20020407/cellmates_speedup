@@ -527,13 +527,13 @@ class EMTestCase(unittest.TestCase):
         random.seed(seed)
         np.random.seed(seed)
         n_states = 5
-        n_sites = 1000
+        n_sites = 500
         poisson_param = 100
-        # normal_param = 1., 20.  # mean and precision
+        normal_param = 1., 50.  # mean and precision
 
-        obs_model = PoissonModel(n_states, poisson_param, poisson_param)
-        # obs_model = NormalModel(n_states, normal_param[0], normal_param[0],
-        #                         tau_v_prior=normal_param[1], tau_w_prior=normal_param[1])
+        # obs_model = PoissonModel(n_states, poisson_param, poisson_param)
+        obs_model = NormalModel(n_states, normal_param[0], normal_param[0],
+                                tau_v_prior=normal_param[1], tau_w_prior=normal_param[1])
         evo_model = CopyTree(n_states=n_states)
 
         data = simulate_quadruplet(n_sites, evo_model=evo_model, obs_model=obs_model,
@@ -549,7 +549,7 @@ class EMTestCase(unittest.TestCase):
 
         # run EM
         em = EM(n_states, obs_model, evo_model, verbose=2)
-        em.fit(data['obs'], max_iter=50, rtol=1e-5, num_processors=1, theta_init=gt_ctr_table[0, 1])
+        em.fit(data['obs'], max_iter=50, rtol=1e-5, num_processors=1, theta_init=np.array([0.3, 0.3, 0.3]))
         ctr_table = em.distances
         ll_est = em.loglikelihoods[0, 1]
         # change tree _lengths to match the estimated ones
@@ -581,6 +581,8 @@ class EMTestCase(unittest.TestCase):
                            msg="likelihood of eps given known copy numbers should be higher than data-generating eps likelihood")
         self.assertGreater(ll_est, ll_generating,
                            msg="likelihood of EM eps values should be higher than data-generating eps likelihood")
+
+        print(ll_true / ll_est)
         # self.assertGreater(ll_est, ll_true)
 
         # if these tests don't pass, it's likely that they are wrong
