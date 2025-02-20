@@ -1,0 +1,90 @@
+---
+title: Plots for synth performance
+author: "Vittorio Zampinetti"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Plots
+> Plots for the synthetic data performance experiment
+
+Read data
+
+```{r}
+library(readr)
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+
+data <- read_csv("synth_performance_merged.csv", col_types = cols(
+  seed = col_factor(),
+  n_cells = col_factor(levels = c("10", "20", "50", "100")),
+  p_change = col_factor(levels = c("0.001", "0.008", "0.01", "0.02", "0.05")),
+  time = col_double(),
+  tot_likelihood = col_double(),
+  avg_likelihood_pair = col_double(),
+  avg_iterations_pair = col_double(),
+  ctr_table_distance = col_double(),
+  tree_distance = col_double(),
+  tree_rf_distance = col_double(),
+  num_processors = col_integer(),
+  n_states = col_integer(),
+  n_sites = col_integer(),
+  max_iter = col_integer(),
+  alpha = col_double()
+))
+```
+## RF distance
+Plot RF distance per num cells (10, 20, 50, 100) with n_sites = 500 and differnt values of p_change (noise)
+
+```{r}
+# legend at bottom
+data %>%
+  filter(p_change != "0.05" | n_cells != "50") %>%
+  ggplot(aes(x = n_cells, y = tree_rf_distance, color = p_change)) +
+  geom_boxplot() +
+  geom_point(position = position_jitterdodge(), alpha = 0.5) +
+  labs(
+    title = "RF distance (500 bins)",
+    x = "Number of cells",
+    y = "RF distance",
+    color = "Mut rate"
+  ) +
+  theme(legend.position = "bottom")
+
+# scale color gradient
+
+
+# save to rf_distance.png
+ggsave("rf_distance.png", width = 6, height = 4)
+```
+
+## Time
+Plot time per num cells (10, 20, 50, 100) with n_sites = 500 and differnt values of p_change (noise)
+Only select those with num_processors = 40 for fair comparison
+
+```{r}
+# draw lines for 1h and 5h, with text labels
+data %>%
+  filter(num_processors == 40) %>%
+  ggplot(aes(x = n_cells, y = time)) +
+  geom_boxplot() +
+  geom_jitter(width = 0.1) +
+  geom_hline(yintercept = 3600, linetype = "dashed", color = "red") +
+  annotate(geom = "text", x = 1, y = 3600, label = "1h", hjust = 1, vjust = -1, color = "red") +
+  geom_hline(yintercept = 18000, linetype = "dashed", color = "red") +
+  annotate(geom = "text", x = 1, y = 18000, label = "5h", hjust = 1, vjust = -1, color = "red") +
+  labs(
+    title = "Time (n_sites = 500)",
+    x = "Number of cells",
+    y = "Time (s)",
+    color = "Noise level (change prob)"
+  )
+# save to time.png
+ggsave("time.png", width = 6, height = 4)
+```
+

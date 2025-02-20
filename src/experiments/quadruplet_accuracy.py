@@ -1,3 +1,11 @@
+"""
+Experiment to test the accuracy of the quadruplet model on simulated data.
+It generates data with a given set of parameters, and then runs the EM algorithm to estimate the parameters.
+Saves the results to a csv file named quadruplet_accuracy_yymmddHHMMSS.csv
+
+Usage: python quadruplet_accuracy.py
+"""
+
 import itertools
 import time
 
@@ -114,8 +122,9 @@ def main():
             # [[sizes[4], sizes[2], sizes[0]], [sizes[3], sizes[2], sizes[1]]] # large r->u, medium u->v, small u->w
     )
 
-    num_replicates = 1
+    num_replicates = 1 # number of data replicates per parameter setting
     print(f"with n_states = {n_states}, alpha = 1.")
+
     # make filename unique to avoid overwriting
     file_name = f'quadruplet_accuracy_{time.strftime("%y%m%d%H%M%S")}.csv'
     with open(file_name, 'w') as f:
