@@ -105,6 +105,23 @@ def get_root_distance(centroid):
 
 
 def get_ctr_table(tree: dpy.Tree) -> np.ndarray:
+    """
+    Get the centroid table for a given tree.
+    The centroid table is a 3D numpy array of shape (n_cells, n_cells, 3) where n_cells is the number of leaves in the tree.
+    For each pair of cells (r, s) with r < s, the entry ctr_table[r, s] is a vector of 3 values:
+        - ctr_table[r, s, 0]: distance from the centroid of r and s to the root
+        - ctr_table[r, s, 1]: distance from the centroid of r and s to r
+        - ctr_table[r, s, 2]: distance from the centroid of r and s to s
+    The entries for r >= s are set to -1.
+    The tree must be rooted and all leaves must be labeled with unique integers from 0 to n_cells - 1.
+    Parameters
+    ----------
+    tree: dpy.Tree, the input tree with edge _lengths
+
+    Returns
+    -------
+    ctr_table: np.ndarray, the centroid table
+    """
     n_cells = len(tree.leaf_nodes())
     assert n_cells == len(tree.taxon_namespace)
     ctr_table = - np.ones((n_cells, n_cells, 3))
