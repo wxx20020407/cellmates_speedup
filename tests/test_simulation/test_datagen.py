@@ -3,7 +3,7 @@ import random
 import unittest
 import numpy as np
 
-from simulation.datagen import rand_dataset, get_ctr_table, simulate_quadruplet
+from simulation.datagen import rand_dataset, get_ctr_table, simulate_quadruplet, rand_ann_dataset
 
 
 class DatagenTestCase(unittest.TestCase):
@@ -60,6 +60,16 @@ class DatagenTestCase(unittest.TestCase):
         self.assertEqual(data['obs'].shape, (n_sites, 2))
         self.assertEqual(data['cn'].shape, (4, n_sites))
         self.assertTrue({n.label for n in data['tree'].nodes()} == set(map(str, range(4))))
+
+    def test_anndata(self):
+        n_cells = 10
+        n_states = 7
+        n_sites = 200
+        adata = rand_ann_dataset(n_cells, n_states, n_sites)
+        self.assertIn('tree', adata.uns, msg="tree not found in anndata")
+        self.assertIn('state', adata.layers, msg="copy number state layer not found in anndata")
+        self.assertEqual(adata.n_obs, n_cells)
+        self.assertEqual(adata.n_vars, n_sites)
 
 
 if __name__ == '__main__':

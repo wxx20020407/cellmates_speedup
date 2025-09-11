@@ -6,6 +6,7 @@ from itertools import combinations
 from typing import TypedDict
 
 import numpy as np
+import pandas as pd
 import scipy.stats as ss
 import dendropy as dpy
 import random
@@ -21,9 +22,9 @@ class Dataset(TypedDict):
     """
     Data structure for synthetic data.
     """
-    obs: np.ndarray
-    tree: dpy.Tree
-    cn: np.ndarray
+    obs: np.ndarray  # shape (n_sites, n_cells)
+    tree: dpy.Tree  # contains edge _lengths
+    cn: np.ndarray  # shape (2*n_cells-1, n_sites)
 
 def simulate_quadruplet(n_sites,
                         obs_model: ObsModel | str = 'poisson',
@@ -118,20 +119,29 @@ def get_ctr_table(tree: dpy.Tree) -> np.ndarray:
     return ctr_table
 
 
-def rand_ann_dataset(n_cells: int, n_states: int, n_sites: int, **kwargs):
+def rand_ann_dataset(n_cells: int, n_states: int, n_sites: int, n_chrom: int = 1, **kwargs):
     #   using different hmms for each chromosome
     # kwargs = [alpha, obs_type]
     # minimum n_sites = 200 because bins are shared among 23 chromosomes
     # in the human genome
-    if n_sites < 200:
-        logging.debug(f"requested bins number {n_sites} is too low for human genome, setting n_sites = 200")
-        n_sites = 200
-    anndataset = anndata.AnnData()
     # TODO: implement
     #   using different hmms for each chromosome
     data = rand_dataset(n_states, n_sites, n_cells=n_cells, **kwargs)
-
-    return anndataset
+    cn_matrix = np.empty_like(data['obs'].T)
+    for t in data['tree'].leaf_node_iter():
+        cell_id = int(t.label)
+        cn_matrix[cell_id] = data['cn'][cell_id]
+    adata = anndata.AnnData(
+        X=data['obs'].T,
+        var=pd.DataFrame(data={
+            'chr': ['1'] * cn_matrix.shape[1],
+            'start': [i * 100 + 1 for i in range(n_sites)],
+            'end': [(i + 1) * 100 for i in range(n_sites)]
+        }),
+    )
+    adata.layers['state'] = cn_matrix
+    adata.uns['tree'] = data['tree'].as_string('newick')
+    return adata
 
 
 def rand_dataset(n_states: int, n_sites: int, evo_model: EvoModel | str = 'jcb', obs_model: ObsModel | str = 'normal',

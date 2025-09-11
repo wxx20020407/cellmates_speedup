@@ -21,6 +21,10 @@ class EvoModel:
         self._trans_mat = None
         self.loglikelihood = None
         self.n_states = n_states
+        # optional parameters
+        self.zero_absorption = kwargs.get('zero_absorption', False)
+        self.focal_rate = kwargs.get('focal_rate', 0.)
+        self.event_length_ratio = kwargs.get('event_length_ratio', 0.2)
 
     @property
     def theta(self):
@@ -61,29 +65,9 @@ class EvoModel:
         else:
             pdd = 1 - p_change
 
-        # simulate first copy number
-        u = random.random()
-        if u < pdd:
-            node_cn[0] = prev_cn[0]
-        else:
-            node_cn[0] = random.choice([j for j in range(self.n_states) if j != prev_cn[0]])
-
-        for m in range(1, len(prev_cn)):
-            u = random.random()
-            no_change_cn = prev_cn[m] - prev_cn[m - 1] + node_cn[m - 1]
-            if prev_cn[m] == 0:
-                # 0 absorption
-                no_change_cn = 0
-
-            if 0 <= no_change_cn < self.n_states:
-                if u < pdd:
-                    node_cn[m] = no_change_cn
-                else:
-                    node_cn[m] = random.choice([j for j in range(self.n_states) if j != no_change_cn])
-            elif no_change_cn < 0:
-                node_cn[m] = 0
-            else:
-                node_cn[m] = random.choice([j for j in range(self.n_states)])
+        node_cn[:] = _evolve_cn_event_pois(prev_cn, pdd, self.n_states, zero_absorption=self.zero_absorption,
+                                           focal_rate=self.focal_rate, event_length_ratio=self.event_length_ratio)
+        # node_cn[:] = _evolve_cn_event_chain(prev_cn, pdd, self.n_states)  # old method
         return node_cn
 
     def expected_changes(self, obs_vw, obs_model: ObsModel = None) -> tuple[np.ndarray, np.ndarray, float]:
@@ -206,19 +190,9 @@ class EvoModel:
 
         # compute iteratively
         for m in reversed(range(n_sites - 1)):
-            # -- ORIGINAL IMPLEMENTATION --
             beta[m, ...] = sp.logsumexp(beta[m + 1, None, None, None, :, :, :] +
                                   np.log(self.trans_mat) +
                                   log_emissions[m + 1, None, None, None, None, :, :], axis=(3, 4, 5))
-            #  -- ALTERNATIVE IMPLEMENTATION -- (slower but doesn't use broadcasting)
-            # log_acc = -np.inf * np.ones((n_states, n_states, n_states))
-            # for x, y, z in itertools.product(range(n_states), repeat=3):
-            #     log_acc = np.logaddexp(beta[m + 1, x, y, z] +
-            #                            np.log(self.trans_mat[..., x, y, z]) +
-            #                            log_emissions[m + 1, y, z],  # ]
-            #                            log_acc)
-            # beta[m, ...] = log_acc
-
             # normalization step
             if normalization:
                 beta[m] -= sp.logsumexp(beta[m])
@@ -255,12 +229,6 @@ class EvoModel:
 
         log_likelihood = norm
         for m in range(1, n_sites):
-            # [ \sum_{x,y,z} alpha_{m-1}(x, y, z) p(i, j, k | x, y, z) ] p(y_m^{vw} | i, j, k)
-            # -- ORIGINAL IMPLEMENTATION -- (slower)
-            # log_acc = -np.inf * np.ones((n_states, n_states, n_states))
-            # for x, y, z in itertools.product(range(n_states), repeat=3):
-            #     log_acc = np.logaddexp(alpha[m - 1, x, y, z] + np.log(self.trans_mat[x, y, z, ...]), log_acc)
-            # -- ALTERNATIVE IMPLEMENTATION -- (faster, no for loop)
             log_acc = sp.logsumexp(alpha[m - 1, :, :, :, None, None, None] + np.log(self.trans_mat), axis=(0, 1, 2))
             alpha[m, ...] = log_acc + log_emissions[m, None, :, :]
             norm = sp.logsumexp(alpha[m])
@@ -527,3 +495,82 @@ class JCBModel(EvoModel):
         cn = self.simulate_cn(tree, n_sites)
 
         return cn
+
+
+def _evolve_cn_event_pois(prev_cn: np.ndarray, pdd: float, n_states: int, zero_absorption: bool = False,
+                          focal_rate: float = 0., event_length_ratio: float = .2) -> np.ndarray:
+    """
+    Evolve copy number chain with focal and clonal events, modeling the length of the events with a Poisson distribution.
+    The mean of the Poisson distribution is set to 5 for focal events and a fraction of the chain length M for clonal events.
+    The number of events is sampled from a Poisson distribution with mean (1-pdd) * M / 2 so that the average number of breakpoints
+    (start and end) is (1-pdd) * M.
+    By default the focal event rate is 0 (focal events are disabled).
+    Parameters
+    ----------
+    prev_cn: np.ndarray, previous copy number chain
+    pdd: float, probability of no change
+    n_states: int, number of copy number states
+    zero_absorption: bool, if True, the zero absorption is enabled (no gains from 0)
+    focal_rate: float, proportion of focal events over the total number of events
+     (focal events are short, clonal events are long)
+    event_length_ratio: float, ratio of the chain length to use as mean for the Poisson distribution
+        of clonal event lengths. Default is 0.2 (20% of the chain length)
+    Returns
+    -------
+    np.ndarray, shape (n_sites,) child copy number chain
+    """
+    M = prev_cn.shape[0]
+    # focal events are short
+    focal_length = 5 if M > 100 else max(2, M // 20)
+    clonal_length_mean = max(10, int(M * event_length_ratio))
+    # compute the number of events
+    n_events = ss.poisson((1 - pdd) * M / 2).rvs()
+    child_cn = prev_cn.copy()
+    if n_events > 0:
+        start_pos = np.random.permutation(M)[:n_events]
+        start_pos.sort()
+        for e in range(n_events):
+            # sample 1 or -1
+            delta = 1 if random.random() < 0.5 else -1
+            start = int(start_pos[e])
+            # focal event
+            if focal_rate > 0 and random.random() < focal_rate:
+                end = min(start + focal_length, M - 1)
+            # clonal event
+            else:
+                length = ss.poisson(clonal_length_mean).rvs()
+                end = min(start + length, M - 1)
+            child_cn[start:end] = np.clip(child_cn[start:end] + delta, a_min=0, a_max=n_states - 1)
+            if zero_absorption:
+                zero_mask = prev_cn[start:end] == 0
+                child_cn[start:end][zero_mask] = 0
+
+    return child_cn
+
+def _evolve_cn_event_chain(prev_cn: np.ndarray, pdd: float, n_states: int) -> np.ndarray:
+    # simulate first copy number
+    node_cn = np.empty_like(prev_cn)
+    u = random.random()
+    if u < pdd:
+        node_cn[0] = prev_cn[0]
+    else:
+        node_cn[0] = random.choice([j for j in range(n_states) if j != prev_cn[0]])
+
+    for m in range(1, len(prev_cn)):
+        u = random.random()
+        no_change_cn = prev_cn[m] - prev_cn[m - 1] + node_cn[m - 1]
+        if prev_cn[m] == 0:
+            # 0 absorption
+            no_change_cn = 0
+
+        if 0 <= no_change_cn < n_states:
+            if u < pdd:
+                node_cn[m] = no_change_cn
+            else:
+                node_cn[m] = random.choice([j for j in range(n_states) if j != no_change_cn])
+        elif no_change_cn < 0:
+            node_cn[m] = 0
+        else:
+            node_cn[m] = random.choice([j for j in range(n_states)])
+
+    return node_cn
