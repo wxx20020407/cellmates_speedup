@@ -9,6 +9,6 @@ notes.md
 /img/
 # output dirs
 *_out
-/tests/test_output/
 /output/
 /venv/
+/build/

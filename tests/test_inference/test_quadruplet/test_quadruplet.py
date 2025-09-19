@@ -2,12 +2,13 @@ import unittest
 
 import networkx as nx
 
-from inference.em import em_alg
-from models.evo import CopyTree
-from models.obs import NormalModel, PoissonModel
+from cellmates.inference.em import em_alg
+from cellmates.models.evo import CopyTree
+from cellmates.models.obs import NormalModel, PoissonModel
 import numpy as np
 
-from models.quadruplet import Quadruplet
+from cellmates.models.quadruplet import Quadruplet
+from cellmates.utils.testing import create_output_test_folder
 
 
 class QuadrupletTestCase(unittest.TestCase):
@@ -25,6 +26,7 @@ class QuadrupletTestCase(unittest.TestCase):
         mu_w = 1.0
         tau_v = 100.0
         tau_w = 100.0
+        out_dir = create_output_test_folder()
         obs_param_v = {'mu': mu_v, 'tau': tau_v}
         obs_param_w = {'mu': mu_w, 'tau': tau_w}
         obs_model = NormalModel(A, mu_v, mu_w, tau_v, tau_w, M)

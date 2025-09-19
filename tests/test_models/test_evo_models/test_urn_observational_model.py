@@ -2,7 +2,7 @@ import unittest
 
 import numpy as np
 
-from models.obs import UrnModel
+from cellmates.models.obs import UrnModel
 
 
 class UrnModelTestCase(unittest.TestCase):

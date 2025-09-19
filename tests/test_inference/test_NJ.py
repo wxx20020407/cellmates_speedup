@@ -1,15 +1,12 @@
-import itertools
 import random
 import unittest
 
 import dendropy.calculate.treecompare
-import networkx as nx
 import numpy as np
 import skbio
 from dendropy.calculate.phylogeneticdistance import PhylogeneticDistanceMatrix
 
-from inference import neighbor_joining
-from simulation.datagen import rand_dataset
+from cellmates.simulation.datagen import rand_dataset
 
 
 class NJTestCase(unittest.TestCase):

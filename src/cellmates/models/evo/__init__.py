@@ -1,4 +1,3 @@
-import itertools
 import logging
 import random
 
@@ -7,11 +6,11 @@ import networkx as nx
 import numpy as np
 from scipy import special as sp, stats as sp_stats, stats as ss
 
-from models.evo.basefunc import get_zipping_mask, get_zipping_mask0, p_delta_change, p_delta_trans_mat, \
+from cellmates.models.evo.basefunc import get_zipping_mask, get_zipping_mask0, p_delta_change, p_delta_trans_mat, \
     p_delta_start_prob, h_eps, h_eps0
 
-from models.obs import ObsModel, PoissonModel
-from utils.tree_utils import label_tree
+from cellmates.models.obs import ObsModel, PoissonModel
+from cellmates.utils.tree_utils import label_tree
 
 
 class EvoModel:

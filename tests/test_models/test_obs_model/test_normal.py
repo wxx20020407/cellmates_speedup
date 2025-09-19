@@ -3,7 +3,7 @@ import unittest
 
 import numpy as np
 
-from models.obs import NormalModel
+from cellmates.models.obs import NormalModel
 
 
 class NormalModelTestCase(unittest.TestCase):

@@ -6,10 +6,10 @@ import logging
 import numpy as np
 from dendropy.calculate import treecompare
 
-from inference.em import jcb_em_alg
-from inference.neighbor_joining import build_tree
-from simulation.datagen import rand_dataset, get_ctr_table
-from utils.tree_utils import convert_networkx_to_dendropy
+from cellmates.inference.em import jcb_em_alg
+from cellmates.inference.neighbor_joining import build_tree
+from cellmates.simulation.datagen import rand_dataset, get_ctr_table
+from cellmates.utils.tree_utils import convert_networkx_to_dendropy
 
 if __name__=='__main__':
     logging.basicConfig(level=logging.DEBUG)

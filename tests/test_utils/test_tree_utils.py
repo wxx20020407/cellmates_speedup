@@ -4,7 +4,7 @@ import dendropy as dpy
 from dendropy.calculate.treecompare import symmetric_difference
 import networkx as nx
 
-from utils.tree_utils import convert_networkx_to_dendropy, label_tree
+from cellmates.utils.tree_utils import convert_networkx_to_dendropy, label_tree
 
 
 class MyTestCase(unittest.TestCase):

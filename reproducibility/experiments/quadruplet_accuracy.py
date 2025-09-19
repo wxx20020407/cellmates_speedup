@@ -11,14 +11,12 @@ import time
 
 import numpy as np
 import multiprocessing as mp
-# import matplotlib.pyplot as plt
 
-from inference.em import EM
-from models.evo import JCBModel
-from models.obs import PoissonModel, NormalModel
-from simulation.datagen import simulate_quadruplet, get_ctr_table
-from utils.math_utils import p_from_l, l_from_p
-# from utils.visual import plot_cn_profile
+from cellmates.inference.em import EM
+from cellmates.models.evo import JCBModel
+from cellmates.models.obs import PoissonModel, NormalModel
+from cellmates.simulation.datagen import simulate_quadruplet, get_ctr_table
+from cellmates.utils.math_utils import p_from_l, l_from_p
 
 
 def parse_p_change_list(p_change):
@@ -54,10 +52,6 @@ def run_experiment(n_sites, length_size, seed, max_iter, file_name, n_states, ga
     # generate data
     data = simulate_quadruplet(n_sites=n_sites, obs_model=obs_model, evo_model=evo_model,
                                gamma_params=gamma_params, seed=i)
-    # fig, ax = plt.subplots(1, 1, figsize=(10, 5))
-    # plot_cn_profile(data['cn'].astype(int), ax=ax, title=f"length_params: {length_size_str}")
-    # plt.show()
-    # return True
 
     # run EM
     em = EM(n_states=n_states, obs_model=obs_model, evo_model=evo_model, tree_build='ctr')

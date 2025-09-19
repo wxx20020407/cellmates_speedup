@@ -12,10 +12,10 @@ import dendropy as dpy
 import random
 import anndata
 
-from models.evo import EvoModel, CopyTree, JCBModel
-from models.obs import ObsModel, NormalModel, PoissonModel
-from utils.math_utils import l_from_p, p_from_l
-from utils.tree_utils import random_binary_tree, get_node2node_distance, label_tree
+from cellmates.models.evo import EvoModel, CopyTree, JCBModel
+from cellmates.models.obs import ObsModel, NormalModel, PoissonModel
+from cellmates.utils.math_utils import l_from_p, p_from_l
+from cellmates.utils.tree_utils import random_binary_tree, get_node2node_distance, label_tree
 
 
 class Dataset(TypedDict):
@@ -136,6 +136,28 @@ def get_ctr_table(tree: dpy.Tree) -> np.ndarray:
     return ctr_table
 
 
+def _get_full_distance_matrix_from_tree(tree_dpy, matrix_idx: int = 0):
+    # matrix_idx: which distance to use from ctr table
+    # 0: centroid to root
+    # 1: centroid to cell 1
+    # 2: centroid to cell 2
+    assert matrix_idx in [0, 1, 2], "matrix_idx must be 0, 1, or 2"
+    # get ctr table from tree
+    # the ctr table is upper triangular, with shape (n_cells, n_cells, 3)
+    # make it full and fill diagonal with node to root distances
+    n_cells = len(tree_dpy.leaf_nodes())
+    ctr_triul_matrix = get_ctr_table(tree_dpy)[..., matrix_idx]
+    cell_dist = {int(t.label): get_root_distance(t) for t in tree_dpy.leaf_node_iter()}
+    ctr_full_matrix = np.empty_like(ctr_triul_matrix)
+    for c, d in cell_dist.items():
+        for c2 in range(n_cells):
+            if c < c2:
+                ctr_full_matrix[c, c2] = ctr_triul_matrix[c, c2]
+            elif c > c2:
+                ctr_full_matrix[c, c2] = ctr_triul_matrix[c2, c]
+        ctr_full_matrix[c, c] = d
+    return ctr_full_matrix
+
 def rand_ann_dataset(n_cells: int, n_states: int, n_sites: int, n_chrom: int = 1, **kwargs):
     #   using different hmms for each chromosome
     # kwargs = [alpha, obs_type]
@@ -158,6 +180,9 @@ def rand_ann_dataset(n_cells: int, n_states: int, n_sites: int, n_chrom: int = 1
     )
     adata.layers['state'] = cn_matrix
     adata.uns['tree'] = data['tree'].as_string('newick')
+
+    adata.obsm['ctr-distance-matrix'] = _get_full_distance_matrix_from_tree(data['tree'])
+
     return adata
 
 

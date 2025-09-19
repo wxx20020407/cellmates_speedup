@@ -1,18 +1,16 @@
 """
 Try Cellmates on CNAsim dataset
 """
-import json
 import os.path
-import sys
 import argparse
 
 import anndata
 import dendropy as dpy
 import numpy as np
 
-from inference.em import jcb_em_alg
-from inference.neighbor_joining import build_tree
-from utils.tree_utils import convert_networkx_to_dendropy
+from cellmates.inference.em import jcb_em_alg
+from cellmates.inference.neighbor_joining import build_tree
+from cellmates.utils.tree_utils import convert_networkx_to_dendropy
 
 
 def load_cnasim_data(adata_path: str) -> anndata.AnnData:

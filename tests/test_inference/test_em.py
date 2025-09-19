@@ -1,3 +1,4 @@
+import io
 import itertools
 import logging
 import random
@@ -5,19 +6,24 @@ import time
 import unittest
 
 import dendropy
+from Bio import Phylo
 import networkx as nx
 import numpy as np
 from dendropy.calculate import treecompare
+from matplotlib import pyplot as plt
+import scgenome.plotting as pl
 from scipy.special import logsumexp
 
-from models.evo import p_delta_change, CopyTree, JCBModel
-from models.obs import NormalModel, PoissonModel
-from simulation.datagen import rand_dataset, get_ctr_table, simulate_quadruplet
-from inference.em import jcb_em_ctrtable, EM, jcb_em_alg, em_alg
-from utils.tree_utils import convert_networkx_to_dendropy, get_node2node_distance, random_binary_tree, label_tree
-from utils.math_utils import l_from_p, p_from_l, compute_cn_changes
+from cellmates.utils.visual import plot_cn_profile, plot_cell_pairwise_heatmap
+from cellmates.models.evo import p_delta_change, CopyTree, JCBModel
+from cellmates.models.obs import NormalModel, PoissonModel
+from cellmates.simulation.datagen import rand_dataset, get_ctr_table, simulate_quadruplet, rand_ann_dataset
+from cellmates.inference.em import jcb_em_ctrtable, EM, jcb_em_alg
+from cellmates.utils.testing import create_output_test_folder
+from cellmates.utils.tree_utils import convert_networkx_to_dendropy, random_binary_tree, label_tree, nxtree_to_newick
+from cellmates.utils.math_utils import l_from_p, p_from_l, compute_cn_changes
 
-from inference.neighbor_joining import build_tree
+from cellmates.inference.em import build_tree
 
 
 def _generate_obs(noise=0):
@@ -77,17 +83,37 @@ class EMTestCase(unittest.TestCase):
         n_states = 5
         n_sites = 500
         n_cells = 8
-        data = rand_dataset(n_states, n_sites, obs_model='poisson', alpha=1., p_change=0.05, n_cells=n_cells, seed=seed)
-        print("Generated tree")
-        data['tree'].print_plot(plot_metric='length')
-        for node in data['tree'].preorder_node_iter():
-            print(node.label, node.edge_length)
+        # data = rand_dataset(n_states, n_sites, obs_model='poisson', alpha=1., p_change=0.05, n_cells=n_cells, seed=seed)
+        adata = rand_ann_dataset(n_cells, n_states, n_sites, obs_model='poisson', alpha=1., p_change=0.01, seed=seed)
+        data = {
+            'obs': adata.X.T,
+            'cn': adata.layers['state'],
+            'tree': dendropy.Tree.get(data=adata.uns['tree'], schema='newick')
+        }
 
-        print("Observations")
-        print(data['obs'][:20, :])
+        # plot with scgenome to show tree
+        bio_tree = Phylo.read(io.StringIO(adata.uns['tree']), 'newick')
+        test_folder = create_output_test_folder()
+        g = pl.plot_cell_cn_matrix_fig(adata, tree=bio_tree, show_cell_ids=True)
+        g['fig'].savefig(test_folder + '/cn_profile_true_tree.png')
+
+        # plot obs
+        g = pl.plot_cell_cn_matrix_fig(adata, layer_name=None, tree=bio_tree, raw=True, show_cell_ids=True)
+        g['fig'].savefig(test_folder + '/obs_profile.png')
+        print("Saved cn profile and reads to", test_folder)
 
         # run EM
-        ctr_table = jcb_em_ctrtable(data['obs'], n_states=n_states)
+        em = EM(n_states=n_states, obs_model='poisson', evo_model='jcb')
+        em.fit(data['obs'])
+        ctr_table = em.distances
+        print(f"EM converged in {em.n_iterations[(0, 1)]} iterations")
+        # plot likelihood
+        fig, ax = plt.subplots()
+        # from dict[tuple, float] to 2d array
+        ll_arr = np.array([[em.loglikelihoods.get((i,j), np.nan) for j in range(data['obs'].shape[1])] for i in range(data['obs'].shape[1])])
+        plot_cell_pairwise_heatmap(ll_arr, ax=ax, label='loglikelihoods')
+        fig.savefig(test_folder + '/pairwise_loglikelihoods.png')
+
         print(ctr_table[..., 0])
 
         em_tree = build_tree(ctr_table)
@@ -97,19 +123,37 @@ class EMTestCase(unittest.TestCase):
         labels_mapping['r'] = data['tree'].seed_node.label
         nx.write_network_text(nx.relabel_nodes(em_tree, labels_mapping, copy=True),
                               sources=[data['tree'].seed_node.label])
+        # save and plot inferred tree
+        nwk_file_path = test_folder + '/inferred_tree.nwk'
+        with open(nwk_file_path, 'w') as f:
+            f.write(nxtree_to_newick(em_tree, weight='length'))
+        em_tree_bio = Phylo.read(nwk_file_path, 'newick')
+        g = pl.plot_cell_cn_matrix_fig(adata, tree=em_tree_bio, show_cell_ids=True)
+        g['fig'].savefig(test_folder + '/cn_profile_inferred_tree.png')
+
+        # plot diff ctr distances in heatmap
+        em_ctr_matrix_full = np.triu(em.distances[..., 0]) + np.tril(em.distances[..., 0].T)
+        diff_ctr_dist = adata.obsm['ctr-distance-matrix'] - em_ctr_matrix_full
+        np.fill_diagonal(diff_ctr_dist, 0)
+        fig, ax = plt.subplots()
+        plot_cell_pairwise_heatmap(diff_ctr_dist, ax=ax, label='diff CTR (true - em)')
+        fig.savefig(test_folder + '/diff_ctr_distances.png')
+        print("Saved cn profile and inferred tree to", test_folder)
 
         # compare with true tree using RF-distance (unweighted)
         dendropy_tree = convert_networkx_to_dendropy(em_tree,
-                                                     taxon_namespace=data['tree'].taxon_namespace)
+                                                     taxon_namespace=data['tree'].taxon_namespace,
+                                                     edge_length='length')
         dendropy_tree.print_plot()
         sym_distance_jcb = treecompare.symmetric_difference(data['tree'], dendropy_tree)
         print(f'Symmetric (unweighted) distance: {sym_distance_jcb}')
         rf_distance_jcb = treecompare.robinson_foulds_distance(data['tree'], dendropy_tree, edge_weight_attr='length')
         print(f'Robinson-Fould distance: {rf_distance_jcb}')
-        self.assertEqual(sym_distance_jcb, 0)
-        self.assertEqual(rf_distance_jcb, 0)
+        self.assertEqual(0, sym_distance_jcb)
+        self.assertLess(rf_distance_jcb, 0.05)
 
     def test_quadruplet(self):
+        """ Test EM on a simple quadruplet tree with known edge lengths compared to true ones and assess likelihood improvement. """
         # seed for reproducibility
         seed = 120
         # dendropy seed
@@ -117,8 +161,12 @@ class EMTestCase(unittest.TestCase):
         np.random.seed(seed)
         n_states = 5
         n_sites = 500
+        out_dir = create_output_test_folder()
 
-        data = simulate_quadruplet(n_sites, n_states=n_states, gamma_params=(1., 0.0055))
+        data = simulate_quadruplet(n_sites, n_states=n_states, gamma_params=self.DEFAULT_GAMMA_PARAMS)
+        fig, ax = plt.subplots()
+        plot_cn_profile(data['cn'], ax=ax)
+        fig.savefig(out_dir + '/cn_profile.png')
         gt_ctr_table = get_ctr_table(data['tree'])
         # print cn in order r, u, v, w (check simulate_quadruplet doc for sorting info)
         print(f"CN (r, u, v, w):\n{data['cn'][[3, 2, 0, 1], :20]}")
@@ -178,13 +226,16 @@ class EMTestCase(unittest.TestCase):
         np.random.seed(seed)
         n_states = 5
         n_sites = 500
-        p_change = 0.02  # for random edge _lengths
 
-        alpha = 1.
-        data = simulate_quadruplet(n_states, n_sites, alpha=alpha, l_mean=l_from_p(p_change, n_states))
+        data = simulate_quadruplet(n_sites, gamma_params=self.DEFAULT_GAMMA_PARAMS, n_states=n_states, seed=seed)
         gt_ctr_table = get_ctr_table(data['tree'])
         # print cn in order r, u, v, w (check simulate_quadruplet doc for sorting info)
         print(f"CN (r, u, v, w):\n{data['cn'][[3, 2, 0, 1], :20]}")
+        # plot
+        fig, ax = plt.subplots()
+        plot_cn_profile(data['cn'], ax=ax)
+        out_dir = create_output_test_folder()
+        fig.savefig(out_dir + '/cn_profile.png')
 
         # print tree with _lengths
         l_true = gt_ctr_table[0, 1, :].tolist()
@@ -346,8 +397,8 @@ class EMTestCase(unittest.TestCase):
                                msg=f"cell {c1} and {c2} CTR: {ctr_table[0, 1, 0]} != {true_ctr_table[c1, c2, 0]}", places=3)
         # FIXME: the test works for CTR distances, but not for centroid to leaves distances
         #   there must be some bug in the implementation
-        # self.assertAlmostEqual(ctr_table[0, 1, 1], true_ctr_table[c1, c2, 1], places=2)
-        # self.assertAlmostEqual(ctr_table[0, 1, 2], true_ctr_table[c1, c2, 2], places=2)
+        self.assertAlmostEqual(ctr_table[0, 1, 1], true_ctr_table[c1, c2, 1], places=2)
+        self.assertAlmostEqual(ctr_table[0, 1, 2], true_ctr_table[c1, c2, 2], places=2)
 
 
     def test_two_slice_marginals(self):
@@ -542,6 +593,7 @@ class EMTestCase(unittest.TestCase):
         self.assertTrue(np.allclose(ctr_table_5p, ctr_table_1p))
 
     def test_quadruplet_copytree(self):
+        """ Test EM with CopyTree model on a simple quadruplet tree with known edge lengths compared to true ones and assess likelihood improvement. """
         # seed for reproducibility
         seed = 120
         # dendropy seed
@@ -557,6 +609,7 @@ class EMTestCase(unittest.TestCase):
                                 tau_v_prior=normal_param[1], tau_w_prior=normal_param[1])
         evo_model = CopyTree(n_states=n_states)
 
+        # FIXME: test fails likely due to CopyTree implementation or epsilon model issues
         data = simulate_quadruplet(n_sites, evo_model=evo_model, obs_model=obs_model,
                                    n_states=n_states, gamma_params=self.DEFAULT_GAMMA_PARAMS)
         print(data['obs'][data['cn'][1] == 0,1])
@@ -568,9 +621,18 @@ class EMTestCase(unittest.TestCase):
         data['tree'].print_plot(plot_metric='length')
         print(f"True edge _eps: {gt_ctr_table[0, 1, :].tolist()}")
 
+        # plot data
+        out_dir = create_output_test_folder()
+        fig, ax = plt.subplots()
+        plot_cn_profile(data['cn'], ax=ax)
+        fig.savefig(out_dir + '/cn_profile.png')
+
         # run EM
         em = EM(n_states, obs_model, evo_model, verbose=2)
         em.fit(data['obs'], max_iter=50, rtol=1e-5, num_processors=1, theta_init=np.array([0.3, 0.3, 0.3]))
+        print(f"EM converged in {em.n_iterations[0, 1]} iterations")
+        print(f"Final loglikelihood: {em.loglikelihoods[0, 1]}")
+        # get estimated ctr table
         ctr_table = em.distances
         ll_est = em.loglikelihoods[0, 1]
         # change tree _lengths to match the estimated ones

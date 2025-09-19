@@ -15,19 +15,49 @@ def plot_cn_profile(cnp, ax=None, **kwargs):
     """
 
     # color: integer map 0 to blue, 1 to light blue, 2 to white, 3 to light red, 4 to red and 5+ to dark red
-    vmax = kwargs.get('vmax', min(11, np.max(cnp)))
+    vmax = kwargs.get('vmax', np.max(cnp).astype(int))
     integer_cmap = create_integer_colormap(vmax=vmax)
 
     if ax is None:
         fig, ax = plt.subplots()
-    im = ax.imshow(cnp, aspect="auto", cmap=integer_cmap, vmin=0, vmax=vmax)
+    im = ax.imshow(cnp, aspect="auto", cmap=integer_cmap, vmin=0, vmax=vmax, interpolation='none')
     ax.set_xlabel(kwargs.get('xlabel', 'bins'))
     ax.set_ylabel(kwargs.get('ylabel', 'cells'))
     ax.set_title(kwargs.get('title', 'Copy number profile'))
     plt.colorbar(im, label='state', ax=ax, ticks=range(vmax + 1))
     return ax
 
+def plot_cell_pairwise_heatmap(matrix, ax=None, label=None, full=False, **kwargs):
+    """
+    Plot heatmap for pairs of cells. If full is False, only the upper triangle is shown.
+    Parameters
+    ----------
+    matrix: np.ndarray, pairwise matrix of shape (n_cells, n_cells) (e.g. likelihoods, distances, etc.)
+    ax: matplotlib.axes.Axes, axis to plot on (default: None)
+    full: bool, whether to show the full matrix or only the upper triangle (default: False)
+    kwargs: keyword arguments, passed to sns.heatmap
+    """
+    if ax is None:
+        fig, ax = plt.subplots()
+    # mask the lower triangle
+    if full:
+        mask = None
+    else:
+        mask = np.tril(np.ones_like(matrix, dtype=bool))
+    sns.heatmap(matrix, mask=mask, ax=ax, cmap=kwargs.get('cmap', 'viridis'),
+                cbar_kws={"label": kwargs.get('cbar_label', 'Value')},
+                square=kwargs.get('square', True),
+                xticklabels=kwargs.get('xticklabels', True),
+                yticklabels=kwargs.get('yticklabels', True),
+                **{k: v for k, v in kwargs.items() if k not in ['cmap', 'cbar_label', 'square', 'xticklabels', 'yticklabels']})
+    ax.set_title(kwargs.get('title', 'Pairwise Heatmap' if label is None else f'{label}'))
+    ax.set_xlabel(kwargs.get('xlabel', 'Cells'))
+    ax.set_ylabel(kwargs.get('ylabel', 'Cells'))
+    return ax
+
+
 def create_integer_colormap(vmax=11):
+    vmax = min(11, np.max(vmax)) # limit to 11 colors
     # Define the colors for each integer
     colors = [
         '#3182BD',  # blue
@@ -45,7 +75,7 @@ def create_integer_colormap(vmax=11):
     ]
 
     # Create the colormap
-    return ListedColormap(colors[:vmax + 1])
+    return ListedColormap(colors[:(vmax + 1)])
 
 
 # Example usage:

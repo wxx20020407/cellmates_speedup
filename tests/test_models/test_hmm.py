@@ -5,11 +5,11 @@ import numpy as np
 import numpy.testing as npt
 from scipy import special as sp
 
-from inference.em import EM
-from models.evo import JCBModel, CopyTree
-from models.evo.basefunc import p_delta
-from models.obs import PoissonModel, NormalModel
-from utils.math_utils import compute_cn_changes
+from cellmates.inference.em import EM
+from cellmates.models.evo import JCBModel, CopyTree
+from cellmates.models.evo.basefunc import p_delta
+from cellmates.models.obs import PoissonModel, NormalModel
+from cellmates.utils.math_utils import compute_cn_changes
 
 
 class HMMTestCase(unittest.TestCase):

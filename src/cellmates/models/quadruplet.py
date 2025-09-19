@@ -1,7 +1,7 @@
 import networkx as nx
 
-from models.evo import EvoModel, CopyTree
-from models.obs import ObsModel, NormalModel
+from cellmates.models.evo import EvoModel, CopyTree
+from cellmates.models.obs import ObsModel, NormalModel
 
 
 class Quadruplet:

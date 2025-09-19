@@ -12,13 +12,13 @@ from dendropy.calculate.treecompare import (
 )
 from scipy.special import comb
 
-from inference.neighbor_joining import build_tree
-from models.obs import ObsModel, NormalModel, PoissonModel
-from simulation.datagen import rand_dataset, get_ctr_table
+from cellmates.inference.neighbor_joining import build_tree
+from cellmates.models.obs import ObsModel, NormalModel, PoissonModel
+from cellmates.simulation.datagen import rand_dataset, get_ctr_table
 
-from models.evo import EvoModel, CopyTree, JCBModel
-from utils.math_utils import l_from_p
-from utils.tree_utils import convert_networkx_to_dendropy
+from cellmates.models.evo import EvoModel, CopyTree, JCBModel
+from cellmates.utils.math_utils import l_from_p
+from cellmates.utils.tree_utils import convert_networkx_to_dendropy
 
 
 class EM:

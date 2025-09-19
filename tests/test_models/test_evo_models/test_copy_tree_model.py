@@ -1,9 +1,8 @@
 import unittest
 
-import networkx as nx
 import numpy as np
 
-from models.evo import p_delta_change, p_delta_trans_mat, p_delta_start_prob, CopyTree
+from cellmates.models.evo import p_delta_change, p_delta_trans_mat, p_delta_start_prob, CopyTree
 
 
 class CopyTreeTestCase(unittest.TestCase):

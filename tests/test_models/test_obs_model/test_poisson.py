@@ -2,7 +2,7 @@ import unittest
 
 import numpy as np
 
-from models.obs import PoissonModel
+from cellmates.models.obs import PoissonModel
 
 
 class PoissonModelTestCase(unittest.TestCase):

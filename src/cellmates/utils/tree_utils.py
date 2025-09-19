@@ -1,16 +1,15 @@
 import random
+from io import StringIO
 
 import dendropy
 import numpy as np
 from dendropy import Tree
 import networkx as nx
 import scipy.stats as ss
+from Bio import Phylo
 
 
-def tree_to_newick(g: nx.DiGraph, root=None, weight=None, is_internal_call=False):
-    """
-    Copied from VICTree project
-    """
+def nxtree_to_newick(g: nx.DiGraph, root=None, weight=None, is_internal_call=False):
     # make sure the graph is a tree
     assert nx.is_arborescence(g)
     if root is None:
@@ -22,7 +21,7 @@ def tree_to_newick(g: nx.DiGraph, root=None, weight=None, is_internal_call=False
     for child in sorted(g[root]):
         node_str: str
         if len(g[child]) > 0:
-            node_str = tree_to_newick(g, root=child, weight=weight, is_internal_call=True)
+            node_str = nxtree_to_newick(g, root=child, weight=weight, is_internal_call=True)
         else:
             node_str = str(child)
 
@@ -49,7 +48,7 @@ def convert_networkx_to_dendropy(nx_tree, labels_mapping: dict = None,
     """
     if labels_mapping is not None:
         nx_tree = nx.relabel_nodes(nx_tree, labels_mapping, copy=True)
-    newick = tree_to_newick(nx_tree, weight=edge_length)
+    newick = nxtree_to_newick(nx_tree, weight=edge_length)
     dendropy_tree = Tree.get(data=newick, schema='newick', taxon_namespace=taxon_namespace)
     label_tree(dendropy_tree, method='group')
     dendropy_tree.is_rooted = True
@@ -119,5 +118,57 @@ def label_tree(tree, method='int'):
                 n.label = '_'.join(sorted(taxa, key=lambda x: int(x)))
     else:
         raise ValueError(f"Unknown method {method}")
+
+def newick_to_nx(nwk_str):
+    """
+    Parameters
+    ----------
+    nwk_str: str, newick string
+
+    Returns
+    -------
+    nx.DiGraph tree with nodes and weighted edges
+    """
+
+    tree = Phylo.read(StringIO(nwk_str), 'newick')
+    und_tree_nx = Phylo.to_networkx(tree)
+    # Phylo names add unwanted information in unstructured way
+    # find node numbers and relabel nx tree
+    names_string = list(str(cl.confidence) if cl.name is None else cl.name for cl in und_tree_nx.nodes)
+    try:
+        names = list(map(int, names_string))
+    except ValueError:
+        names = names_string
+    mapping = dict(zip(und_tree_nx, names))
+    relabeled_tree = nx.relabel_nodes(und_tree_nx, mapping)
+    tree_nx = nx.DiGraph()
+    tree_nx.add_weighted_edges_from(relabeled_tree.edges(data='weight'))
+    return tree_nx
+
+if __name__ == '__main__':
+    # try tree conversion
+    nwk = "((0:0.1,1:0.2):0.3,(2:0.4,3:0.5):0.6);"
+    print(nwk)
+    dpy_tree: Tree = Tree.get(data=nwk, schema='newick')
+    dpy_tree.is_rooted = True
+    label_tree(dpy_tree)
+    full_nwk = dpy_tree.as_string(schema='newick')
+    print(full_nwk)
+
+    # read networkx
+    # FIXME: nodes are none
+    nx_tree = newick_to_nx(full_nwk)
+    print(nx_tree.edges(data=True))
+    nx_tree_newick = nxtree_to_newick(nx_tree, weight='weight')
+    print(nx_tree_newick)
+
+    # convert to Phylo tree
+    phylo_tree = Phylo.read(StringIO(nx_tree_newick), 'newick', rooted=True)
+
+    # write newick string
+    print(phylo_tree.format('newick'))
+
+
+
 
 
