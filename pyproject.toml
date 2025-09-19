@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=64", "setuptools-scm>=8"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cellmates"
+version = "0.1.0"   # You can later replace with dynamic = ["version"] if you use setuptools-scm
+description = "Cellmates is a maximum likelihood method for copy-number based single-cell tree reconstruction in tumor data"
+readme = "README.md"
+authors = [
+  { name = "Vittorio Zampinetti", email = "vz@kth.se" },
+  { name = "Harald Melin", email = "haralme@kth.se" },
+  { name = "Marzie Abdolhamdi", email = "marziea@kth.se" },
+]
+license = { text = "GPL-3.0-only" }
+requires-python = ">=3.10"
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+  "Operating System :: OS Independent",
+]
+
+dependencies = [
+  # put runtime dependencies here, e.g. "numpy>=1.26"
+]
+
+[project.urls]
+Homepage = "https://github.com/Lagergren-Lab/cellmates"
+Repository = "https://github.com/Lagergren-Lab/cellmates/issues"
+
+[project.scripts]
+cellmates = "main:main"
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
