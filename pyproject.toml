@@ -21,7 +21,6 @@ classifiers = [
 ]
 
 dependencies = [
-  # put runtime dependencies here, e.g. "numpy>=1.26"
 ]
 
 [project.urls]
@@ -34,6 +33,7 @@ cellmates = "cellmates.bin.core:main"
 [project.optional-dependencies]
 dev = [
   "pytest>=8.0",
+  "scgenome"
 ]
 
 [tool.setuptools]
