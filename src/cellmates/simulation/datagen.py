@@ -30,7 +30,7 @@ def simulate_quadruplet(n_sites,
                         obs_model: ObsModel | str = 'poisson',
                         evo_model: EvoModel | str = 'jcb',
                         gamma_params: tuple | list[tuple] = (1, 1),
-                        n_states: int = None, seed: int = None) -> Dataset:
+                        n_states: int = None, seed: int = None, return_adata=False) -> Dataset | anndata.AnnData:
     """
     Simulate a quadruplet tree with 2 leaves, one internal node and a root.
     The tree is rooted and the edge_lengths are generated from an exponential distribution if l_mean is None,
@@ -85,7 +85,10 @@ def simulate_quadruplet(n_sites,
         elif edge.head_node.label == '1':
             edge.length = edge_lengths[2]
 
-    return rand_dataset(n_states, n_sites, evo_model=evo_model, obs_model=obs_model, tree=tree, seed=seed)
+    out_dataset = rand_dataset(n_states, n_sites, evo_model=evo_model, obs_model=obs_model, tree=tree, seed=seed)
+    if return_adata:
+        out_dataset = _from_data_to_adata(out_dataset)
+    return out_dataset
 
 def emit_normalized_obs(cn_seq, mu=1.0, scale=1.0):
     eps = ss.norm(loc=0., scale=scale).rvs(size=len(cn_seq))
@@ -166,6 +169,10 @@ def rand_ann_dataset(n_cells: int, n_states: int, n_sites: int, n_chrom: int = 1
     # TODO: implement
     #   using different hmms for each chromosome
     data = rand_dataset(n_states, n_sites, n_cells=n_cells, **kwargs)
+    return _from_data_to_adata(data)
+
+def _from_data_to_adata(data: Dataset) -> anndata.AnnData:
+    n_sites = data['obs'].shape[0]
     cn_matrix = np.empty_like(data['obs'].T)
     for t in data['tree'].leaf_node_iter():
         cell_id = int(t.label)
@@ -182,9 +189,7 @@ def rand_ann_dataset(n_cells: int, n_states: int, n_sites: int, n_chrom: int = 1
     adata.uns['tree'] = data['tree'].as_string('newick')
 
     adata.obsm['ctr-distance-matrix'] = _get_full_distance_matrix_from_tree(data['tree'])
-
     return adata
-
 
 def rand_dataset(n_states: int, n_sites: int, evo_model: EvoModel | str = 'jcb', obs_model: ObsModel | str = 'normal',
                  alpha=1., p_change: float = .2, n_cells: int = None, tree: dpy.Tree = None, seed=None) -> Dataset:
