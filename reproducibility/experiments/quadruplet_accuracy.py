@@ -134,7 +134,7 @@ def main():
         os.makedirs(out_dir)
     file_path = out_dir + f'/quadruplet_accuracy_{time.strftime("%y%m%d%H%M%S")}.csv'
     with open(file_path, 'w') as f:
-        f.write('seed,n_sites,n_states,length_params,p_change_u,p_change_v,p_change_w,lu_em,lv_em,lw_em,lu_err,lv_err,lw_err,exec_time,n_iter,loglik,true_ll,variance,obs_model,obs_var\n')
+        f.write('seed,n_sites,n_states,length_params,p_change_u,p_change_v,p_change_w,lu_em,lv_em,lw_em,lu_err,lv_err,lw_err,exec_time,n_iter,loglik,true_ll,base_variance,obs_model,obs_var\n')
     args = [(n_sites, length_size, seed, max_iter, file_path, n_states, gamma_params_dict, base_variance, obs_model, out_dir) for n_sites, length_size, seed, obs_model in itertools.product(n_sites_list, length_sizes_list, range(num_replicates), obs_model_list)]
     if parallel_experiments == 1:
         for arg in args:
