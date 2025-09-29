@@ -1,0 +1,12 @@
+name: cnasim
+channels:
+  - bioconda
+dependencies:
+  - numpy
+  - scipy
+  - msprime=1.3.4
+  - biopython
+  - pyfaidx
+  - samtools
+  - dwgsim # requires dwgsim binary
+  - cnasim=1.3.5
