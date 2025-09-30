@@ -9,4 +9,4 @@ dependencies:
   - matplotlib
   - seaborn
   - biopython
-  - anndata
+  - anndata=0.11.4

@@ -72,7 +72,7 @@ def _build_tree_rec(ctr: dict, ntc: dict, ntr: dict, otus: set, edges: set[tuple
     return edges
 
 
-def build_tree(ctr_table: np.ndarray) -> nx.DiGraph:
+def build_tree(ctr_table: np.ndarray, edge_attr='length') -> nx.DiGraph:
     # operational taxonomic units, OTUs, init with cells
     otus = set(map(str, range(ctr_table.shape[0])))
     # at each iteration, contains the centroid to root distance for each pair of OTUs
@@ -108,7 +108,7 @@ def build_tree(ctr_table: np.ndarray) -> nx.DiGraph:
     edges = _build_tree_rec(ctr, ntc, ntr, otus, set())
     em_tree = nx.DiGraph()
     # add edges with _lengths
-    em_tree.add_weighted_edges_from(edges, weight='length')
+    em_tree.add_weighted_edges_from(edges, weight=edge_attr)
     # add_lengths(em_tree, ctr_table)
 
     return em_tree
