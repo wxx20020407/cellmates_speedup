@@ -24,6 +24,7 @@ class EvoModel:
         self.zero_absorption = kwargs.get('zero_absorption', False)
         self.focal_rate = kwargs.get('focal_rate', 0.)
         self.event_length_ratio = kwargs.get('event_length_ratio', 0.2)
+        self.chromosome_ends = kwargs.get('chromosome_ends', []) # list of chromosome end positions (0-indexed) excluding last position
 
     @property
     def theta(self):
@@ -69,7 +70,7 @@ class EvoModel:
         # node_cn[:] = _evolve_cn_event_chain(prev_cn, pdd, self.n_states)  # old method
         return node_cn
 
-    def expected_changes(self, obs_vw, obs_model: ObsModel = None) -> tuple[np.ndarray, np.ndarray, float]:
+    def _expected_changes(self, obs_vw, obs_model: ObsModel = None) -> tuple[np.ndarray, np.ndarray, float]:
         """
         Compute the expected number of changes which over the copy number conditional distribution for the three branches:
          (r, u), (u, v), (u, w).
@@ -84,8 +85,8 @@ class EvoModel:
         else:
             assert obs_model.n_states == self.n_states
 
-        d = np.empty(3)
-        dp = np.empty_like(d)
+        d = np.empty(3)  # expected changes
+        dp = np.empty(3) # expected no changes
         # compute two slice marginals
         # prob(Cm = ijk, Cm+1 = i'j'k' | Y)
         log_xi = self.two_slice_marginals(obs_vw, obs_model=obs_model)
@@ -112,6 +113,42 @@ class EvoModel:
                 d[e] = np.exp(sp.logsumexp(pair_tsm[~comut_mask]))
                 dp[e] = np.exp(sp.logsumexp(pair_tsm[comut_mask]))
 
+        return d, dp, loglik
+
+    def multi_chr_expected_changes(self, obs_vw, obs_model: ObsModel = None) -> tuple[np.ndarray, np.ndarray, float]:
+        """
+        Compute the expected number of changes which over the copy number conditional distribution for the three branches:
+         (r, u), (u, v), (u, w). This function handles multiple chromosomes by splitting the observations
+        at the chromosome ends and summing the expected changes over the chromosomes.
+        If no chromosome ends are provided, it behaves like _expected_changes.
+        Parameters
+        ----------
+        obs_vw: array of shape (n_sites, 2) with observations for pair of leaves
+        obs_model: instance of ObsModel
+        Returns
+        -------
+        tuple with expected changes, expected no changes and log likelihood
+        """
+
+        if obs_model is None:
+            obs_model = PoissonModel(self.n_states, 100., 100.)
+        else:
+            assert obs_model.n_states == self.n_states
+        # check chromosome ends against obs_vw shape
+        if self.chromosome_ends:
+            assert self.chromosome_ends[-1] < obs_vw.shape[0], "chromosome ends exceed number of observations"
+        d = np.zeros(3)  # expected changes
+        dp = np.zeros(3) # expected no changes
+        loglik = 0.
+        chr_start = 0
+        for chr_end in self.chromosome_ends + [obs_vw.shape[0]]:
+            chr_obs = obs_vw[chr_start:chr_end]
+            chr_d, chr_dp, chr_loglik = self._expected_changes(chr_obs, obs_model=obs_model)
+            d += chr_d
+            dp += chr_dp
+            loglik += chr_loglik
+            chr_start = chr_end
+        self.loglikelihood = loglik
         return d, dp, loglik
 
     def new(self):

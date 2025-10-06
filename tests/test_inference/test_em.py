@@ -595,14 +595,14 @@ class EMTestCase(unittest.TestCase):
         quad_model.lengths = np.array([l_ru, l_uv, l_uw])
 
         # compute expected changes given true l
-        d, dp, loglik = quad_model.expected_changes(vw_obs, obs_model=pois_model)
+        d, dp, loglik = quad_model._expected_changes(vw_obs, obs_model=pois_model)
         print(f"expected p statistic: p: {d / (d + dp)}"
               f" D = {d}, D' = {dp}, loglik = {loglik}")
 
         # test with eps model
         quad_model = CopyTree(n_states=n_states)
         quad_model.eps = np.array([eps_ru, eps_uv, eps_uw])
-        d, dp, loglik = quad_model.expected_changes(vw_obs, obs_model=pois_model)
+        d, dp, loglik = quad_model._expected_changes(vw_obs, obs_model=pois_model)
         print(f"expected p statistic via eps ({[eps_ru, eps_uv, eps_uw]}):\n"
               f"\tp: {d / (d + dp)}, D = {d}, D' = {dp}, loglik = {loglik}")
 

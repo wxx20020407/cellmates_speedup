@@ -1,0 +1,12 @@
+name: base
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - numpy
+  - pandas
+  - networkx
+  - matplotlib
+  - seaborn
+  - biopython
+  - anndata=0.11.4

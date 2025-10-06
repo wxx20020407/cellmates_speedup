@@ -119,11 +119,12 @@ def label_tree(tree, method='int'):
     else:
         raise ValueError(f"Unknown method {method}")
 
-def newick_to_nx(nwk_str):
+def newick_to_nx(nwk_str, edge_attr='weight'):
     """
     Parameters
     ----------
     nwk_str: str, newick string
+    edge_attr: str, edge attribute in which to store the weights
 
     Returns
     -------
@@ -142,8 +143,30 @@ def newick_to_nx(nwk_str):
     mapping = dict(zip(und_tree_nx, names))
     relabeled_tree = nx.relabel_nodes(und_tree_nx, mapping)
     tree_nx = nx.DiGraph()
-    tree_nx.add_weighted_edges_from(relabeled_tree.edges(data='weight'))
+    tree_nx.add_weighted_edges_from(relabeled_tree.edges(data='weight'), weight=edge_attr)
     return tree_nx
+
+def write_newick(nx_tree, cell_names, out_path=None, edge_attr='weight') -> str:
+    # relabel leaf nodes with cell ids from adata
+    # add ancestor nodes names with breadth-first search
+    assert nx.is_arborescence(nx_tree)
+    root_node = list(filter(lambda p: p[1] == 0, nx_tree.in_degree()))[0][0]
+    mapping = {root_node: "root"}
+    count = 1
+    for u, v in nx.bfs_edges(nx_tree, source=root_node):
+        if nx_tree.out_degree(v) == 0:
+            mapping[v] = cell_names[int(v) - 1] # leaf node
+        else:
+            mapping[v] = "ancestor" + str(count) # internal node
+            count += 1
+
+    nx.relabel_nodes(nx_tree, mapping, copy=False)
+    # save and plot inferred tree
+    nwk_str = nxtree_to_newick(nx_tree, weight=edge_attr)
+    if out_path is not None:
+        with open(out_path, 'w') as f:
+            f.write(nwk_str)
+    return nwk_str
 
 if __name__ == '__main__':
     # try tree conversion
@@ -167,8 +190,5 @@ if __name__ == '__main__':
 
     # write newick string
     print(phylo_tree.format('newick'))
-
-
-
 
 
