@@ -274,7 +274,7 @@ Implementation of JCB EM algorithm in write-up
     """
     logging.warning('outdated function, use the new class EM instead')
     em = EM(n_states=n_states, obs_model='poisson', evo_model='jcb', alpha=alpha)
-    em.fit(obs, max_iter=max_iter, rtol=rtol, num_processors=num_processors, jc_correction=jc_correction)
+    em.fit(obs, max_iter=max_iter, rtol=rtol, num_processors=num_processors, jc_correction=jc_correction, theta_init=l_init)
     return {
         'l_hat': em.distances,
         'iterations': em.n_iterations,
