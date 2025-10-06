@@ -11,9 +11,10 @@ import networkx as nx
 import numpy as np
 from dendropy.calculate import treecompare
 from matplotlib import pyplot as plt
-import scgenome.plotting as pl
+#import scgenome.plotting as pl
 from scipy.special import logsumexp
 
+from cellmates.utils import math_utils
 from cellmates.utils.visual import plot_cn_profile, plot_cell_pairwise_heatmap
 from cellmates.models.evo import p_delta_change, CopyTree, JCBModel
 from cellmates.models.obs import NormalModel, PoissonModel
@@ -282,15 +283,23 @@ class EMTestCase(unittest.TestCase):
         random.seed(seed)
         np.random.seed(seed)
         n_states = 5
-        n_sites = 5000
+        n_sites = 500
+        gamma_params = [(1*n_sites, 0.01/n_sites), (1*n_sites, 0.03/n_sites), (1*n_sites, 0.008/n_sites)]
 
         evo_model = JCBModel(n_states=n_states, alpha=10)
         obs_model = NormalModel(n_states=n_states, mu_v_prior=1.0, tau_v_prior=100.0)
-        data = simulate_quadruplet(n_sites, obs_model=obs_model, gamma_params=self.DEFAULT_GAMMA_PARAMS, n_states=n_states)
+        data = simulate_quadruplet(n_sites, obs_model=obs_model, gamma_params=gamma_params, n_states=n_states)
+        l_exp = math_utils.get_expected_branch_lengths_from_cnps(data['cn'], n_states)
         gt_ctr_table = get_ctr_table(data['tree'])
         # print cn in order r, u, v, w (check simulate_quadruplet doc for sorting info)
         print(f"\nCN (first 20 sites) (r, u, v, w):\n{data['cn'][[3, 2, 0, 1], :20]}")
         print(f"\nObs (first 20 sites) (r, u, v, w):\n{data['obs'].T[:, :20]}")
+
+        # save data
+        out_dir = create_output_test_folder(sub_folder_name=f'M_{n_sites}')
+        fig, ax = plt.subplots()
+        plot_cn_profile(data['cn'], ax=ax)
+        fig.savefig(out_dir + '/cn_profile.png')
 
         # print tree with _lengths
         l_true = gt_ctr_table[0, 1, :].tolist()
@@ -316,6 +325,9 @@ class EMTestCase(unittest.TestCase):
         l_est = ctr_table[0, 1, :].tolist()
         print("Estimated edge _lengths:")
         print(l_est)
+        print(f"Expected edge lengths:")
+        l_exp_ruvw =[l_exp[0,1], l_exp[1,2], l_exp[1,3]]
+        print(l_exp_ruvw)
 
         # check likelihood
         ll_est = em.loglikelihoods[(0, 1)]
