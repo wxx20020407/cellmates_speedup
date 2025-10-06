@@ -18,13 +18,14 @@ library(forcats)
 args <- commandArgs(trailingOnly = TRUE)
 # input the quadruplet_accuracy_X.csv file
 if (length(args) < 1) {
-  stop("Usage: Rscript quadruplet_accuracy_plots.r <experiment_file>")
+  stop("Usage: Rscript quadruplet_accuracy_plots.r <experiment_file> <output_pdf_file")
 }
 experiment_file <- args[1]
 # experiment_file <- "quadruplet_accuracy_250210235309.csv"
 
 # Extract unique string from filename for PDF output
-pdf_filename <- sub("\\.csv$", "_plots.pdf", experiment_file)
+# pdf_filename <- sub("\\.csv$", "_plots.pdf", experiment_file)
+pdf_filename <- ifelse(length(args) >= 2, args[2], sub("\\.csv$", "_plots.pdf", experiment_file))
 
 # read experiment csv
 df <- read_csv(experiment_file, col_types = cols(
@@ -45,7 +46,7 @@ df <- read_csv(experiment_file, col_types = cols(
   n_iter = col_integer(),
   loglik = col_double(),
   true_ll = col_double(),
-  variance = col_double(),
+  base_variance = col_double(),
   obs_model = col_factor(),
   obs_var = col_double()
 ))

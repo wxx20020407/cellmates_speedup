@@ -144,7 +144,7 @@ class EM:
         quad_model = self.evo_model.new()
         quad_model.theta = theta_init_
         # compute changes is observation and evolution model specific
-        d, dp, loglik = quad_model.expected_changes(obs_vw=obs_vw, obs_model=self.obs_model)
+        d, dp, loglik = quad_model._expected_changes(obs_vw=obs_vw, obs_model=self.obs_model)
         convergence = False
         it = 0
         logger.debug(f'[{it}/{max_iter}] LL = {loglik} d = {d} dp = {dp}')
@@ -154,7 +154,7 @@ class EM:
             quad_model.update(exp_changes=d, exp_no_changes=dp)
 
             # compute D and D'
-            d, dp, new_loglik = quad_model.expected_changes(obs_vw=obs_vw, obs_model=self.obs_model)
+            d, dp, new_loglik = quad_model.multi_chr_expected_changes(obs_vw=obs_vw, obs_model=self.obs_model)
             logger.debug(f"[{it + 1}/{max_iter}] LL = {new_loglik}, d = {d}, dp = {dp}")
 
             if new_loglik < loglik:
@@ -274,7 +274,7 @@ Implementation of JCB EM algorithm in write-up
     """
     logging.warning('outdated function, use the new class EM instead')
     em = EM(n_states=n_states, obs_model='poisson', evo_model='jcb', alpha=alpha)
-    em.fit(obs, max_iter=max_iter, rtol=rtol, num_processors=num_processors, jc_correction=jc_correction)
+    em.fit(obs, max_iter=max_iter, rtol=rtol, num_processors=num_processors, jc_correction=jc_correction, theta_init=l_init)
     return {
         'l_hat': em.distances,
         'iterations': em.n_iterations,
