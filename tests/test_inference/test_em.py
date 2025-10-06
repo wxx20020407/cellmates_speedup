@@ -274,6 +274,67 @@ class EMTestCase(unittest.TestCase):
         self.assertAlmostEqual(ctr_table[0, 1, 1], gt_ctr_table[0, 1, 1], delta=0.03)
         self.assertAlmostEqual(ctr_table[0, 1, 2], gt_ctr_table[0, 1, 2], delta=0.03)
 
+    def test_quadruplet_true_init_normal(self):
+        # TEST WITH NORMAL OBS and TRUE INIT for LENGTHS
+        # seed for reproducibility
+        seed = 120
+        # dendropy seed
+        random.seed(seed)
+        np.random.seed(seed)
+        n_states = 5
+        n_sites = 5000
+
+        evo_model = JCBModel(n_states=n_states, alpha=10)
+        obs_model = NormalModel(n_states=n_states, mu_v_prior=1.0, tau_v_prior=100.0)
+        data = simulate_quadruplet(n_sites, obs_model=obs_model, gamma_params=self.DEFAULT_GAMMA_PARAMS, n_states=n_states)
+        gt_ctr_table = get_ctr_table(data['tree'])
+        # print cn in order r, u, v, w (check simulate_quadruplet doc for sorting info)
+        print(f"\nCN (first 20 sites) (r, u, v, w):\n{data['cn'][[3, 2, 0, 1], :20]}")
+        print(f"\nObs (first 20 sites) (r, u, v, w):\n{data['obs'].T[:, :20]}")
+
+        # print tree with _lengths
+        l_true = gt_ctr_table[0, 1, :].tolist()
+        print(f"Generated tree")
+        data['tree'].print_plot(plot_metric='length')
+        print(f"Generated edge _lengths: {l_true}")
+        print(f"(from p: {p_from_l(gt_ctr_table[0, 1, :], n_states)}")
+
+        # run EM
+        em = EM(n_states=n_states, obs_model=obs_model, evo_model=evo_model)
+        em.fit(data['obs'], theta_init=l_true)
+        ctr_table = em.distances
+        # change tree _lengths to match the estimated ones
+        for edge in data['tree'].preorder_edge_iter():
+            if edge.head_node.label == '2':
+                edge.length = ctr_table[0, 1, 0]
+            elif edge.head_node.label == '0':
+                edge.length = ctr_table[0, 1, 1]
+            elif edge.head_node.label == '1':
+                edge.length = ctr_table[0, 1, 2]
+        print(f"Estimated tree")
+        data['tree'].print_plot(plot_metric='length')
+        l_est = ctr_table[0, 1, :].tolist()
+        print("Estimated edge _lengths:")
+        print(l_est)
+
+        # check likelihood
+        ll_est = em.loglikelihoods[(0, 1)]
+        evo_model.lengths = l_true
+
+        log_emissions = obs_model.log_emission(data['obs'])
+        _, ll_true = evo_model._forward_pass_likelihood(data['obs'], log_emissions)
+        print(f"Generating lengths likelihood: {ll_true}")
+        print(f"Estimated lengths likelihood: {ll_est}")
+        self.assertGreater(ll_est, ll_true, msg="EM does not improve likelihood at all")
+        # compute cn changes
+        comp_eps = compute_cn_changes(data['cn'], [(3, 2), (2, 0), (2, 1)])
+        comp_lengths = l_from_p(np.array(comp_eps)/n_sites, n_states)
+        print(f"Est (CN) edge _lengths: {comp_lengths}")
+        ll_cn = em.compute_pair_likelihood(data['obs'], theta=np.array(comp_eps) / n_sites)
+        print(f"Est (CN) edge _lengths likelihood: {ll_cn}")
+        # self.assertGreater(ll_cn, ll_true, msg="Generated lengths fit better than actual CN changes")
+        self.assertGreater(ll_est, ll_cn, msg="EM estimates fit better than generated but not than actual CN changes")
+
     def test_quadruplet_true_init(self):
         # TEST WITH POISSON OBS and TRUE INIT for LENGTHS
         # seed for reproducibility
