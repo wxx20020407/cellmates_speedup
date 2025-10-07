@@ -7,7 +7,7 @@
 # ---------------------
 N_STATES       = 7
 MAX_ITER       = 60
-NUM_REPLICATES = 20
+N_REPLICATES = 20
 N_SITES_LIST   = [200, 500, 1000]
 SIZES_DICT     = {
     'xs': 0.005,
