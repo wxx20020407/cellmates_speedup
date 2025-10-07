@@ -4,6 +4,7 @@ import logging
 import random
 import time
 import unittest
+from unittest.mock import MagicMock
 
 import dendropy
 from Bio import Phylo
@@ -66,6 +67,34 @@ class EMTestCase(unittest.TestCase):
             print(np.round((obs[:, [v, w]] / 100)).astype(int).transpose())
             print(" ------- ")
         # print(ctr_table)
+
+    def test_em_updates_given_c(self):
+        n_states = 5
+        n_sites = 1000
+        p_sim = 0.1
+        l_sim = math_utils.l_from_p(p_sim, n_states)
+        gamma_params = [(l_sim/0.02, 0.02)]
+        evo_model = JCBModel(n_states)
+        obs_model = PoissonModel(n_states, 100, 100)
+
+        data = simulate_quadruplet(n_sites, obs_model, evo_model, gamma_params)
+        em = EM(n_states, obs_model, evo_model, tree_build='ctr', verbose=2)
+        obs, cnps = (data['obs'], data['cn'])
+
+        # Ideal D and Dp returns
+        breakpoints = math_utils.compute_cn_changes(cnps, pairs=[(3, 2), (2, 0), (2, 1)])
+        D_ru, D_uv, D_uw = float(breakpoints[0]), float(breakpoints[1]), float(breakpoints[2])
+        Dp_ru, Dp_uv, Dp_uw = n_sites - D_ru, n_sites - D_uv, n_sites - D_uw
+        D = np.array([D_ru, D_uv, D_uw])
+        Dp = np.array([Dp_ru, Dp_uv, Dp_uw])
+
+        evo_model.expected_changes = MagicMock(return_value=(D, Dp, -1.0))
+
+        theta_init = [0.2, 0.05, 0.1]
+        (v, w), theta, loglik, it = em._fit_quadruplet(0, 1, obs, theta_init, max_iter=30, rtol=1e-6)
+        print(f"True epsilons: {np.array(D)/n_sites}")
+        print(f"True l: {math_utils.l_from_p(np.array(D)/n_sites, n_states)}")
+        print(f"Theta out: {theta}")
 
     def test_tree_inference_toy(self):
         # generate toy data
