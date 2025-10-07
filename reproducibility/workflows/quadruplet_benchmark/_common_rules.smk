@@ -1,8 +1,8 @@
 # ==========================================================
 # == Common rules for Quadruplet Accuracy Experiment      ==
 # ==========================================================
-import itertools
 import json
+import os
 
 # create all combinations
 # COMBOS = list(itertools.product(
@@ -11,8 +11,9 @@ import json
 #     range(len(LENGTH_SIZES_LIST)),
 #     range(len(OBS_MODELS))
 # ))
-CELLMATES_PY = "${CELLMATES_PATH}/venv/bin/python"
-SCRIPTS_PATH = "${CELLMATES_PATH}/reproducibility/workflows/quadruplet_benchmark/scripts"
+CELLMATES_PATH = os.environ.get("CELLMATES_PATH")
+CELLMATES_PY = os.environ.get("CELLMATES_PY")
+SCRIPTS_PATH = os.path.join(CELLMATES_PATH, "reproducibility/workflows/quadruplet_benchmark/scripts")
 
 # Run a single experiment and save results to a temp file (which will be combined later)
 rule run_experiment:
