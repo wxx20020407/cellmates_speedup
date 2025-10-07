@@ -11,6 +11,11 @@ import os
 #     range(len(LENGTH_SIZES_LIST)),
 #     range(len(OBS_MODELS))
 # ))
+
+envvars:
+  "CELLMATES_PATH",
+  "CELLMATES_PY"
+
 CELLMATES_PATH = os.environ.get("CELLMATES_PATH")
 CELLMATES_PY = os.environ.get("CELLMATES_PY")
 SCRIPTS_PATH = os.path.join(CELLMATES_PATH, "reproducibility/workflows/quadruplet_benchmark/scripts")
@@ -20,6 +25,8 @@ rule run_experiment:
     output:
         temp("tmp/M{n_sites}_S{seed}_L{length}_O{obs}.csv")
     # conda: "envs/cellmates.yml"  # TODO: add env
+    conda:
+        "cellmates"
     params:
         args=lambda wc, output: json.dumps(
             {
@@ -36,7 +43,7 @@ rule run_experiment:
         )
 
     shell: """
-    {CELLMATES_PY} {SCRIPTS_PATH}/run_single_quad.py '{params.args}'
+    python {SCRIPTS_PATH}/run_single_quad.py '{params.args}'
     """
 
 # Combine all results into a single CSV

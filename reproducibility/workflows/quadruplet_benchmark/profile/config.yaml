@@ -1,0 +1,10 @@
+executor: slurm
+jobs: 32
+cores: 32
+directory: "/home/x_vitza/Cellmates/output/reproducibility/workflows/quadruplet_benchmark"
+
+default-resources:
+  mem_mb_per_cpu: 8000
+  runtime: 30
+  slurm_account: "naiss2024-22-1623"
+

@@ -7,7 +7,7 @@ from config import (
     LENGTH_SIZES_LIST
 )
 
-workdir: "output/reproducibility/workflows/quadruplet_benchmark/demo/"
+#workdir: "output/reproducibility/workflows/quadruplet_benchmark/demo/"
 
 rule all:
     input: 'results.csv', 'plots.pdf'
