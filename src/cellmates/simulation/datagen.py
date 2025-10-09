@@ -26,10 +26,12 @@ class Dataset(TypedDict):
     tree: dpy.Tree  # contains edge _lengths
     cn: np.ndarray  # shape (2*n_cells-1, n_sites)
 
+
 def simulate_quadruplet(n_sites,
                         obs_model: ObsModel | str = 'poisson',
                         evo_model: EvoModel | str = 'jcb',
                         gamma_params: tuple | list[tuple] = (1, 1),
+                        edge_lengths: np.ndarray = None,
                         n_states: int = None, seed: int = None, return_adata=False) -> Dataset | anndata.AnnData:
     """
     Simulate a quadruplet tree with 2 leaves, one internal node and a root.
@@ -71,11 +73,11 @@ def simulate_quadruplet(n_sites,
     gamma_params = np.stack(gamma_params)
 
     # simulate edge_lengths (or epsilon param for 'copytree')
-    edge_lengths = ss.gamma.rvs(gamma_params[:, 0], scale=gamma_params[:, 1])
+    edge_lengths = ss.gamma.rvs(gamma_params[:, 0], scale=gamma_params[:, 1]) if edge_lengths is None else edge_lengths
     if isinstance(evo_model, CopyTree):
         edge_lengths = p_from_l(edge_lengths, n_states=n_states)
     for edge in tree.preorder_edge_iter():
-        # centroid to root
+        # root to centroid u
         if edge.head_node.label == '2':
             edge.length = edge_lengths[0]
         # centroid to v
