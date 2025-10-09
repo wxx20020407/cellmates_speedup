@@ -4,8 +4,7 @@
 import hashlib
 import json
 
-configfile: "config.yaml"
-workdir: "output"
+configfile: "config/config.yaml"
 
 def param_hash(params):
     """Return a short hash from a dictionary or list of parameters."""
@@ -29,12 +28,12 @@ with open("hash_mapping.json", "w") as f:
     }, f, indent=2)
 
 rule all:
-    input: 'results.csv', 'plots.pdf'
+    input: 'results/stats.csv', 'results/plots.pdf'
 
 # Run a single experiment and save results to a temp file (which will be combined later)
 rule run_experiment:
     output:
-        temp("tmp/M{n_sites}_S{seed}_L{length_hash}_O{obs_hash}.csv")
+        temp("results/tmp/M{n_sites}_S{seed}_L{length_hash}_O{obs_hash}.csv")
     conda:
         "cellmates"
     params:
@@ -52,14 +51,14 @@ rule run_experiment:
 rule combine:
     input:
         expand(
-            "tmp/M{n_sites}_S{seed}_L{length_hash}_O{obs_hash}.csv",
+            "results/tmp/M{n_sites}_S{seed}_L{length_hash}_O{obs_hash}.csv",
             n_sites=n_sites_list,
             seed=range(num_replicates),
             length_hash=length_hashes,
             obs_hash=obs_hashes,
         )
     output:
-        "results.csv"
+        "results/stats.csv"
     shell:
         """
         head -n 1 {input[0]} > {output}
@@ -67,7 +66,7 @@ rule combine:
         """
 
 rule plot:
-    input: "results.csv"
-    output: "plots.pdf"
+    input: "results/stats.csv"
+    output: "results/plots.pdf"
     conda: "rplot"
     script: "scripts/plot_results.R"
