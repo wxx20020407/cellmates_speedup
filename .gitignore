@@ -9,7 +9,7 @@ notes.md
 /img/
 # output dirs
 *_out
-/output/
+**/output/
 /venv/
 /build/
 /data/
