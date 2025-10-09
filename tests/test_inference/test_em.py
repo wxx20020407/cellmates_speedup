@@ -69,17 +69,30 @@ class EMTestCase(unittest.TestCase):
         # print(ctr_table)
 
     def test_em_updates_given_c(self):
-        n_states = 5
-        n_sites = 1000
-        p_sim = 0.1
-        l_sim = math_utils.l_from_p(p_sim, n_states)
-        gamma_params = [(l_sim/0.02, 0.02)]
-        evo_model = JCBModel(n_states)
-        obs_model = PoissonModel(n_states, 100, 100)
+        """
+        Tests the EM algorithm on a simple quadruplet tree where the true expected number of changes are given and used
+        in the M-step. This acts as a sanity check for the remaining terms of the M-step, E-step
+        Returns
+        -------
 
-        data = simulate_quadruplet(n_sites, obs_model, evo_model, gamma_params)
+        """
+        n_states = 7
+        n_sites = 500
+        p_sim = np.array([0.02, 0.01, 0.01])
+        l_sim = l_from_p(np.array(p_sim), n_states)
+        evo_model_sim = CopyTree(n_states)
+        evo_model = JCBModel(n_states)
+        obs_model = NormalModel(n_states)
+
+        data = simulate_quadruplet(n_sites, obs_model, evo_model_sim, edge_lengths=l_sim, n_states=n_states)
         em = EM(n_states, obs_model, evo_model, tree_build='ctr', verbose=2)
         obs, cnps = (data['obs'], data['cn'])
+
+        # Save data plots
+        out_dir = create_output_test_folder(sub_folder_name=f'M_{n_sites}')
+        fig, ax = plt.subplots()
+        plot_cn_profile(cnps, ax=ax)
+        fig.savefig(out_dir + '/cn_profile.png')
 
         # Ideal D and Dp returns
         breakpoints = math_utils.compute_cn_changes(cnps, pairs=[(3, 2), (2, 0), (2, 1)])
@@ -304,6 +317,75 @@ class EMTestCase(unittest.TestCase):
         self.assertAlmostEqual(ctr_table[0, 1, 1], gt_ctr_table[0, 1, 1], delta=0.03)
         self.assertAlmostEqual(ctr_table[0, 1, 2], gt_ctr_table[0, 1, 2], delta=0.03)
 
+    def test_quadruplet_random_l_normal(self):
+        # seed for reproducibility
+        seed = 120
+        random.seed(seed)
+        np.random.seed(seed)
+        n_states = 5
+        n_sites = 1000
+        p_sim = np.array([0.02, 0.01, 0.01])
+        l_sim = l_from_p(np.array(p_sim), n_states)
+
+        evo_model_sim = CopyTree(n_states)
+        evo_model = JCBModel(n_states=n_states, alpha=1)
+        obs_model = NormalModel(n_states=n_states, mu_v_prior=1.0, tau_v_prior=100.0)
+        data = simulate_quadruplet(n_sites, obs_model=obs_model, evo_model=evo_model_sim, edge_lengths=l_sim, n_states=n_states)
+        gt_ctr_table = get_ctr_table(data['tree'])
+        # print cn in order r, u, v, w (check simulate_quadruplet doc for sorting info)
+        print(f"CN (r, u, v, w):\n{data['cn'][[3, 2, 0, 1], :20]}")
+        # plot
+        fig, ax = plt.subplots()
+        plot_cn_profile(data['cn'], ax=ax)
+        out_dir = create_output_test_folder(sub_folder_name=f'M_{n_sites}')
+        fig.savefig(out_dir + '/cn_profile.png')
+
+        l_true = gt_ctr_table[0, 1, :].tolist()
+        print(f"Generated tree")
+        data['tree'].print_plot(plot_metric='length')
+        print(f"Generated edge _lengths: {l_true}")
+        print(f"(from p: {p_from_l(gt_ctr_table[0, 1, :], n_states)}")
+
+        # run EM
+        em = EM(n_states=n_states, obs_model=obs_model, evo_model=evo_model)
+        em.fit(data['obs'], theta_init=None)
+        ctr_table = em.distances
+        # change tree _lengths to match the estimated ones
+        for edge in data['tree'].preorder_edge_iter():
+            if edge.head_node.label == '2':
+                edge.length = ctr_table[0, 1, 0]
+            elif edge.head_node.label == '0':
+                edge.length = ctr_table[0, 1, 1]
+            elif edge.head_node.label == '1':
+                edge.length = ctr_table[0, 1, 2]
+        print(f"Estimated tree")
+
+        data['tree'].print_plot(plot_metric='length')
+        l_est = ctr_table[0, 1, :].tolist()
+        print("Estimated edge _lengths:")
+        print(l_est)
+
+        # check likelihood
+        ll_est = em.loglikelihoods[(0, 1)]
+        evo_model.lengths = l_true
+        log_emissions = obs_model.log_emission(data['obs'])
+        _, ll_true = evo_model._forward_pass_likelihood(data['obs'], log_emissions)
+        print(f"Generating lengths likelihood: {ll_true}")
+        print(f"Estimated lengths likelihood: {ll_est}")
+        self.assertGreater(ll_est, ll_true, msg="EM does not improve likelihood at all")
+        # compute cn changes
+        comp_eps = compute_cn_changes(data['cn'], [(3, 2), (2, 0), (2, 1)])
+        comp_lengths = l_from_p(np.array(comp_eps)/n_sites, n_states)
+        print(f"Est (CN) edge _lengths: {comp_lengths}")
+        ll_cn = em.compute_pair_likelihood(data['obs'], theta=np.array(comp_eps) / n_sites)
+        print(f"Est (CN) edge _lengths likelihood: {ll_cn}")
+        # self.assertGreater(ll_cn, ll_true, msg="Generated lengths fit better than actual CN changes")
+        self.assertGreater(ll_est, ll_cn, msg="EM estimates fit better than generated but not than actual CN changes")
+
+
+
+
+
     def test_quadruplet_true_init_normal(self):
         # TEST WITH NORMAL OBS and TRUE INIT for LENGTHS
         # seed for reproducibility
@@ -314,10 +396,12 @@ class EMTestCase(unittest.TestCase):
         n_states = 5
         n_sites = 500
         gamma_params = [(1*n_sites, 0.01/n_sites), (1*n_sites, 0.03/n_sites), (1*n_sites, 0.008/n_sites)]
-
-        evo_model = JCBModel(n_states=n_states, alpha=10)
+        evo_model_sim = CopyTree(n_states)
+        p_sim = np.array([0.02, 0.01, 0.01])
+        l_sim = l_from_p(np.array(p_sim), n_states)
+        evo_model = JCBModel(n_states=n_states, alpha=1)
         obs_model = NormalModel(n_states=n_states, mu_v_prior=1.0, tau_v_prior=100.0)
-        data = simulate_quadruplet(n_sites, obs_model=obs_model, gamma_params=gamma_params, n_states=n_states)
+        data = simulate_quadruplet(n_sites, obs_model=obs_model, evo_model=evo_model_sim, edge_lengths=l_sim, n_states=n_states)
         l_exp = math_utils.get_expected_branch_lengths_from_cnps(data['cn'], n_states)
         gt_ctr_table = get_ctr_table(data['tree'])
         # print cn in order r, u, v, w (check simulate_quadruplet doc for sorting info)
