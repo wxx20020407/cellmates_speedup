@@ -1,6 +1,7 @@
 import json
 import sys
 import time
+# from snakemake.script import snakemake
 
 import numpy as np
 
@@ -22,16 +23,20 @@ def get_gamma_params(sizes, base_variance):
     return gamma_params_dict
 
 
-def main(**kwargs):
-    n_states = kwargs["n_states"]
-    max_iter = kwargs["max_iter"]
-    seed = kwargs["seed"]
-    n_sites = kwargs["n_sites"]
-    sizes_dict = kwargs["sizes_dict"]
-    base_variance = kwargs["base_variance"]
-    obs_model = kwargs["obs_model"]
-    length_size = kwargs["length_size"]
-    out_file = kwargs["out_file"]
+def main(snakemake):
+    n_states = snakemake.params["n_states"]
+    max_iter = snakemake.params["max_iter"]
+    seed = snakemake.params["seed"]
+    n_sites = snakemake.params["n_sites"]
+    sizes_dict = snakemake.params["sizes_dict"]
+    base_variance = snakemake.params["base_variance"]
+    obs_model = snakemake.params["obs_model"]
+    length_size = snakemake.params["length_size"]
+    num_processors = snakemake.threads
+    out_file = snakemake.output[0]
+    print(f"params: {snakemake.params}")
+    print(f"threads: {num_processors}")
+    print(f"out: {out_file}")
 
     gamma_params_dict = get_gamma_params(sizes_dict, base_variance)
 
@@ -66,7 +71,7 @@ def main(**kwargs):
     gt_ctr = get_ctr_table(data['tree'])  # shape: (2, 2, 3), but only 3 values are stored (0,1,:3)
     em = EM(n_states=n_states, obs_model=obs_model, evo_model=evo_model, tree_build='ctr')
     start = time.time()
-    em.fit(data['obs'], max_iter=max_iter, num_processors=1,
+    em.fit(data['obs'], max_iter=max_iter, num_processors=num_processors,
            rtol=1e-8, l_init=gt_ctr[0,1])
     exec_time = time.time() - start
     # generating lengths likelihood
@@ -115,6 +120,5 @@ class Params:
             setattr(self, key, value)
 
 if __name__ == "__main__":
-    args = json.loads(sys.argv[1])
-    main(**args)
+    main(snakemake)
 

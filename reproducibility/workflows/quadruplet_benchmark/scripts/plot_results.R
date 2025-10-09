@@ -15,17 +15,18 @@ library(readr)
 library(GGally)
 library(forcats)
 
-args <- commandArgs(trailingOnly = TRUE)
-# input the quadruplet_accuracy_X.csv file
-if (length(args) < 1) {
-  stop("Usage: Rscript quadruplet_accuracy_plots.r <experiment_file> <output_pdf_file")
-}
-experiment_file <- args[1]
+# args <- commandArgs(trailingOnly = TRUE)
+# # input the quadruplet_accuracy_X.csv file
+# if (length(args) < 1) {
+#   stop("Usage: Rscript quadruplet_accuracy_plots.r <experiment_file> <output_pdf_file")
+# }
+experiment_file <- snakemake@input[[1]]
 # experiment_file <- "quadruplet_accuracy_250210235309.csv"
 
 # Extract unique string from filename for PDF output
 # pdf_filename <- sub("\\.csv$", "_plots.pdf", experiment_file)
-pdf_filename <- ifelse(length(args) >= 2, args[2], sub("\\.csv$", "_plots.pdf", experiment_file))
+# pdf_filename <- ifelse(length(args) >= 2, args[2], sub("\\.csv$", "_plots.pdf", experiment_file))
+pdf_filename <- snakemake@output[[1]]
 
 # read experiment csv
 df <- read_csv(experiment_file, col_types = cols(
@@ -129,12 +130,12 @@ p5 <- df %>%
   theme_minimal()
 print(p5)
 
-# Plot 6: Pair plot
-p6 <- df %>%
-  select(n_sites, n_states, p_change_u, p_change_v, p_change_w, err_percent_u, err_percent_v, err_percent_w, loglik) %>%
-  ggpairs()
-print(p6)
-
+# # Plot 6: Pair plot
+# p6 <- df %>%
+#   select(n_sites, n_states, p_change_u, p_change_v, p_change_w, err_percent_u, err_percent_v, err_percent_w, loglik) %>%
+#   ggpairs()
+# print(p6)
+#
 # Plot 7: Likelihood vs length_params
 p7 <- df %>%
   ggplot() +

@@ -1,0 +1,73 @@
+# ==========================================================
+# == Common rules for Quadruplet Accuracy Experiment      ==
+# ==========================================================
+import hashlib
+import json
+
+configfile: "config.yaml"
+workdir: "output"
+
+def param_hash(params):
+    """Return a short hash from a dictionary or list of parameters."""
+    param_str = json.dumps(params, sort_keys=True)
+    return hashlib.md5(param_str.encode()).hexdigest()[:8]
+
+# Extract configuration variables
+n_sites_list = config["experiment"]["n_sites_list"]
+num_replicates = config["experiment"]["num_replicates"]
+length_sizes_list = config["length_sizes_list"]
+obs_models = config["obs_models"]
+
+# Build index -> hash mappings
+obs_hashes = [param_hash(obs) for obs in obs_models]
+length_hashes = [param_hash(length) for length in length_sizes_list]
+
+with open("hash_mapping.json", "w") as f:
+    json.dump({
+        "obs": {i: {"hash": h, "params": obs_models[i]} for i, h in enumerate(obs_hashes)},
+        "length": {i: {"hash": h, "params": length_sizes_list[i]} for i, h in enumerate(length_hashes)},
+    }, f, indent=2)
+
+rule all:
+    input: 'results.csv', 'plots.pdf'
+
+# Run a single experiment and save results to a temp file (which will be combined later)
+rule run_experiment:
+    output:
+        temp("tmp/M{n_sites}_S{seed}_L{length_hash}_O{obs_hash}.csv")
+    conda:
+        "cellmates"
+    params:
+        n_sites=lambda wc: int(wc.n_sites),
+        seed=lambda wc: int(wc.seed),
+        length_size=lambda wc: length_sizes_list[length_hashes.index(wc.length_hash)],
+        obs_model=lambda wc: obs_models[obs_hashes.index(wc.obs_hash)],
+        n_states=config["experiment"]["n_states"],
+        max_iter=config["experiment"]["max_iter"],
+        base_variance=config["experiment"]["base_variance"],
+        sizes_dict=config["experiment"]["sizes_dict"],
+    script: "scripts/run_single_quad.py"
+
+# Combine all results into a single CSV
+rule combine:
+    input:
+        expand(
+            "tmp/M{n_sites}_S{seed}_L{length_hash}_O{obs_hash}.csv",
+            n_sites=n_sites_list,
+            seed=range(num_replicates),
+            length_hash=length_hashes,
+            obs_hash=obs_hashes,
+        )
+    output:
+        "results.csv"
+    shell:
+        """
+        head -n 1 {input[0]} > {output}
+        tail -q -n +2 {input} >> {output}
+        """
+
+rule plot:
+    input: "results.csv"
+    output: "plots.pdf"
+    conda: "rplot"
+    script: "scripts/plot_results.R"

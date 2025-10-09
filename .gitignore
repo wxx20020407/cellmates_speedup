@@ -13,3 +13,5 @@ notes.md
 /venv/
 /build/
 /data/
+# snakemake dir
+**/.snakemake/

@@ -1,0 +1,13 @@
+name: rplot
+channels:
+  - r
+  - conda-forge
+dependencies:
+  - r-base=4.1.1   # or whatever version of R you need
+  - r-dplyr
+  - r-ggplot2
+  - r-tidyr
+  - r-readr
+  - r-ggally
+  - r-forcats
+  - r-essentials   # Includes common useful R packages like 'lubridate', 'stringr', etc.
