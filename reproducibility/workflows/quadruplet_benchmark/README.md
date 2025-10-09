@@ -9,7 +9,7 @@ It consists of two main files:
 ## Usage
 To run the benchmark, just run the following from `quadruplet_benchmark` directory:
 ```bash
-snakemake -c32
+snakemake -c32 --sdm conda
 ```
 This will run the benchmark with 32 CPU cores in parallel and save
 the results in the `quadruplet_benchmark/results` directory (use `--directory` to change the output directory).
@@ -23,6 +23,6 @@ A demo version of the benchmark with reduced parameters can be ran from the demo
 This is intended for quick testing of the workflow to ensure dependencies are correctly installed and the workflow runs without errors.
 To run the demo, execute the following command in the terminal:
 ```bash
-snakemake -c4 --configfile config/demo.yaml
+snakemake -c4 --configfile config/demo.yaml --sdm conda
 ```
 The demo will terminate in a few minutes.
