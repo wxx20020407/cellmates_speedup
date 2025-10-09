@@ -1,0 +1,9 @@
+n_cells: [10]
+n_chrom: [2]
+n_bins: [100]
+n_event_per_edge: [2]  #lambda param
+n_clones: [2]
+boundary_noise: [0.04]
+jitter: [0.1]
+n_replicates: 2
+normal_fraction: 0.2
