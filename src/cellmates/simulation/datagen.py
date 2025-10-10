@@ -14,6 +14,7 @@ import anndata
 
 from cellmates.models.evo import EvoModel, CopyTree, JCBModel
 from cellmates.models.obs import ObsModel, NormalModel, PoissonModel
+from cellmates.utils import tree_utils
 from cellmates.utils.math_utils import l_from_p, p_from_l
 from cellmates.utils.tree_utils import random_binary_tree, get_node2node_distance, label_tree
 
