@@ -4,7 +4,7 @@ import dendropy as dpy
 from dendropy.calculate.treecompare import symmetric_difference
 import networkx as nx
 
-from cellmates.utils.tree_utils import convert_networkx_to_dendropy, label_tree
+from cellmates.utils.tree_utils import convert_networkx_to_dendropy, label_tree, convert_dendropy_to_networkx
 
 
 class MyTestCase(unittest.TestCase):
@@ -31,6 +31,23 @@ class MyTestCase(unittest.TestCase):
         # compute rf dist
         rfdist = symmetric_difference(dtree, dtree_converted)
         self.assertAlmostEqual(rfdist, 0)
+
+    def test_convert_dendropy_to_nx(self):
+        # build a tree with dendropy
+        dtree = dpy.Tree.get(data="((3,4)2,(5,6)1)0;", schema='newick')
+        dtree.is_rooted = True
+
+        # convert
+        nxtree_converted = convert_dendropy_to_networkx(dtree)
+
+        # build same tree on nx
+        nxtree = nx.DiGraph()
+        # add edges to make tree: ((3,4)2,(5,6)1))0;
+        nxtree.add_edges_from([(2, 3), (2, 4), (1, 5), (1, 6), (0, 1), (0, 2)])
+        nx.write_network_text(nxtree, sources=[0])
+
+        # Check edges
+        self.assertEqual(set(nxtree.edges()), set(nxtree_converted.edges()))
 
 
 if __name__ == '__main__':
