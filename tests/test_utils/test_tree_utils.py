@@ -4,6 +4,7 @@ import dendropy as dpy
 from dendropy.calculate.treecompare import symmetric_difference
 import networkx as nx
 
+from cellmates.utils import tree_utils
 from cellmates.utils.tree_utils import convert_networkx_to_dendropy, label_tree, convert_dendropy_to_networkx
 
 
@@ -49,6 +50,17 @@ class MyTestCase(unittest.TestCase):
         # Check edges
         self.assertEqual(set(nxtree.edges()), set(nxtree_converted.edges()))
 
+    def test_random_binary_tree(self):
+        n_cells = 5
+        length_mean = 0.1
+
+        # generate random binary tree
+        tree = tree_utils.random_binary_tree(n_cells, length_mean=length_mean)
+        self.assertEqual(len(tree.leaf_nodes()), n_cells)
+        self.assertTrue(tree.is_rooted)
+        print(tree.as_string(schema='newick'))
+        print([edge.label for edge in tree.edges()])
+        tree.print_plot()
 
 if __name__ == '__main__':
     unittest.main()
