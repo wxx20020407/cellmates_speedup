@@ -25,6 +25,7 @@ class EvoModel:
         self.focal_rate = kwargs.get('focal_rate', 0.)
         self.event_length_ratio = kwargs.get('event_length_ratio', 0.2)
         self.chromosome_ends = kwargs.get('chromosome_ends', []) # list of chromosome end positions (0-indexed) excluding last position
+        self.debug = kwargs.get('debug', False)
 
     @property
     def theta(self):
@@ -212,7 +213,8 @@ class EvoModel:
                  beta_probs[(np.arange(1, beta_probs.shape[0]), ...) + (np.newaxis,) * 3]
         log_xi -= np.expand_dims(sp.logsumexp(log_xi, axis=tuple(range(1, 7))), axis=tuple(range(1, 7)))
 
-        assert np.allclose(sp.logsumexp(log_xi, axis=(1, 2, 3, 4, 5, 6)), np.zeros(n_sites - 1))
+        if self.debug:
+            assert np.allclose(sp.logsumexp(log_xi, axis=(1, 2, 3, 4, 5, 6)), np.zeros(n_sites - 1))
         return log_xi
 
     def backward_pass(self, obs_vw, log_emissions, normalization=True) -> np.ndarray:

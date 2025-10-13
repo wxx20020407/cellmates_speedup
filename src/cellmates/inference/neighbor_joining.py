@@ -13,7 +13,8 @@ def _build_tree_rec(ctr: dict, ntc: dict, ntr: dict, otus: set, edges: set[tuple
     if len(otus) == 2:
         for c in otus:
             # add edge with length
-            edges.add(('r', c, ntr[c]))
+            # edges.add(('r', c, ntr[c]))
+            edges.add(('r', c, ctr[frozenset(otus)]))
     else:
         vw, l = max(ctr.items(), key=operator.itemgetter(1))
         # remove pair and add common ancestor with averaged distance
@@ -73,6 +74,13 @@ def _build_tree_rec(ctr: dict, ntc: dict, ntr: dict, otus: set, edges: set[tuple
 
 
 def build_tree(ctr_table: np.ndarray, edge_attr='length') -> nx.DiGraph:
+    """
+    Build a tree from a centroid-to-root distance table. The root of the tree is assumed to be the common progenitor of all OTUs,
+    which means that the healthy state is excluded from the tree and intended to be an additional node connected to the root.
+    The input table is a 3D numpy array where the first two dimensions represent pairs of operational taxonomic units (OTUs),
+    and the third dimension contains three values: the centroid-to-centroid distance, the node-to-centroid distance for the first OTU,
+    and the node-to-centroid distance for the second OTU.
+    """
     # operational taxonomic units, OTUs, init with cells
     otus = set(map(str, range(ctr_table.shape[0])))
     # at each iteration, contains the centroid to root distance for each pair of OTUs

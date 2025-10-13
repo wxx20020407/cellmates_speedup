@@ -5,5 +5,6 @@ n_event_per_edge: [2]  #lambda param
 n_clones: [2]
 boundary_noise: [0.04]
 jitter: [0.1]
-n_replicates: 2
+n_replicates: 1
 normal_fraction: 0.2
+n_states: 7

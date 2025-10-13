@@ -125,6 +125,32 @@ def read_cn_profiles(adata: anndata.AnnData, cnasim_data_path: str, n_cells: int
                                                 sort=False)[cells].transpose().to_numpy()
         adata.layers['Bstate'] = pd.pivot_table(profiles_df, index=['chrom', 'start', 'end'], values='Bcn', columns='CELL',
                                                 sort=False)[cells].transpose().to_numpy()
+    # add ancestral profiles if available
+    # format:
+    # CELL	chrom	start	end	CN states
+    # ancestor1	chr1	0	1000000	1,1
+    anc_prof_file = 'ancestral_profiles.tsv'
+    if os.path.exists(os.path.join(cnasim_data_path, anc_prof_file)) and inplace:
+        anc_profiles_df = pd.read_csv(os.path.join(cnasim_data_path, anc_prof_file), delimiter='\t', header=0)
+        anc_profiles_df[['Acn', 'Bcn']] = anc_profiles_df['CN states'].str.split(',', expand=True).astype(int)
+        anc_profiles_df['cn'] = anc_profiles_df['Acn'] + anc_profiles_df['Bcn']
+        wide_anc_cn_df = pd.pivot_table(
+            anc_profiles_df,
+            index=['chrom', 'start', 'end'],
+            values=['cn', 'Acn', 'Bcn'],
+            columns='CELL',
+            sort=False
+        )  # already sorted by cell number
+        anc_cells = wide_anc_cn_df['cn'].columns.tolist()
+        anc_cn_profiles = wide_anc_cn_df['cn'][anc_cells].transpose().to_numpy()
+        # concatenate to existing profiles
+        adata.uns['ancestral-names'] = anc_cells
+        adata.uns['ancestral-cn'] = anc_cn_profiles
+        adata.uns['ancestral-cnA'] = wide_anc_cn_df['Acn'][anc_cells].transpose().to_numpy()
+        adata.uns['ancestral-cnB'] = wide_anc_cn_df['Bcn'][anc_cells].transpose().to_numpy()
+    else:
+        raise FileNotFoundError(f"Ancestral profiles file {anc_prof_file} not found in {cnasim_data_path}. It is required to have ancestral profiles for the cell tree.")
+
     return cn_profiles
 
 def correct_readcounts(adata, min_normal_cells=1, inplace=True) -> np.ndarray:

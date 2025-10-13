@@ -35,7 +35,7 @@ def nxtree_to_newick(g: nx.DiGraph, root=None, weight=None, is_internal_call=Fal
 
 
 def convert_networkx_to_dendropy(nx_tree, labels_mapping: dict = None,
-                                 taxon_namespace=None, edge_length=None) -> dendropy.Tree:
+                                 taxon_namespace=None, edge_length=None, internal_nodes_label='group') -> dendropy.Tree:
     """
     Converts a NetworkX tree to a DendroPy tree through newick string.
 
@@ -50,7 +50,7 @@ def convert_networkx_to_dendropy(nx_tree, labels_mapping: dict = None,
         nx_tree = nx.relabel_nodes(nx_tree, labels_mapping, copy=True)
     newick = nxtree_to_newick(nx_tree, weight=edge_length)
     dendropy_tree = Tree.get(data=newick, schema='newick', taxon_namespace=taxon_namespace)
-    label_tree(dendropy_tree, method='group')
+    label_tree(dendropy_tree, method=internal_nodes_label)
     dendropy_tree.is_rooted = True
 
     return dendropy_tree
@@ -130,8 +130,9 @@ def newick_to_nx(nwk_str, edge_attr='weight'):
     -------
     nx.DiGraph tree with nodes and weighted edges
     """
-
+    print(nwk_str)
     tree = Phylo.read(StringIO(nwk_str), 'newick')
+    print(tree)
     und_tree_nx = Phylo.to_networkx(tree)
     # Phylo names add unwanted information in unstructured way
     # find node numbers and relabel nx tree
@@ -190,5 +191,3 @@ if __name__ == '__main__':
 
     # write newick string
     print(phylo_tree.format('newick'))
-
-
