@@ -15,17 +15,18 @@ library(readr)
 library(GGally)
 library(forcats)
 
-args <- commandArgs(trailingOnly = TRUE)
-# input the quadruplet_accuracy_X.csv file
-if (length(args) < 1) {
-  stop("Usage: Rscript quadruplet_accuracy_plots.r <experiment_file> <output_pdf_file")
-}
-experiment_file <- args[1]
+# args <- commandArgs(trailingOnly = TRUE)
+# # input the quadruplet_accuracy_X.csv file
+# if (length(args) < 1) {
+#   stop("Usage: Rscript quadruplet_accuracy_plots.r <experiment_file> <output_pdf_file")
+# }
+experiment_file <- snakemake@input[[1]]
 # experiment_file <- "quadruplet_accuracy_250210235309.csv"
 
 # Extract unique string from filename for PDF output
 # pdf_filename <- sub("\\.csv$", "_plots.pdf", experiment_file)
-pdf_filename <- ifelse(length(args) >= 2, args[2], sub("\\.csv$", "_plots.pdf", experiment_file))
+# pdf_filename <- ifelse(length(args) >= 2, args[2], sub("\\.csv$", "_plots.pdf", experiment_file))
+pdf_filename <- snakemake@output[[1]]
 
 # read experiment csv
 df <- read_csv(experiment_file, col_types = cols(
@@ -46,6 +47,7 @@ df <- read_csv(experiment_file, col_types = cols(
   n_iter = col_integer(),
   loglik = col_double(),
   true_ll = col_double(),
+  gen_ll = col_double(),
   base_variance = col_double(),
   obs_model = col_factor(),
   obs_var = col_double()
@@ -55,7 +57,8 @@ df <- df %>%
   mutate(lu_true = lu_em + lu_err, lv_true = lv_em + lv_err, lw_true = lw_em + lw_err) %>%
   mutate(err_percent_u = abs(lu_err) / lu_true * 100, err_percent_v = abs(lv_err) / lv_true * 100, err_percent_w = abs(lw_err) / lw_true * 100) %>%
   mutate(greater_loglik = loglik > true_ll) %>%
-  mutate(loglik_diff = loglik - true_ll)
+  mutate(loglik_diff = loglik - true_ll) %>%
+  mutate(loglik_gain = loglik - gen_ll)
 
 # Open PDF device
 pdf(pdf_filename, width = 10, height = 6)
@@ -127,12 +130,12 @@ p5 <- df %>%
   theme_minimal()
 print(p5)
 
-# Plot 6: Pair plot
-p6 <- df %>%
-  select(n_sites, n_states, p_change_u, p_change_v, p_change_w, err_percent_u, err_percent_v, err_percent_w, loglik) %>%
-  ggpairs()
-print(p6)
-
+# # Plot 6: Pair plot
+# p6 <- df %>%
+#   select(n_sites, n_states, p_change_u, p_change_v, p_change_w, err_percent_u, err_percent_v, err_percent_w, loglik) %>%
+#   ggpairs()
+# print(p6)
+#
 # Plot 7: Likelihood vs length_params
 p7 <- df %>%
   ggplot() +

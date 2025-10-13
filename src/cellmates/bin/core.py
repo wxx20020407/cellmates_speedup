@@ -7,6 +7,8 @@ import numpy as np
 
 from cellmates.inference.em import EM
 from cellmates.inference.neighbor_joining import build_tree
+from cellmates.models.evo import JCBModel
+from cellmates.models.obs import NormalModel
 from cellmates.utils.tree_utils import write_newick
 
 logging.basicConfig(level=logging.INFO)
@@ -15,7 +17,8 @@ logger = logging.getLogger(__name__)
 
 def obs_from_adata(adata, layer_name=None):
     dat = adata.layers[layer_name] if layer_name else adata.X
-    return dat.T
+    chromosome_ends = np.where(adata.var['chr'].codes.diff() != 0)[0] + 1
+    return dat.T, chromosome_ends.tolist()
 
 
 def main():
@@ -40,10 +43,12 @@ def main():
 
     # load data
     adata = anndata.read_h5ad(adata_path)
-    X = obs_from_adata(adata)
+    obs, chromosome_ends = obs_from_adata(adata)
     # run inference
-    em = EM(n_states=args.n_states, obs_model='normal', verbose=args.verbose)
-    em.fit(X, max_iter=args.max_iter,)
+    evo_model = JCBModel(n_states=args.n_states, chromosome_ends=chromosome_ends)
+    obs_model = NormalModel(n_states=args.n_states, mu_v_prior=1., tau_v_prior=10.)
+    em = EM(n_states=args.n_states, evo_model=evo_model, obs_model=obs_model, verbose=args.verbose)
+    em.fit(obs, max_iter=args.max_iter,)
     nx_tree = build_tree(em.distances, edge_attr='branch_length')
     # save results
     np.save(dist_path, em.distances)  # save distance matrix
