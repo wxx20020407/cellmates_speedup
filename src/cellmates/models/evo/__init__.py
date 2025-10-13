@@ -1,6 +1,7 @@
 import logging
 import random
 
+import dendropy
 import dendropy as dpy
 import networkx as nx
 import numpy as np
@@ -642,18 +643,19 @@ class SimulationEvoModel():
         self.chr_idxs = None
 
         # Simulation outputs
-        self.focal_events_out = np.ndarray
-        self.clonal_events_out = np.ndarray
-        self.clonal_CN_events_start_pos = np.ndarray
-        self.focal_CN_events_start_pos = np.ndarray
-        self.clonal_CN_events_end_pos = np.ndarray
-        self.focal_CN_events_end_pos = np.ndarray
+        self.focal_events_out = {}
+        self.clonal_events_out = {}
+        self.clonal_CN_events_start_pos = {}
+        self.focal_CN_events_start_pos = {}
+        self.clonal_CN_events_end_pos = {}
+        self.focal_CN_events_end_pos = {}
 
-    def simulate_cn(self, tree, n_sites, chr_idxs=None)-> np.ndarray:
+    def simulate_cn(self, tree: dendropy.Tree, n_sites, chr_idxs=None)-> np.ndarray:
         self.n_sites = n_sites
         self.chr_idxs = chr_idxs
         nx_tree = tree_utils.convert_dendropy_to_networkx(tree)
         n_nodes = len(tree.nodes())
+        root_idx = list(filter(lambda p: p[1] == 0, nx_tree.in_degree()))
 
         # initialize copy number array
         cn = np.empty((n_nodes, n_sites), dtype=int)
@@ -665,7 +667,7 @@ class SimulationEvoModel():
 
         for u,v in nx_tree.edges:
             n = tree.nodes()[v]
-            if v == 0:  # 0 assumed to be root
+            if v == root_idx:
                 continue
             else:
                 n.cn = np.empty(n_sites, dtype=int)
@@ -673,10 +675,13 @@ class SimulationEvoModel():
                 n_clonal_events_uv, n_focal_events_uv = self.draw_number_of_CN_events(u, v)
                 # Draw CN events (start, end) sites
                 out_CN_pos = self.draw_CN_events_positions(u, v, n_clonal_events_uv, n_focal_events_uv, n_sites)
-                clonal_start_pos = out_CN_pos['clonal_start_pos']
-                clonal_end_pos = out_CN_pos['clonal_end_pos']
-                focal_start_pos = out_CN_pos['focal_start_pos']
-                focal_end_pos = out_CN_pos['focal_end_pos']
+                clonal_start_pos, clonal_end_pos = out_CN_pos['clonal_start_pos'], out_CN_pos['clonal_end_pos']
+                self.clonal_CN_events_start_pos[u,v] = clonal_start_pos
+                self.clonal_CN_events_end_pos[u,v] = clonal_end_pos
+                focal_start_pos, focal_end_pos = out_CN_pos['focal_start_pos'], out_CN_pos['focal_end_pos']
+                self.focal_CN_events_start_pos[u,v] = focal_start_pos
+                self.focal_CN_events_end_pos[u,v] = focal_end_pos
+
                 # Inherit parent CNP
                 n.cn[:] = cn[u, :]
                 # Apply CN events to child CNP
