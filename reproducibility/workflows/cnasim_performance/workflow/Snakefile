@@ -28,7 +28,7 @@ wildcard_constraints:
     n_chrom=r"\d+"
 
 rule all:
-    input: 'results/stats.csv', 'results/plots.pdf'
+    input: 'results/stats.csv'#, 'results/plots.pdf'
 
 # simulate data with cnasim
 rule simulate:
@@ -76,8 +76,9 @@ rule run_cellmates:
     params:
         directory=subpath(output.cm_dist, parent=True)
     conda: "cellmates"
+    threads: 4
     shell: """
-    cellmates -i {input} -o {params.directory} -v 2 --n-states {N_STATES}
+    cellmates -i {input} -o {params.directory} -v 2 --n-states {N_STATES} --num-processors {threads}
     """
 
 rule evaluate:

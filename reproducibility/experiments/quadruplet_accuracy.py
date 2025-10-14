@@ -13,7 +13,8 @@ from cellmates import ROOT_DIR
 from cellmates.inference.em import EM
 from cellmates.models.evo import JCBModel
 from cellmates.models.obs import PoissonModel, NormalModel
-from cellmates.simulation.datagen import simulate_quadruplet, get_ctr_table, _from_data_to_adata
+from cellmates.simulation.datagen import simulate_quadruplet, _from_data_to_adata
+from cellmates.utils.tree_utils import get_ctr_table
 from cellmates.utils.math_utils import p_from_l, l_from_p
 
 

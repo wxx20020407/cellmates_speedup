@@ -17,10 +17,11 @@ from scipy.special import logsumexp
 from cellmates.utils.visual import plot_cn_profile, plot_cell_pairwise_heatmap
 from cellmates.models.evo import p_delta_change, CopyTree, JCBModel
 from cellmates.models.obs import NormalModel, PoissonModel
-from cellmates.simulation.datagen import rand_dataset, get_ctr_table, simulate_quadruplet, rand_ann_dataset
+from cellmates.simulation.datagen import rand_dataset, simulate_quadruplet, rand_ann_dataset
 from cellmates.inference.em import jcb_em_ctrtable, EM, jcb_em_alg
 from cellmates.utils.testing import create_output_test_folder
-from cellmates.utils.tree_utils import convert_networkx_to_dendropy, random_binary_tree, label_tree, nxtree_to_newick
+from cellmates.utils.tree_utils import convert_networkx_to_dendropy, random_binary_tree, label_tree, nxtree_to_newick, \
+    get_ctr_table
 from cellmates.utils.math_utils import l_from_p, p_from_l, compute_cn_changes
 
 from cellmates.inference.em import build_tree

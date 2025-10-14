@@ -3,7 +3,8 @@ import random
 import unittest
 import numpy as np
 
-from cellmates.simulation.datagen import rand_dataset, get_ctr_table, simulate_quadruplet, rand_ann_dataset
+from cellmates.simulation.datagen import rand_dataset, simulate_quadruplet, rand_ann_dataset
+from cellmates.utils.tree_utils import get_ctr_table
 
 
 class DatagenTestCase(unittest.TestCase):

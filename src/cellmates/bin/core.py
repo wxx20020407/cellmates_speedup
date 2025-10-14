@@ -15,7 +15,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-def obs_from_adata(adata, layer_name=None, normal_annotation='normal'):
+def obs_from_adata(adata, layer_name='copy', normal_annotation='normal'):
     """
     Extract observations and chromosome ends from AnnData object.
     Parameters
@@ -48,6 +48,7 @@ def main():
     parser.add_argument('--n-states', '-s', type=int, default=7, help="Number of hidden states")
     parser.add_argument('--max-iter', '-m', type=int, default=30, help="Maximum number of EM iterations")
     parser.add_argument('--verbose', '-v', type=int, default=0, help="Verbosity level (0: silent, 1: progress, 2+: debug)")
+    parser.add_argument('--num-processors', '-p', type=int, default=1, help="Number of processors to use in parallel")
     args = parser.parse_args()
 
     # set paths
@@ -67,9 +68,9 @@ def main():
     logger.debug(f"Excluded {adata.n_obs - obs.shape[1]} normal cells from distance estimation")
     # run inference
     evo_model = JCBModel(n_states=args.n_states, chromosome_ends=chromosome_ends)
-    obs_model = NormalModel(n_states=args.n_states, mu_v_prior=1., tau_v_prior=10.)
+    obs_model = NormalModel(n_states=args.n_states, mu_v_prior=1., tau_v_prior=100.)
     em = EM(n_states=args.n_states, evo_model=evo_model, obs_model=obs_model, verbose=args.verbose)
-    em.fit(obs, max_iter=args.max_iter,)
+    em.fit(obs, max_iter=args.max_iter, num_processors=args.num_processors)
     nx_tree = build_tree(em.distances, edge_attr='branch_length')
     # save results
     np.save(dist_path, em.distances)  # save distance matrix
