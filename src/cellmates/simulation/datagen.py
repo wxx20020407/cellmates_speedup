@@ -12,7 +12,7 @@ import dendropy as dpy
 import random
 import anndata
 
-from cellmates.models.evo import EvoModel, CopyTree, JCBModel
+from cellmates.models.evo import EvoModel, CopyTree, JCBModel, SimulationEvoModel
 from cellmates.models.obs import ObsModel, NormalModel, PoissonModel
 from cellmates.utils import tree_utils
 from cellmates.utils.math_utils import l_from_p, p_from_l
@@ -194,8 +194,12 @@ def _from_data_to_adata(data: Dataset) -> anndata.AnnData:
     adata.obsm['ctr-distance-matrix'] = _get_full_distance_matrix_from_tree(data['tree'])
     return adata
 
-def rand_dataset(n_states: int, n_sites: int, evo_model: EvoModel | str = 'jcb', obs_model: ObsModel | str = 'normal',
-                 alpha=1., p_change: float = .2, n_cells: int = None, tree: dpy.Tree = None, seed=None) -> Dataset:
+def rand_dataset(n_states: int, n_sites: int,
+                 evo_model: EvoModel | SimulationEvoModel | str = 'jcb',
+                 obs_model: ObsModel | str = 'normal',
+                 alpha=1., p_change: float = .2,
+                 n_cells: int = None,
+                 tree: dpy.Tree = None, seed=None) -> Dataset:
     # generate random sc binary tree
     if seed is not None:
         np.random.seed(seed)
