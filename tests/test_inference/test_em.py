@@ -71,7 +71,7 @@ class EMTestCase(unittest.TestCase):
     def test_em_updates_given_c(self):
         """
         Tests the EM algorithm on a simple quadruplet tree where the true expected number of changes are given and used
-        in the M-step. This acts as a sanity check for the remaining terms of the M-step, E-step
+        in the M-step. This acts as a sanity check for the remaining terms of the evo M-step and the observation M-step.
         Returns
         -------
 
@@ -101,6 +101,7 @@ class EMTestCase(unittest.TestCase):
         D = np.array([D_ru, D_uv, D_uw])
         Dp = np.array([Dp_ru, Dp_uv, Dp_uw])
 
+        evo_model.new = MagicMock(return_value=evo_model)   # bypass new model creation to enable mocking
         evo_model.expected_changes = MagicMock(return_value=(D, Dp, -1.0))
 
         theta_init = [0.2, 0.05, 0.1]
