@@ -612,3 +612,155 @@ def _evolve_cn_event_chain(prev_cn: np.ndarray, pdd: float, n_states: int) -> np
             node_cn[m] = random.choice([j for j in range(n_states)])
 
     return node_cn
+
+class SimulationEvoModel():
+    """
+    Model for simulating copy number evolution.
+    Allows more control over simulated CN events, such as number of overlapping CN events, number of homoplasies
+    """
+
+    def __init__(self,
+                 clonal_CN_prob: float | dict[int] = 0.05, clonal_CN_length_ratio: float = 0.2,
+                 focal_prob: float | dict[int] = 0.05, focal_length_avg: int = 5,
+                 n_clonal_CN_events: int | dict[int] = None, clonal_CN_length: int |dict[int] = None,
+                 n_focal_events: int | dict[int] = None, focal_CN_length: int | dict[int] = None,
+                 allow_overlapping_CN_events=True, n_homoplasies=None, zero_absorption: bool = True):
+        # Simulation parameters
+        self.clonal_CN_prob = clonal_CN_prob
+        self.clonal_CN_length_ratio = clonal_CN_length_ratio
+        self.n_clonal_CN_events = n_clonal_CN_events
+        self.clonal_CN_length = clonal_CN_length
+        self.focal_prob = focal_prob
+        self.focal_length_avg = focal_length_avg
+        self.n_focal_events = n_focal_events
+        self.focal_CN_length = focal_CN_length
+        self.allow_overlapping_CN_events = allow_overlapping_CN_events
+        self.n_homoplasies = n_homoplasies
+        self.zero_absorption = zero_absorption
+
+        # Simulation helpers
+        self.n_sites = None
+        self.chr_idxs = None
+
+        # Simulation outputs
+        self.focal_events_out = {}
+        self.clonal_events_out = {}
+        self.clonal_CN_events_start_pos = {}
+        self.focal_CN_events_start_pos = {}
+        self.clonal_CN_events_end_pos = {}
+        self.focal_CN_events_end_pos = {}
+
+    def simulate_cn(self, tree: dpy.Tree, n_sites, chr_idxs=None)-> np.ndarray:
+        self.n_sites = n_sites
+        self.chr_idxs = chr_idxs
+        nx_tree = convert_dendropy_to_networkx(tree)
+        n_nodes = len(tree.nodes())
+        root_idx = list(filter(lambda p: p[1] == 0, nx_tree.in_degree()))
+
+        # initialize copy number array
+        cn = np.empty((n_nodes, n_sites), dtype=int)
+        cn.fill(2)  # root copy number is 2
+        edges = list(tree.preorder_edge_iter())
+        n_edges = len(edges)
+        # Extend function to draw edges with homoplasies
+        # Extend to WGD events
+
+        for u,v in nx_tree.edges:
+            n = tree.nodes()[v]
+            if v == root_idx:
+                continue
+            else:
+                n.cn = np.empty(n_sites, dtype=int)
+                # Draw number of focal and clonal events
+                n_clonal_events_uv, n_focal_events_uv = self.draw_number_of_CN_events(u, v)
+                # Draw CN events (start, end) sites
+                out_CN_pos = self.draw_CN_events_positions(u, v, n_clonal_events_uv, n_focal_events_uv, n_sites)
+                clonal_start_pos, clonal_end_pos = out_CN_pos['clonal_start_pos'], out_CN_pos['clonal_end_pos']
+                self.clonal_CN_events_start_pos[u,v] = clonal_start_pos
+                self.clonal_CN_events_end_pos[u,v] = clonal_end_pos
+                focal_start_pos, focal_end_pos = out_CN_pos['focal_start_pos'], out_CN_pos['focal_end_pos']
+                self.focal_CN_events_start_pos[u,v] = focal_start_pos
+                self.focal_CN_events_end_pos[u,v] = focal_end_pos
+
+                # Inherit parent CNP
+                n.cn[:] = cn[u, :]
+                # Apply CN events to child CNP
+                delta_CN_clonal_uv = self.draw_clonal_events(clonal_start_pos, clonal_end_pos)
+                delta_CN_focal_uv = self.draw_focal_events(focal_start_pos, focal_end_pos)
+                n.cn += delta_CN_clonal_uv + delta_CN_focal_uv
+                n.cn = np.clip(n.cn, a_min=0, a_max=None)
+                cn[v, :] = n.cn
+        return cn
+
+    def draw_number_of_CN_events(self, u, v):
+        # Draw number of clonal CN events
+        if self.n_clonal_CN_events is None:
+            clonal_rate = self.clonal_CN_rate * self.n_sites
+            n_clonal_events_uv = ss.poisson(clonal_rate)
+        else:
+            if isinstance(self.n_clonal_CN_events, dict):
+                n_clonal_events_uv = self.n_clonal_CN_events[(u, v)]
+            else:
+                n_clonal_events_uv = self.n_clonal_CN_events
+        # Draw number of focal CN events
+        if self.n_focal_events is None:
+            focal_rate = self.focal_rate * self.n_sites
+            n_focal_events_uv = ss.poisson(focal_rate)
+        else:
+            if isinstance(self.n_focal_events, dict):
+                n_focal_events_uv = self.n_focal_events[(u, v)]
+            else:
+                n_focal_events_uv = self.n_focal_events
+        return n_clonal_events_uv, n_focal_events_uv
+
+    def draw_CN_events_positions(self, u, v, n_clonal_events_uv, n_focal_events_uv, n_sites):
+        if self.allow_overlapping_CN_events:
+            clonal_start_pos = np.random.randint(0, n_sites, size=n_clonal_events_uv)
+            focal_start_pos = np.random.randint(0, n_sites, size=n_focal_events_uv)
+            # Draw clonal event lengths
+            if self.clonal_CN_length is None:
+                clonal_lengths = ss.poisson(self.clonal_CN_length_ratio * n_sites).rvs(size=n_clonal_events_uv)
+            else:
+                clonal_lengths = self.clonal_CN_length[u, v] if isinstance(self.clonal_CN_length, dict) else self.clonal_CN_length
+            clonal_end_pos = np.clip(clonal_start_pos + clonal_lengths, a_min=None, a_max=n_sites - 1)
+
+            # Draw focal event lengths
+            if self.focal_CN_length is None:
+                focal_lengths = ss.poisson(self.focal_length_avg).rvs(size=n_focal_events_uv)
+            else:
+                focal_lengths = self.focal_CN_length[u, v] if isinstance(self.focal_CN_length, dict) else self.focal_CN_length
+            focal_end_pos = np.clip(focal_start_pos + focal_lengths, a_min=None, a_max=n_sites - 1)
+            # Ensure no 0-absorption
+            if self.zero_absorption:
+                pass
+        else:
+            # Draw non-overlapping CN events
+            pass
+
+        out_dict = {
+            'clonal_start_pos': clonal_start_pos,
+            'clonal_end_pos': clonal_end_pos,
+            'focal_start_pos': focal_start_pos,
+            'focal_end_pos': focal_end_pos
+        }
+        return out_dict
+
+    def draw_clonal_events(self, clonal_start_pos, clonal_end_pos):
+        delta_CN_clonal_uv = np.zeros(self.n_sites, dtype=int)
+        for s, e in zip(clonal_start_pos, clonal_end_pos):
+            delta = 1 if random.random() < 0.5 else -1
+            delta_CN_clonal_uv[s:e] += delta
+        return delta_CN_clonal_uv
+
+    def draw_focal_events(self, focal_start_pos, focal_end_pos):
+        delta_CN_focal_uv = np.zeros(self.n_sites, dtype=int)
+        for s, e in zip(focal_start_pos, focal_end_pos):
+            delta = 1 if random.random() < 0.5 else -1
+            delta_CN_focal_uv[s:e] += delta
+        return delta_CN_focal_uv
+
+
+
+
+
+

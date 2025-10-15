@@ -5,9 +5,6 @@ import networkx as nx
 import numpy as np
 
 
-def reconstruct_tree(distance_matrix):
-    return None
-
 
 def _build_tree_rec(ctr: dict, ntc: dict, ntr: dict, otus: set, edges: set[tuple]) -> set[tuple]:
     if len(otus) == 2:
