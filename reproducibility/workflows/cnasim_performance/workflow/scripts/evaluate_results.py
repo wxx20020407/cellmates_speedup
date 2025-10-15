@@ -8,20 +8,20 @@ from cellmates.utils.tree_utils import convert_networkx_to_dendropy, newick_to_n
 
 
 def main(snakemake):
-    truth_ad = snakemake.input['truth_ad']
-    cm_dist = snakemake.input['cm_dist']
-    cm_tree = snakemake.input['cm_tree']
-    cm_cell_names = snakemake.input['cm_cells']
+    truth_ad_path = snakemake.input['truth_ad']
+    cm_dist_path = snakemake.input['cm_dist']
+    cm_tree_path = snakemake.input['cm_tree']
+    cm_cell_names_path = snakemake.input['cm_cells']
     n_states = snakemake.params['n_states']
     seed = snakemake.params['seed']
     out_csv = snakemake.output[0]
 
-    print(f"Processing [{seed}] {truth_ad}, {cm_dist}, {cm_tree}, {cm_cell_names} to {out_csv} with n_states={n_states}")
+    print(f"Processing [{seed}] {truth_ad_path}, {cm_dist_path}, {cm_tree_path}, {cm_cell_names_path} to {out_csv} with n_states={n_states}")
     # load inputs
-    ad = anndata.read_h5ad(truth_ad)
-    cm_dist = np.load(cm_dist)
-    cm_tree = open(cm_tree).read()
-    cell_names = open(cm_cell_names).read().strip().split('\n')
+    ad = anndata.read_h5ad(truth_ad_path)
+    cm_dist = np.load(cm_dist_path)
+    cm_tree = open(cm_tree_path).read()
+    cell_names = open(cm_cell_names_path).read().strip().split('\n')
 
     # validate inputs
     print(ad)
@@ -63,11 +63,12 @@ def main(snakemake):
     print(f"F1 score clades: GT {f1_gt}, EM {f1_em}")
     # save results
     # for each edge, plot error, edge depth (TODO)
-    results = pd.DataFrame({'seed': [seed], 'n_cells': [n_cells], 'n_states': [n_states], 'n_clones': [len(set(clone_assignments))],
-                            'lambda': [ad.uns['cnasim-params']['lambda']],
+    results = pd.DataFrame({'dat_path': [truth_ad_path], 'seed': [seed], 'n_cells': [n_cells], 'n_states': [n_states], 'n_clones': [len(set(clone_assignments))],
+                            'n_sites': [ad.n_vars],
+                            'lambda': [ad.uns['cnasim-params']['placement_param']],
                             'ru_mse': [err_list[0]],
                             'uv_mse': [err_list[1]], 'uw_mse': [err_list[2]],
-                            'rf': [rf], 'urf': [urf], 'nrf': [nrf], 'f1_gt': [f1_gt], 'f1_em': [f1_em]})
+                            'rf': [rf], 'urf': [urf], 'nrf': [nrf], 'f1_gt': [f1_gt], 'f1_em': [f1_em], 'wgd': [ad.uns['cnasim-params']['WGD']]})
     results.to_csv(out_csv, index=False)
     print(f"Saved results to {out_csv}")
 
