@@ -31,7 +31,7 @@ class EM:
                  alpha=1., verbose: int = 0):
         # model variables
         self.min_iter = 3
-        if isinstance(obs_model, str):
+        if isinstance(evo_model, str):
             self.evo_model: EvoModel = JCBModel(n_states, alpha=alpha) if evo_model == 'jcb' else CopyTree(n_states)
         else:
             self.evo_model: EvoModel = evo_model
