@@ -2,21 +2,19 @@ import io
 import itertools
 import logging
 import random
-import time
 import unittest
 from unittest.mock import MagicMock
 
-from networkx.classes import neighbors
+import skbio
+from dendropy.calculate import treecompare
 
 from cellmates.inference import neighbor_joining
 from cellmates.inference.em import EM
-from cellmates.utils import tree_utils, testing, visual
+from cellmates.utils import tree_utils, testing, visual, math_utils
 
 import dendropy
-from Bio import Phylo
 import networkx as nx
 import numpy as np
-from dendropy.calculate import treecompare
 from matplotlib import pyplot as plt
 
 from cellmates.simulation.datagen import rand_dataset
@@ -31,6 +29,123 @@ class CellmatesTestCase(unittest.TestCase):
     def setUp(self) -> None:
         random.seed(0)
         np.random.seed(seed=0)
+        dendropy.utility.GLOBAL_RNG.seed(0)
+
+    def test_cellmates_given_c(self):
+        # Inference parameters
+        max_iter = 20
+        rtol = 1e-4
+
+        # Simulation parameters
+        n_sites = 10000
+        n_cells = 20
+        n_states = 7
+        n_clonal_events_per_edge = 5
+        n_focal_events_per_edge = 5
+        clonal_CN_length = n_sites // 20
+        obs_model_sim = 'normal'
+        sim_evo_model = SimulationEvoModel(n_clonal_CN_events=n_clonal_events_per_edge,
+                                           n_focal_events=n_focal_events_per_edge,
+                                           clonal_CN_length=clonal_CN_length)
+        data = rand_dataset(n_sites=n_sites, n_cells=n_cells, n_states=n_states,
+                            obs_model=obs_model_sim,
+                            evo_model=sim_evo_model)
+        x = data['obs']
+        cnps = data['cn']
+        tree_dp = data['tree']
+        tree_nx = tree_utils.convert_dendropy_to_networkx(tree_dp)
+        tree_dp.print_plot()
+
+        out_dir = testing.create_output_test_folder(sub_folder_name=f"M{n_sites}_N{n_cells}_A{n_states}")
+        fig, ax = plt.subplots()
+        visual.plot_cn_profile(cnps, cell_labels=np.arange(0, n_cells), ax=ax)
+        fig.savefig(out_dir + '/cn_profile.png')
+
+        # --------- Setup Models and Mock Expected changes D, D' ---------
+        obs_model = obs_model_sim
+        evo_model = JCBModel(n_states=n_states)
+        cell_pairs = list(itertools.combinations(range(n_cells), r=2))
+        n_pairs = len(cell_pairs)
+        # TODO: Make computation of D, D' a function in testing
+        D, Dp, expected_distances, expected_pairwise_distances = testing.get_expected_changes(tree_nx, n_states,
+                                                                                           cell_pairs, cnps)
+
+        fig, ax = plt.subplots()
+        visual.plot_cell_pairwise_heatmap(expected_pairwise_distances, label=np.arange(0, n_cells), ax=ax)
+        fig.savefig(out_dir + '/expected_pairwise_distances.png')
+
+        #evo_model.new = MagicMock(return_value=evo_model)  # bypass new model creation to enable mocking
+
+        # --------- Run Cellmates EM inference ---------
+        em_alg = EM(n_states, evo_model=evo_model, obs_model=obs_model)
+        results = []
+        for i, (v,w) in enumerate(cell_pairs):
+            theta_init = np.array([0.25, 0.25, 0.25])
+            evo_model._expected_changes = MagicMock(return_value=(D[i], Dp[i], -1.0))
+            res_vw = em_alg._fit_quadruplet(v, w, x, theta_init=theta_init, max_iter=max_iter, rtol=rtol)
+            results.append(res_vw)
+
+        distances = -np.ones((n_cells, n_cells, 3))
+        iterations = -np.ones((n_cells, n_cells))
+        loglikelihoods = -np.ones((n_cells, n_cells))
+        # collect results
+        for (u, v), l_i, loglik, it in results:
+            distances[u, v, :] = l_i
+            iterations[(u, v)] = it
+            loglikelihoods[(u, v)] = loglik
+
+        #print(f"Expected centroid D: \n {[expected_distances[v,w, 0] for v,w in cell_pairs]}")
+        #print(f"Centroid distances: \n {[distances[v,w, 0].item() for v,w in cell_pairs]}")
+
+        L1_diff = np.zeros((n_cells, n_cells, 3))
+        for v,w in cell_pairs:
+            L1_diff[v,w,:] = abs(distances[v,w,:] - expected_distances[v,w,:])
+
+        tot_L1_diff = L1_diff.sum(axis=(0,1))
+        print(f"Total L1 diff: \n {tot_L1_diff}")
+
+        # Build tree from inferred distances
+        tree_res_nx = neighbor_joining.build_tree(distances)
+        tree_res_dp = tree_utils.convert_networkx_to_dendropy(tree_res_nx, taxon_namespace=tree_dp.taxon_namespace)
+        # Compare with standard NJ tree
+        pairwise_distances = distances[:, :, 1] + distances[:, :, 2]
+        # symmetrize
+        pairwise_distances = np.triu(pairwise_distances) + np.triu(pairwise_distances, k=1).T
+        np.fill_diagonal(pairwise_distances, 0)
+        skbio_dm = skbio.DistanceMatrix(pairwise_distances, ids=[str(i) for i in range(n_cells)])
+        tree_nj_skbio = skbio.tree.nj(skbio_dm)
+        tree_nj_skbio = tree_nj_skbio.root_at_midpoint()
+        tree_nj_dp = dendropy.Tree.get(data=str(tree_nj_skbio), schema="newick",
+                                                          taxon_namespace=tree_dp.taxon_namespace)
+        tree_utils.label_tree(tree_nj_dp, method='int')
+        tree_nj_nx = tree_utils.convert_dendropy_to_networkx(tree_nj_dp)
+
+        # Save the pairwise distance matrix
+        fig, ax = plt.subplots()
+        visual.plot_cell_pairwise_heatmap(pairwise_distances, label=np.arange(0, n_cells), ax=ax)
+        fig.savefig(out_dir + '/inferred_pairwise_distances.png')
+
+        #print(f"Inferred tree:")
+        #nx.write_network_text(tree_res_nx)
+        #print(f"True tree:")
+        #nx.write_network_text(tree_nx)
+
+        # Compare trees
+        rf_dist = treecompare.symmetric_difference(tree_dp, tree_res_dp)
+        print(f"RF dist: \n {rf_dist}")
+        rf_dist_nj = treecompare.symmetric_difference(tree_dp, tree_nj_dp)
+        print(f"RF dist_nj: \n {rf_dist_nj}")
+
+        fig, axs = plt.subplots(1, 3, figsize=(15, 10))
+        _, ax1 = visual.draw_graph(tree_nx, ax=axs[0])
+        _, ax2 = visual.draw_graph(tree_res_nx, ax=axs[1])
+        _, ax3 = visual.draw_graph(tree_nj_nx, ax=axs[2])
+        axs[0].set_title('True tree')
+        axs[1].set_title('Inferred tree')
+        axs[2].set_title('NJ tree')
+        fig.savefig(out_dir + '/true_inferred_and_NJ_tree.png')
+
+
 
     def test_cellmates_simple_tree(self):
         # Inference parameters
@@ -38,34 +153,36 @@ class CellmatesTestCase(unittest.TestCase):
         tol = 1e-4
 
         # Simulation parameters
-        n_sites = 100
-        n_cells = 7
+        n_sites = 1000
+        n_cells = 4
         n_states = 7
         n_clonal_events_per_edge = 3
         n_focal_events_per_edge = 5
-        clonal_CN_length = 10
-        obs_model = 'normal'
+        clonal_CN_length = 100
+        obs_model_sim = 'normal'
         sim_evo_model = SimulationEvoModel(n_clonal_CN_events=n_clonal_events_per_edge,
                                            n_focal_events=n_focal_events_per_edge,
                                            clonal_CN_length=clonal_CN_length)
 
         data = rand_dataset(n_sites=n_sites, n_cells=n_cells, n_states=n_states,
-                            obs_model=obs_model,
+                            obs_model=obs_model_sim,
                             evo_model=sim_evo_model)
         x = data['obs']
         cnps = data['cn']
         tree_dp = data['tree']
         tree_nx = tree_utils.convert_dendropy_to_networkx(tree_dp)
 
-        out_dir = testing.create_output_test_folder(sub_folder_name=f"Cellmates_EM_M_{n_sites}_N_{n_cells}")
+        out_dir = testing.create_output_test_folder(sub_folder_name=f"Cellmates_EM_M{n_sites}_N{n_cells}_A{n_states}")
         fig, ax = plt.subplots()
         visual.plot_cn_profile(cnps, ax=ax)
         fig.savefig(out_dir + '/cn_profile.png')
 
-        # --------- Run Cellmates EM inference ---------
+        # --------- Setup Models ---------
+        obs_model = obs_model_sim
         evo_model = JCBModel(n_states=n_states)
+        # --------- Run Cellmates EM inference ---------
         em_alg = EM(n_states, evo_model=evo_model, obs_model=obs_model)
-        em_alg.fit(x, max_iter=max_iter, tol=tol, num_processors=20)
+        em_alg.fit(x, max_iter=max_iter, tol=tol, num_processors=1)
 
         distances = em_alg.distances
         print(f"Distance matrix: \n {distances[0, ...]}")
@@ -75,6 +192,9 @@ class CellmatesTestCase(unittest.TestCase):
 
         nx.write_network_text(tree_nx)
         nx.write_network_text(tree_res_nx)
+
+
+
 
 
 
