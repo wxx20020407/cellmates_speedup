@@ -734,7 +734,7 @@ class SimulationEvoModel():
                 pass
         else:
             # Draw non-overlapping CN events
-            pass
+            raise NotImplementedError()
 
         out_dict = {
             'clonal_start_pos': clonal_start_pos,
