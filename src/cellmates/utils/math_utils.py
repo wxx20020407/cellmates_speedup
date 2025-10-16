@@ -13,7 +13,8 @@ def l_from_p(p_change, n_states=4) -> float | np.ndarray:
     -------
     float, length parameter
     """
-    return - 1 / n_states * np.log(1 - n_states / (n_states - 1) * p_change)
+    eps = 1e-10 # to avoid log(0) and log(1) = -0.
+    return - 1 / n_states * np.log(1 - n_states / (n_states - 1) * p_change + eps)
 
 def p_from_l(l, n_states=4) -> float | np.ndarray:
     """
