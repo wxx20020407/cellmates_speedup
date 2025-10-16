@@ -6,7 +6,7 @@ import numpy as np
 
 
 
-def _build_tree_rec(ctr: dict, ntc: dict, ntr: dict, otus: set, edges: set[tuple]) -> set[tuple]:
+def _build_tree_rec(ctr: dict, ntc: dict, ntr: dict, otus: set, edges: set[tuple], idx=None) -> set[tuple]:
     if len(otus) == 2:
         for c in otus:
             # add edge with length
@@ -25,7 +25,9 @@ def _build_tree_rec(ctr: dict, ntc: dict, ntr: dict, otus: set, edges: set[tuple
         ntr.pop(w)
 
         # Update distances merging vw in one OTU
+        #max_idx = np.max([key[0] for key in ctr.keys()] + [key[1] for key in ctr.keys()])
         vsw = v + '_' + w  # node with string showing merges v_w
+        vsw = str(idx) if idx is not None else vsw # node with int showing merges
         ntr[vsw] = ctr.pop(vw)  # save centroid to root as the new node-to-root distance (new OTU)
         new_otus = otus.difference({w, v})
         for c in new_otus:
@@ -52,7 +54,8 @@ def _build_tree_rec(ctr: dict, ntc: dict, ntr: dict, otus: set, edges: set[tuple
         v_edge_length = ntc.pop((v, w))
         w_edge_length = ntc.pop((w, v))
 
-        edges = _build_tree_rec(ctr, ntc, ntr, new_otus, edges)
+        idx = None if idx is None else idx + 1
+        edges = _build_tree_rec(ctr, ntc, ntr, new_otus, edges, idx)
         # find edge with merged node and add subtrees
         for x, v_, l in edges:
             if v_ == vsw:
@@ -69,7 +72,19 @@ def _build_tree_rec(ctr: dict, ntc: dict, ntr: dict, otus: set, edges: set[tuple
     return edges
 
 
-def build_tree(ctr_table: np.ndarray, edge_attr='length') -> nx.DiGraph:
+def build_tree(ctr_table: np.ndarray, edge_attr='length', internal_indexing=False) -> nx.DiGraph:
+    """
+    Builds a rooted tree using the Centroid to root distance.
+    Parameters
+    ----------
+    ctr_table
+    edge_attr
+    internal_indexing
+
+    Returns
+    -------
+
+    """
     # operational taxonomic units, OTUs, init with cells
     otus = set(map(str, range(ctr_table.shape[0])))
     # at each iteration, contains the centroid to root distance for each pair of OTUs
@@ -88,9 +103,9 @@ def build_tree(ctr_table: np.ndarray, edge_attr='length') -> nx.DiGraph:
             # init ctr distances
             ctr[vsw] = ctr_table[v, w, 0]
 
-            # compute node to root distance of v wrt w
+            # compute node to centroid distance of v wrt w
             ntc[v_str, w_str] = ctr_table[v, w, 1]
-            # compute node to root distance of w wrt v
+            # compute node to centroid distance of w wrt v
             ntc[w_str, v_str] = ctr_table[v, w, 2]
 
             # compute node to root distance of v
@@ -102,7 +117,8 @@ def build_tree(ctr_table: np.ndarray, edge_attr='length') -> nx.DiGraph:
     ntr = {str(v): ntr[str(v)] / (len(otus) - 1) for v in range(len(otus))}
 
     # build tree only using ctr distances
-    edges = _build_tree_rec(ctr, ntc, ntr, otus, set())
+    idx = len(otus) if internal_indexing else None  # index for new internal nodes
+    edges = _build_tree_rec(ctr, ntc, ntr, otus, set(), idx)
     em_tree = nx.DiGraph()
     # add edges with _lengths
     em_tree.add_weighted_edges_from(edges, weight=edge_attr)
