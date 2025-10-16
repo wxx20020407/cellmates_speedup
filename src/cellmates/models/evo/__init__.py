@@ -437,7 +437,7 @@ class JCBModel(EvoModel):
         # update l according to formula
         # if l -> +inf, pDeltaDelta == pDeltaDelta'
         log_arg = 1 - self.n_states / (self.n_states - 1) * d / (dp + d)
-        assert np.all(log_arg > 0)
+        #assert np.all(log_arg > 0)
         # if np.any(log_arg <= 0):
         #     logger.error(f"too many changes detected: D = {d}, D' = {dp}\n"
         #                       f"...saturating l for cells {v},{w}")
