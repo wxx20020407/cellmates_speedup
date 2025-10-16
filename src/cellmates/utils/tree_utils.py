@@ -3,6 +3,7 @@ from io import StringIO
 
 import dendropy
 import numpy as np
+import skbio
 from dendropy import Tree
 import networkx as nx
 import scipy.stats as ss
@@ -133,7 +134,7 @@ def label_tree(tree, method='int'):
     else:
         raise ValueError(f"Unknown method {method}")
 
-def newick_to_nx(nwk_str, edge_attr='weight'):
+def newick_to_nx(nwk_str, edge_attr='weight', interior_node_names=None) -> nx.DiGraph:
     """
     Parameters
     ----------
@@ -149,6 +150,10 @@ def newick_to_nx(nwk_str, edge_attr='weight'):
     und_tree_nx = Phylo.to_networkx(tree)
     # Phylo names add unwanted information in unstructured way
     # find node numbers and relabel nx tree
+    if interior_node_names is not None:
+        for cl in und_tree_nx.nodes:
+            if cl.name is None:
+                cl.name = interior_node_names.pop(0)
     names_string = list(str(cl.confidence) if cl.name is None else cl.name for cl in und_tree_nx.nodes)
     try:
         names = list(map(int, names_string))
@@ -206,3 +211,24 @@ if __name__ == '__main__':
     print(phylo_tree.format('newick'))
 
 
+def get_lowest_common_ancestor(tree_nx, node1, node2):
+    """
+    Get the index of the least common ancestor of two nodes in a directed tree.
+    """
+    return nx.lowest_common_ancestor(tree_nx, node1, node2)
+
+
+def convert_skbio_to_networkx(tree_nj_skbio: skbio.TreeNode, interior_node_names=None)-> nx.DiGraph:
+    """
+    Convert a skbio TreeNode to a networkx DiGraph.
+    Parameters
+    ----------
+    tree_nj_skbio
+
+    Returns tree_nx: nx.DiGraph
+    -------
+
+    """
+    newick = str(tree_nj_skbio)
+    tree_nx = newick_to_nx(newick, edge_attr='weight', interior_node_names=interior_node_names)
+    return tree_nx
