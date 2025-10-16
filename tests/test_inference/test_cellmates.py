@@ -37,7 +37,7 @@ class CellmatesTestCase(unittest.TestCase):
         rtol = 1e-4
 
         # Simulation parameters
-        n_sites = 10000
+        n_sites = 1000
         n_cells = 20
         n_states = 7
         n_clonal_events_per_edge = 5
@@ -54,7 +54,6 @@ class CellmatesTestCase(unittest.TestCase):
         cnps = data['cn']
         tree_dp = data['tree']
         tree_nx = tree_utils.convert_dendropy_to_networkx(tree_dp)
-        tree_dp.print_plot()
 
         out_dir = testing.create_output_test_folder(sub_folder_name=f"M{n_sites}_N{n_cells}_A{n_states}")
         fig, ax = plt.subplots()
@@ -65,14 +64,12 @@ class CellmatesTestCase(unittest.TestCase):
         obs_model = obs_model_sim
         evo_model = JCBModel(n_states=n_states)
         cell_pairs = list(itertools.combinations(range(n_cells), r=2))
-        n_pairs = len(cell_pairs)
-        # TODO: Make computation of D, D' a function in testing
-        D, Dp, expected_distances, expected_pairwise_distances = testing.get_expected_changes(tree_nx, n_states,
-                                                                                           cell_pairs, cnps)
+        D, Dp = testing.get_expected_changes(cnps, tree_nx, cell_pairs)
+        exp_distances, exp_pairwise_distances = testing.get_expected_distances(D, Dp, n_states, cell_pairs)
 
         fig, ax = plt.subplots()
-        visual.plot_cell_pairwise_heatmap(expected_pairwise_distances, label=np.arange(0, n_cells), ax=ax)
-        fig.savefig(out_dir + '/expected_pairwise_distances.png')
+        visual.plot_cell_pairwise_heatmap(exp_pairwise_distances, label=np.arange(0, n_cells), ax=ax)
+        fig.savefig(out_dir + '/exp_pairwise_distances.png')
 
         #evo_model.new = MagicMock(return_value=evo_model)  # bypass new model creation to enable mocking
 
@@ -81,7 +78,7 @@ class CellmatesTestCase(unittest.TestCase):
         results = []
         for i, (v,w) in enumerate(cell_pairs):
             theta_init = np.array([0.25, 0.25, 0.25])
-            evo_model._expected_changes = MagicMock(return_value=(D[i], Dp[i], -1.0))
+            evo_model._expected_changes = MagicMock(return_value=(D[v,w], Dp[v,w], -1.0))
             res_vw = em_alg._fit_quadruplet(v, w, x, theta_init=theta_init, max_iter=max_iter, rtol=rtol)
             results.append(res_vw)
 
@@ -94,12 +91,9 @@ class CellmatesTestCase(unittest.TestCase):
             iterations[(u, v)] = it
             loglikelihoods[(u, v)] = loglik
 
-        #print(f"Expected centroid D: \n {[expected_distances[v,w, 0] for v,w in cell_pairs]}")
-        #print(f"Centroid distances: \n {[distances[v,w, 0].item() for v,w in cell_pairs]}")
-
         L1_diff = np.zeros((n_cells, n_cells, 3))
         for v,w in cell_pairs:
-            L1_diff[v,w,:] = abs(distances[v,w,:] - expected_distances[v,w,:])
+            L1_diff[v,w,:] = abs(distances[v,w,:] - exp_distances[v, w, :])
 
         tot_L1_diff = L1_diff.sum(axis=(0,1))
         print(f"Total L1 diff: \n {tot_L1_diff}")
