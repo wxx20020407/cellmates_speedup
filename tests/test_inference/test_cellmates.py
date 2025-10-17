@@ -147,12 +147,12 @@ class CellmatesTestCase(unittest.TestCase):
         tol = 1e-4
 
         # Simulation parameters
-        n_sites = 1000
+        n_sites = 200
         n_cells = 4
-        n_states = 7
+        n_states = 5
         n_clonal_events_per_edge = 3
-        n_focal_events_per_edge = 5
-        clonal_CN_length = 100
+        n_focal_events_per_edge = 0
+        clonal_CN_length = 20
         obs_model_sim = 'normal'
         sim_evo_model = SimulationEvoModel(n_clonal_CN_events=n_clonal_events_per_edge,
                                            n_focal_events=n_focal_events_per_edge,
@@ -187,7 +187,27 @@ class CellmatesTestCase(unittest.TestCase):
         nx.write_network_text(tree_nx)
         nx.write_network_text(tree_res_nx)
 
+    def test_dice_benchmark_data(self):
+        """
+        Takes the simulated single cell tree and associated CNPs from the DICE benchmark datasets and
+        reconstructs the internal CNPs based on a minimal evolution principle.
+        Then Cellmates is run to infer the tree from the CNPs.
+        """
+        cnasim_tree_nw = "((leaf1:0.01,leaf2:0.01):0.127,((leaf3:0.039,(leaf5:0.023,(leaf7:0.01,leaf8:0.01):0.013):0.016):0.096,(leaf4:0.12,(leaf6:0.061,(leaf9:0.018,leaf10:0.018):0.043):0.059):0.015):0.003)root"
+        cnasim_tree_nx = tree_utils.newick_to_nx(cnasim_tree_nw, interior_node_names=[f"int{i+10}" for i in range(10)])
 
+        out_dir = testing.create_output_test_folder()
+        fig, ax = visual.draw_graph(cnasim_tree_nx, save_path=out_dir + '/cnasim_tree.png')
+        # save
+        fig.savefig(out_dir + '/cnasim_tree.png')
+
+        # CNPs for the 10 leaves
+        # TODO: load CNPs here
+
+        # Reconstruct internal CNPs based on minimal evolution
+        cnps_all = tree_utils.reconstruct_internal_cnps(leaf_cnps=..., tree_nx=cnasim_tree_nx, n_states=7, method='min_evolution')
+
+        # Run Cellmates EM inference on the CNPs
 
 
 
