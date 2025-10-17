@@ -25,7 +25,6 @@ def _build_tree_rec(ctr: dict, ntc: dict, ntr: dict, otus: set, edges: set[tuple
         ntr.pop(w)
 
         # Update distances merging vw in one OTU
-        #max_idx = np.max([key[0] for key in ctr.keys()] + [key[1] for key in ctr.keys()])
         vsw = v + '_' + w  # node with string showing merges v_w
         vsw = str(idx) if idx is not None else vsw # node with int showing merges
         ntr[vsw] = ctr.pop(vw)  # save centroid to root as the new node-to-root distance (new OTU)
