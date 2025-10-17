@@ -60,7 +60,7 @@ def convert_networkx_to_dendropy(nx_tree, labels_mapping: dict = None,
 
     return dendropy_tree
 
-def convert_dendropy_to_networkx(dendropy_tree: dendropy.Tree, edge_attr='weight') -> nx.DiGraph:
+def convert_dendropy_to_networkx(dendropy_tree: dpy.Tree, edge_attr='weight') -> nx.DiGraph:
     """
     Converts a DendroPy tree to a NetworkX tree through newick string.
 
@@ -75,7 +75,7 @@ def convert_dendropy_to_networkx(dendropy_tree: dendropy.Tree, edge_attr='weight
     return nx_tree
 
 
-def random_binary_tree(n: int, length_mean: float, seed=None)-> dendropy.Tree:
+def random_binary_tree(n: int, length_mean: float, seed=None)-> dpy.Tree:
     """
     Generate a random binary tree with n leaves using Dendropy.
     ref: https://dendropy.org/primer/treesims.html

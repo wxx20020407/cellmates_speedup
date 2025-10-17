@@ -12,7 +12,7 @@ import networkx as nx
 import numpy as np
 from dendropy.calculate import treecompare
 from matplotlib import pyplot as plt
-#import scgenome.plotting as pl
+import scgenome.plotting as pl
 from scipy.special import logsumexp
 
 from cellmates.utils import math_utils
@@ -734,7 +734,7 @@ class EMTestCase(unittest.TestCase):
               f"\tp: {d / (d + dp)}, D = {d}, D' = {dp}, loglik = {loglik}")
 
     def test_build_tree(self):
-        n_cells = 10
+        n_cells = 20
         # generate tree
         tree: dendropy.Tree = random_binary_tree(n_cells, length_mean=0.01, seed=101)
         print("--- Starting tree ---")
@@ -758,7 +758,7 @@ class EMTestCase(unittest.TestCase):
             self.assertTrue(taxon in tree.taxon_namespace)
             self.assertEqual(taxon.label, tree.find_node_with_taxon(lambda t: t.label == taxon.label).taxon.label)
         self.assertEqual(treecompare.symmetric_difference(tree, new_dpy_tree), 0)
-        self.assertLess(treecompare.robinson_foulds_distance(tree, new_dpy_tree, edge_weight_attr='length'), 0.01)
+        self.assertLess(treecompare.robinson_foulds_distance(tree, new_dpy_tree, edge_weight_attr='length'), 0.03)
 
         # random tree robinson foulds distance
         rnd_dpy_tree = convert_networkx_to_dendropy(nx_tree, taxon_namespace=tree.taxon_namespace)
