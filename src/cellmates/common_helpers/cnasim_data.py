@@ -6,6 +6,7 @@ import logging
 import os
 import ast
 from pathlib import Path
+import re
 
 import networkx as nx
 import numpy as np
@@ -100,6 +101,35 @@ def read_cell_types(cnasim_data_path: str) -> (np.ndarray, pd.DataFrame):
         cell_assignment[cell_id] = clone_id_map[row['clone']]
 
     return cell_assignment, cell_types
+
+def profiles_to_anndata(profiles_path: str) -> anndata.AnnData:
+    """
+    Convert CNAsim profiles.tsv as in the benchmark files into anndata object
+    profiles.tsv format:
+    CELL	chrom	start	end	CN states
+    leaf1    chr_1    0	1000000	1,1
+    // or
+    cell1    chr1    0 ...
+    """
+    # read profiles.tsv file and make anndata with obs_names and var_names
+    profiles_df = pd.read_csv(profiles_path, delimiter='\t', header=0)
+    # mutate copy number
+    profiles_df['cn'] = profiles_df['CN states'].transform(lambda x: sum(list(map(int, x.split(',')))))
+    # to wide format
+    wide_cn_df = pd.pivot_table(profiles_df, index=['chrom', 'start', 'end'], values='cn', columns='CELL',
+                                sort=False)  # already sorted by cell number
+    # extract cell columns
+    cell_names = wide_cn_df.columns.tolist()
+    cn_profiles = wide_cn_df[cell_names].transpose().to_numpy()
+    adata = anndata.AnnData(cn_profiles)
+    adata.obs_names = cell_names
+    adata.var_names = wide_cn_df.index.map(lambda x: f"{x[0]}:{x[1]}-{x[2]}")
+    # prefix can be 'chr' or 'chr_' and chromosome names can be '1', ... '22', 'X', 'Y'
+    pattern = re.compile(r'^chr[_]?([0-9]+|X|Y)$')
+    adata.var['chr'] = wide_cn_df.index.map(lambda x: re.findall(pattern, x[0]).pop())
+    adata.var['start'] = wide_cn_df.index.map(lambda x: x[1])
+    adata.var['end'] = wide_cn_df.index.map(lambda x: x[2])
+    return adata
 
 def read_cn_profiles(adata: anndata.AnnData, cnasim_data_path: str, n_cells: int, inplace=True) -> np.ndarray:
     """
