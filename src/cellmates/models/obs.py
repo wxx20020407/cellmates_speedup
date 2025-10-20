@@ -261,9 +261,6 @@ class NormalModel(ObsModel):
         return tau
 
     def update_params(self, mu_v, tau_v, mu_w, tau_w):
-        """
-        TODO: Add incremental EM step for smoother optimization.
-        """
         self.mu_v = mu_v
         self.tau_v = tau_v
         self.mu_w = mu_w
