@@ -339,6 +339,48 @@ class PoissonModel(ObsModel):
 
         return log_emissions
 
+    def update(self, obs_vw, conditionals_vw, **kwargs):
+        """
+        Runs the model M-step and updates the model parameters.
+        """
+        out_M_step = self.M_step(obs_vw, conditionals_vw, **kwargs)
+        lambda_v, lambda_w = out_M_step['lambda_v'], out_M_step['lambda_w']
+        self.update_params(lambda_v, lambda_w)
+
+    def M_step(self, obs_vw, conditionals_vw, **kwargs):
+        """
+        M-step to update model parameters given observations and conditional probabilities of the copy number states.
+        Follows the eq:
+        lambda_v = (sum_m sum_i p(C_m^v = i | y_m^{vw}) * y_m^v) / (sum_m sum_i p(C_m^v = i | y_m^{vw}) * i)
+        Parameters
+        ----------
+        obs_vw, array of shape (n_sites, 2) with observations for pair of leaves
+        posteriors_vw, array of shape (n_sites, n_states, n_states) with posterior probabilities of copy number states
+        kwargs, additional parameters depending on the model
+        Returns
+        -------
+        None
+        """
+        # update lambda_v, lambda_w
+        y_v = obs_vw[:, 0]
+        y_w = obs_vw[:, 1]
+        gamma_v = conditionals_vw[0]
+        gamma_w = conditionals_vw[1]
+        cn_states = np.arange(self.n_states)
+        lambda_v = self.lambda_update(gamma_v, y_v, cn_states)
+        lambda_w = self.lambda_update(gamma_w, y_w, cn_states)
+        return {'lambda_v': lambda_v, 'lambda_w': lambda_w}
+
+    def lambda_update(self, gamma, obs, cn_states):
+        lambda_num = np.einsum('mj, m ->', gamma, obs)
+        lambda_den = np.einsum('mj, j ->', gamma, cn_states)
+        lambda_ = lambda_num / lambda_den
+        return lambda_
+
+    def update_params(self, lambda_v, lambda_w):
+        self.lambda_v_prior = lambda_v
+        self.lambda_w_prior = lambda_w
+
 class UrnModel(ObsModel):
 
     def __init__(self, n_states: int, **kwargs):
