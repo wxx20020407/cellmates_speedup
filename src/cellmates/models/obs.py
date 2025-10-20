@@ -281,12 +281,13 @@ class PoissonModel(ObsModel):
         lambda_v_prior : float, Poisson parameter for the read counts r_v
         lambda_w_prior : float, Poisson parameter for the read counts r_w (default: lambda_v_prior)
         """
+        self.lambda_v = None
+        self.lambda_w = None
+        # Priors for EM for Maximum a posteriori estimation
         self.lambda_v_prior = lambda_v_prior
         self.lambda_w_prior = lambda_w_prior if lambda_w_prior is not None else lambda_v_prior
         self.true_lambda_v = None
         self.true_lambda_w = None
-        self.r_v = None
-        self.r_w = None
         self.M = None
         super().__init__(n_states, **kwargs)
 
@@ -378,8 +379,17 @@ class PoissonModel(ObsModel):
         return lambda_
 
     def update_params(self, lambda_v, lambda_w):
-        self.lambda_v_prior = lambda_v
-        self.lambda_w_prior = lambda_w
+        self.lambda_v = lambda_v
+        self.lambda_w = lambda_w
+
+    def initialize(self, psi_init):
+        if psi_init is not None:
+            self.lambda_v = psi_init['lambda_v']
+            self.lambda_w = psi_init['lambda_w']
+        else:
+            self.lambda_v = self.lambda_v_prior
+            self.lambda_w = self.lambda_w_prior
+        
 
 class UrnModel(ObsModel):
 
