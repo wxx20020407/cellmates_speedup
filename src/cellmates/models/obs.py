@@ -10,6 +10,7 @@ class ObsModel(ABC):
 
     def __init__(self, n_states: int, **kwargs):
         self.n_states = n_states
+        self.psi = {}   # model parameters
 
     @abstractmethod
     def sample(self, cnp, **kwargs):
@@ -113,6 +114,7 @@ class NormalModel(ObsModel):
     """
 
     def __init__(self, n_states: int, mu_v_prior=1., mu_w_prior=None, tau_v_prior=50., tau_w_prior=None, M=200, **kwargs):
+        super().__init__(n_states, **kwargs)
         self.M = M
         # Model Parameters
         self.mu_v = None
@@ -124,7 +126,7 @@ class NormalModel(ObsModel):
         self.mu_w_prior = mu_w_prior if mu_w_prior is not None else mu_v_prior
         self.tau_v_prior = tau_v_prior
         self.tau_w_prior = tau_w_prior if tau_w_prior is not None else tau_v_prior
-        super().__init__(n_states, **kwargs)
+        self.update_params(self.mu_v_prior, self.tau_v_prior, self.mu_w_prior, self.tau_w_prior)
 
     def initialize(self, psi_init):
         if psi_init is not None:
@@ -133,6 +135,8 @@ class NormalModel(ObsModel):
         else:
             self.mu_v, self.tau_v = self.mu_v_prior, self.tau_v_prior
             self.mu_w, self.tau_w = self.mu_w_prior, self.tau_w_prior
+        self.psi = {'mu_v': self.mu_v, 'tau_v': self.tau_v,
+                           'mu_w': self.mu_w, 'tau_w': self.tau_w}
 
     def sample(self, cnp: np.ndarray, mu_tau_params: np.ndarray = None, **kwargs):
         """
@@ -265,6 +269,8 @@ class NormalModel(ObsModel):
         self.tau_v = tau_v
         self.mu_w = mu_w
         self.tau_w = tau_w
+        self.psi = {'mu_v': self.mu_v, 'tau_v': self.tau_v,
+                           'mu_w': self.mu_w, 'tau_w': self.tau_w}
 
 
 class PoissonModel(ObsModel):
@@ -281,6 +287,7 @@ class PoissonModel(ObsModel):
         lambda_v_prior : float, Poisson parameter for the read counts r_v
         lambda_w_prior : float, Poisson parameter for the read counts r_w (default: lambda_v_prior)
         """
+        super().__init__(n_states, **kwargs)
         self.lambda_v = None
         self.lambda_w = None
         # Priors for EM for Maximum a posteriori estimation
@@ -289,7 +296,7 @@ class PoissonModel(ObsModel):
         self.true_lambda_v = None
         self.true_lambda_w = None
         self.M = None
-        super().__init__(n_states, **kwargs)
+        self.update_params(self.lambda_v_prior, self.lambda_w_prior)
 
     def sample(self, cnp: np.ndarray, lambda_: np.ndarray | float = None, **kwargs):
         """
@@ -381,6 +388,7 @@ class PoissonModel(ObsModel):
     def update_params(self, lambda_v, lambda_w):
         self.lambda_v = lambda_v
         self.lambda_w = lambda_w
+        self.psi = {'lambda_v': self.lambda_v, 'lambda_w': self.lambda_w}
 
     def initialize(self, psi_init):
         if psi_init is not None:
@@ -389,7 +397,8 @@ class PoissonModel(ObsModel):
         else:
             self.lambda_v = self.lambda_v_prior
             self.lambda_w = self.lambda_w_prior
-        
+        self.psi = {'lambda_v': self.lambda_v, 'lambda_w': self.lambda_w}
+
 
 class UrnModel(ObsModel):
 

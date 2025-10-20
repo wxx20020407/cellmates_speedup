@@ -204,12 +204,13 @@ class EM:
         self.fit(X)
         return self._distances
 
-    def compute_pair_likelihood(self, obs_vw, theta: np.ndarray = None):
+    def compute_pair_likelihood(self, obs_vw, theta: np.ndarray = None, psi: dict = None) -> float:
         """
         Compute the log likelihood of the observations given the model parameters.
         """
         # run forward algorithm
-        _, _, loglik, _ = self._fit_quadruplet(0, 1, obs_vw, theta, max_iter=0, rtol=0)
+        psi = self.obs_model.psi if psi is None else psi
+        _, _, loglik, _ = self._fit_quadruplet(0, 1, obs_vw, theta, psi, max_iter=0, rtol=0)
         return loglik
 
     @property

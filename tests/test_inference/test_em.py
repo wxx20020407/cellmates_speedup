@@ -15,7 +15,7 @@ from matplotlib import pyplot as plt
 #import scgenome.plotting as pl
 from scipy.special import logsumexp
 
-from cellmates.utils import math_utils
+from cellmates.utils import math_utils, testing
 from cellmates.utils.visual import plot_cn_profile, plot_cell_pairwise_heatmap
 from cellmates.models.evo import p_delta_change, CopyTree, JCBModel
 from cellmates.models.obs import NormalModel, PoissonModel
@@ -380,7 +380,7 @@ class EMTestCase(unittest.TestCase):
         comp_eps = compute_cn_changes(data['cn'], [(3, 2), (2, 0), (2, 1)])
         comp_lengths = l_from_p(np.array(comp_eps)/n_sites, n_states)
         print(f"Est (CN) edge _lengths: {comp_lengths}")
-        ll_cn = em.compute_pair_likelihood(data['obs'], theta=np.array(comp_eps) / n_sites)
+        ll_cn = em.compute_pair_likelihood(data['obs'], theta=np.array(comp_eps) / n_sites, psi=obs_model.psi)
         print(f"Est (CN) edge _lengths likelihood: {ll_cn}")
         # self.assertGreater(ll_cn, ll_true, msg="Generated lengths fit better than actual CN changes")
         self.assertGreater(ll_est, ll_cn, msg="EM estimates fit better than generated but not than actual CN changes")
@@ -462,7 +462,7 @@ class EMTestCase(unittest.TestCase):
         comp_eps = compute_cn_changes(data['cn'], [(3, 2), (2, 0), (2, 1)])
         comp_lengths = l_from_p(np.array(comp_eps)/n_sites, n_states)
         print(f"Est (CN) edge _lengths: {comp_lengths}")
-        ll_cn = em.compute_pair_likelihood(data['obs'], theta=np.array(comp_eps) / n_sites)
+        ll_cn = em.compute_pair_likelihood(data['obs'], theta=np.array(comp_eps) / n_sites, psi=obs_model.psi)
         print(f"Est (CN) edge _lengths likelihood: {ll_cn}")
         # self.assertGreater(ll_cn, ll_true, msg="Generated lengths fit better than actual CN changes")
         self.assertGreater(ll_est, ll_cn, msg="EM estimates fit better than generated but not than actual CN changes")
@@ -522,7 +522,7 @@ class EMTestCase(unittest.TestCase):
         comp_lengths = l_from_p(np.array(comp_eps)/n_sites, n_states)
         print(f"Est (CN) edge _lengths: {comp_lengths}")
         em = EM(n_states=n_states, obs_model='poisson', evo_model=JCBModel(n_states))
-        ll_cn = em.compute_pair_likelihood(data['obs'], theta=np.array(comp_eps) / n_sites)
+        ll_cn = em.compute_pair_likelihood(data['obs'], theta=np.array(comp_eps) / n_sites, psi=obs_model.psi)
         print(f"Est (CN) edge _lengths likelihood: {ll_cn}")
         self.assertGreater(ll_cn, ll_true, msg="Generated lengths fit better than actual CN changes")
         self.assertGreater(ll_est, ll_cn, msg="EM estimates fit better than generated but not than actual CN changes")

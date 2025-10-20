@@ -61,3 +61,7 @@ def get_expected_distances(D: np.ndarray, Dp:np.ndarray, n_states, cell_pairs=No
         expected_pairwise_distances[v, w] = D_uv + D_uw
 
     return expected_distances, expected_pairwise_distances
+
+
+def get_expected_psi(param, obs_model):
+    return
