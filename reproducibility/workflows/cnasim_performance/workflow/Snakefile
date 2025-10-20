@@ -12,6 +12,7 @@ E1_LIST = config["boundary_noise"]
 E2_LIST = config["jitter"]
 N_REPLICATES = config["n_replicates"]
 NORMAL_FRACTION = config["normal_fraction"]
+N_STATES = config["n_states"]
 BIN_LENGTH = 1000000  # 1Mb bins
 CN_LENGTH_MEAN = 10000000  # 10Mb average CNA length
 SOURCE_PATH = "../../../src"
@@ -27,7 +28,7 @@ wildcard_constraints:
     n_chrom=r"\d+"
 
 rule all:
-    input: 'results/stats.csv', 'results/plots.pdf'
+    input: 'results/stats.csv', 'results/analysis_notebook.ipynb'
 
 # simulate data with cnasim
 rule simulate:
@@ -51,7 +52,7 @@ rule simulate:
         out_dir=subpath(output.counts, parent=True)
     shell: """
     cnasim -m 1 --use-uniform-coverage -n {params.n_cells} -c {params.n_clones} -E1 {params.e1} -E2 {params.e2} \
-     -o {params.out_dir} -N {params.n_chrom} -L {params.chrom_length} -n1 {params.normal_frac} -B {BIN_LENGTH} --cn-length-mean {CN_LENGTH_MEAN} --cn-copy-param 0.8
+    -p1 {params.lamda} -o {params.out_dir} -N {params.n_chrom} -L {params.chrom_length} -n1 {params.normal_frac} -B {BIN_LENGTH} --cn-length-mean {CN_LENGTH_MEAN} --cn-copy-param 0.8
     """
 
 rule prepare_anndata:
@@ -70,21 +71,27 @@ rule run_cellmates:
     input: os.path.join("results/data", "R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_E1{e1}_E2{e2}_C{n_chrom}", "input.h5ad")
     output:
         cm_dist=os.path.join("results/data", "R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_E1{e1}_E2{e2}_C{n_chrom}", "cm_out", "distance_matrix.npy"),
-        cm_tree=os.path.join("results/data", "R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_E1{e1}_E2{e2}_C{n_chrom}", "cm_out", "tree.nwk")
+        cm_tree=os.path.join("results/data", "R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_E1{e1}_E2{e2}_C{n_chrom}", "cm_out", "tree.nwk"),
+        cm_cells=os.path.join("results/data", "R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_E1{e1}_E2{e2}_C{n_chrom}", "cm_out", "cell_names.txt")
     params:
         directory=subpath(output.cm_dist, parent=True)
     conda: "cellmates"
+    threads: 4
     shell: """
-    cellmates -i {input} -o {params.directory} -v 2
+    cellmates -i {input} -o {params.directory} -v 2 --n-states {N_STATES} --num-processors {threads}
     """
 
 rule evaluate:
     input:
         truth_ad=os.path.join("results/data", "R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_E1{e1}_E2{e2}_C{n_chrom}", "input.h5ad"),
         cm_dist=os.path.join("results/data", "R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_E1{e1}_E2{e2}_C{n_chrom}", "cm_out", "distance_matrix.npy"),
-        cm_tree=os.path.join("results/data", "R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_E1{e1}_E2{e2}_C{n_chrom}", "cm_out", "tree.nwk")
+        cm_tree=os.path.join("results/data", "R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_E1{e1}_E2{e2}_C{n_chrom}", "cm_out", "tree.nwk"),
+        cm_cells=os.path.join("results/data", "R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_E1{e1}_E2{e2}_C{n_chrom}", "cm_out", "cell_names.txt")
     output: os.path.join("results/data", "R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_E1{e1}_E2{e2}_C{n_chrom}", "eval_tmp.csv")
-    conda: "envs/base.yml"
+    params:
+        n_states=N_STATES,
+        seed=lambda wc: int(wc.replicate)
+    conda: "cellmates"
     script: "scripts/evaluate_results.py"
 
 rule combine_results:
@@ -109,8 +116,9 @@ rule combine_results:
 #     # conda: "cellmates"
 #     script: "scripts/plot_input.R"
 
-rule plot_results:
+rule analysis_notebook:
     input: "results/stats.csv"
-    output: "results/plots.pdf"
-    conda: "envs/base.yml"
-    script: "scripts/plot_results.py"
+    conda: "cellmates"
+    log: "results/analysis_notebook.ipynb"
+    notebook: "notebooks/plots.py.ipynb"
+

@@ -8,8 +8,8 @@ from dendropy.calculate import treecompare
 
 from cellmates.inference.em import jcb_em_alg
 from cellmates.inference.neighbor_joining import build_tree
-from cellmates.simulation.datagen import rand_dataset, get_ctr_table
-from cellmates.utils.tree_utils import convert_networkx_to_dendropy
+from cellmates.simulation.datagen import rand_dataset
+from cellmates.utils.tree_utils import convert_networkx_to_dendropy, get_ctr_table
 
 if __name__=='__main__':
     logging.basicConfig(level=logging.DEBUG)

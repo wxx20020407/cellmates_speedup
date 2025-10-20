@@ -1,7 +1,6 @@
 import logging
 import random
 
-import dendropy
 import dendropy as dpy
 import networkx as nx
 import numpy as np
@@ -11,7 +10,6 @@ from cellmates.models.evo.basefunc import get_zipping_mask, get_zipping_mask0, p
     p_delta_start_prob, h_eps, h_eps0
 
 from cellmates.models.obs import ObsModel, PoissonModel
-from cellmates.utils import tree_utils
 from cellmates.utils.tree_utils import label_tree
 
 
@@ -27,6 +25,7 @@ class EvoModel:
         self.focal_rate = kwargs.get('focal_rate', 0.)
         self.event_length_ratio = kwargs.get('event_length_ratio', 0.2)
         self.chromosome_ends = kwargs.get('chromosome_ends', []) # list of chromosome end positions (0-indexed) excluding last position
+        self.debug = kwargs.get('debug', False)
 
     @property
     def theta(self):
@@ -214,6 +213,8 @@ class EvoModel:
                  beta_probs[(np.arange(1, beta_probs.shape[0]), ...) + (np.newaxis,) * 3]
         log_xi -= np.expand_dims(sp.logsumexp(log_xi, axis=tuple(range(1, 7))), axis=tuple(range(1, 7)))
 
+        if self.debug:
+            assert np.allclose(sp.logsumexp(log_xi, axis=(1, 2, 3, 4, 5, 6)), np.zeros(n_sites - 1))
         return log_xi
 
     def backward_pass(self, obs_vw, log_emissions, normalization=True) -> np.ndarray:
@@ -649,10 +650,10 @@ class SimulationEvoModel():
         self.clonal_CN_events_end_pos = {}
         self.focal_CN_events_end_pos = {}
 
-    def simulate_cn(self, tree: dendropy.Tree, n_sites, chr_idxs=None)-> np.ndarray:
+    def simulate_cn(self, tree: dpy.Tree, n_sites, chr_idxs=None)-> np.ndarray:
         self.n_sites = n_sites
         self.chr_idxs = chr_idxs
-        nx_tree = tree_utils.convert_dendropy_to_networkx(tree)
+        nx_tree = convert_dendropy_to_networkx(tree)
         n_nodes = len(tree.nodes())
         root_idx = list(filter(lambda p: p[1] == 0, nx_tree.in_degree()))
 

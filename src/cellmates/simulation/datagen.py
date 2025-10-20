@@ -2,7 +2,6 @@
 Synthetic data generation functions.
 """
 import logging
-from itertools import combinations
 from typing import TypedDict
 
 import numpy as np
@@ -16,7 +15,8 @@ from cellmates.models.evo import EvoModel, CopyTree, JCBModel, SimulationEvoMode
 from cellmates.models.obs import ObsModel, NormalModel, PoissonModel
 from cellmates.utils import tree_utils
 from cellmates.utils.math_utils import l_from_p, p_from_l
-from cellmates.utils.tree_utils import random_binary_tree, get_node2node_distance, label_tree
+from cellmates.utils.tree_utils import random_binary_tree, label_tree, get_root_distance, \
+    get_ctr_table
 
 
 class Dataset(TypedDict):
@@ -100,46 +100,6 @@ def emit_normalized_obs(cn_seq, mu=1.0, scale=1.0):
 
 def emit_raw_obs(cn_seq, lam=100.):
     return ss.poisson.rvs(mu=np.clip(cn_seq, a_min=.01, a_max=None) * lam, size=len(cn_seq))
-
-
-def get_root_distance(centroid):
-    root_distance = 0
-    while centroid.parent_node is not None:
-        root_distance += centroid.edge_length
-        centroid = centroid.parent_node
-    return root_distance
-
-
-def get_ctr_table(tree: dpy.Tree) -> np.ndarray:
-    """
-    Get the centroid table for a given tree.
-    The centroid table is a 3D numpy array of shape (n_cells, n_cells, 3) where n_cells is the number of leaves in the tree.
-    For each pair of cells (r, s) with r < s, the entry ctr_table[r, s] is a vector of 3 values:
-        - ctr_table[r, s, 0]: distance from the centroid of r and s to the root
-        - ctr_table[r, s, 1]: distance from the centroid of r and s to r
-        - ctr_table[r, s, 2]: distance from the centroid of r and s to s
-    The entries for r >= s are set to -1.
-    The tree must be rooted and all leaves must be labeled with unique integers from 0 to n_cells - 1.
-    Parameters
-    ----------
-    tree: dpy.Tree, the input tree with edge _lengths
-
-    Returns
-    -------
-    ctr_table: np.ndarray, the centroid table
-    """
-    n_cells = len(tree.leaf_nodes())
-    assert n_cells == len(tree.taxon_namespace)
-    ctr_table = - np.ones((n_cells, n_cells, 3))
-    for r, s in combinations(range(n_cells), 2):
-        assert r < s, "r must be less than s to ensure upper triangular matrix"
-        # most recent common ancestor
-        centroid = tree.mrca(taxon_labels=[str(r), str(s)])
-        ctr_table[r, s, 0] = get_root_distance(centroid)
-        ctr_table[r, s, 1] = get_node2node_distance(tree, centroid.label, str(r))
-        ctr_table[r, s, 2] = get_node2node_distance(tree, centroid.label, str(s))
-
-    return ctr_table
 
 
 def _get_full_distance_matrix_from_tree(tree_dpy, matrix_idx: int = 0):

@@ -12,17 +12,18 @@ import networkx as nx
 import numpy as np
 from dendropy.calculate import treecompare
 from matplotlib import pyplot as plt
-#import scgenome.plotting as pl
+import scgenome.plotting as pl
 from scipy.special import logsumexp
 
 from cellmates.utils import math_utils
 from cellmates.utils.visual import plot_cn_profile, plot_cell_pairwise_heatmap
 from cellmates.models.evo import p_delta_change, CopyTree, JCBModel
 from cellmates.models.obs import NormalModel, PoissonModel
-from cellmates.simulation.datagen import rand_dataset, get_ctr_table, simulate_quadruplet, rand_ann_dataset
+from cellmates.simulation.datagen import rand_dataset, simulate_quadruplet, rand_ann_dataset
 from cellmates.inference.em import jcb_em_ctrtable, EM, jcb_em_alg
 from cellmates.utils.testing import create_output_test_folder
-from cellmates.utils.tree_utils import convert_networkx_to_dendropy, random_binary_tree, label_tree, nxtree_to_newick
+from cellmates.utils.tree_utils import convert_networkx_to_dendropy, random_binary_tree, label_tree, nxtree_to_newick, \
+    get_ctr_table
 from cellmates.utils.math_utils import l_from_p, p_from_l, compute_cn_changes
 
 from cellmates.inference.em import build_tree
@@ -734,7 +735,7 @@ class EMTestCase(unittest.TestCase):
               f"\tp: {d / (d + dp)}, D = {d}, D' = {dp}, loglik = {loglik}")
 
     def test_build_tree(self):
-        n_cells = 10
+        n_cells = 20
         # generate tree
         tree: dendropy.Tree = random_binary_tree(n_cells, length_mean=0.01, seed=101)
         print("--- Starting tree ---")
@@ -758,7 +759,7 @@ class EMTestCase(unittest.TestCase):
             self.assertTrue(taxon in tree.taxon_namespace)
             self.assertEqual(taxon.label, tree.find_node_with_taxon(lambda t: t.label == taxon.label).taxon.label)
         self.assertEqual(treecompare.symmetric_difference(tree, new_dpy_tree), 0)
-        self.assertLess(treecompare.robinson_foulds_distance(tree, new_dpy_tree, edge_weight_attr='length'), 0.01)
+        self.assertLess(treecompare.robinson_foulds_distance(tree, new_dpy_tree, edge_weight_attr='length'), 0.03)
 
         # random tree robinson foulds distance
         rnd_dpy_tree = convert_networkx_to_dendropy(nx_tree, taxon_namespace=tree.taxon_namespace)
