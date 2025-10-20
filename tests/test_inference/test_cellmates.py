@@ -1,13 +1,18 @@
 import io
 import itertools
 import logging
+import os
 import random
 import unittest
 from unittest.mock import MagicMock
 
+import anndata
+import pandas as pd
 import skbio
+from Bio import Phylo
 from dendropy.calculate import treecompare
 
+from cellmates.common_helpers import cnasim_data
 from cellmates.inference import neighbor_joining
 from cellmates.inference.em import EM
 from cellmates.utils import tree_utils, testing, visual, math_utils
@@ -187,12 +192,48 @@ class CellmatesTestCase(unittest.TestCase):
         nx.write_network_text(tree_nx)
         nx.write_network_text(tree_res_nx)
 
+    def test_dice_benchmark_PoC_data(self):
+
+        cnasim_tree_nw = "((leaf1:0.01,leaf2:0.01):0.127,((leaf3:0.039,(leaf5:0.023,(leaf7:0.01,leaf8:0.01):0.013):0.016):0.096,(leaf4:0.12,(leaf6:0.061,(leaf9:0.018,leaf10:0.018):0.043):0.059):0.015):0.003)root"
+        cnasim_tree_nx = tree_utils.newick_to_nx(cnasim_tree_nw, interior_node_names=[f"int{i+10}" for i in range(10)])
+
+        # CNPs
+        adata = anndata.read_h5ad("../../data/DICE_benchmarks/cnasim_benchmark_A1_0_1.h5ad")
+        cnps = adata.X
+        out_dir = testing.create_output_test_folder()
+        fig, ax = visual.draw_graph(cnasim_tree_nx, save_path=out_dir + '/cnasim_tree.png')
+        # save
+        fig.savefig(out_dir + '/cnasim_tree.png')
+        fig, ax = visual.plot_cn_profile(cnps, ax=ax)
+        fig.savefig(out_dir + '/cnasim_cn_profile.png')
+
+        # Reconstruct internal CNPs based on minimal evolution
+        cnps_all = tree_utils.reconstruct_internal_cnps(leaf_cnps=..., tree_nx=cnasim_tree_nx, n_states=7, method='min_evolution')
+
+        # Run Cellmates EM inference on the CNPs
+
     def test_dice_benchmark_data(self):
         """
         Takes the simulated single cell tree and associated CNPs from the DICE benchmark datasets and
         reconstructs the internal CNPs based on a minimal evolution principle.
         Then Cellmates is run to infer the tree from the CNPs.
         """
+
+        # Load the DICE benchmark dataset
+        path_to_datasets = "/Users/haraldme/git/Lagergren Lab/CopyTree/Cellmates/Cellmates/data/DICE_benchmarks/CNAsim"
+        dataset_name = 'A1_0/17'
+        n_cells = 10
+        data_path = os.path.join(path_to_datasets, dataset_name)
+        path_to_cnps = os.path.join(data_path, 'profiles.tsv')
+        path_to_tree = os.path.join(data_path, 'tree.nw')
+        profiles_df = pd.read_csv(path_to_cnps, delimiter='\t', header=0)
+        wide_cn_df = pd.pivot_table(profiles_df, index=['chrom', 'start', 'end'], values='cn', columns='CELL',
+                                    sort=False)  # already sorted by cell number
+        # extract cell columns sorted by cell number
+        cells = [f'cell{i + 1}' for i in range(n_cells)]
+        cn_profiles = wide_cn_df[cells].transpose().to_numpy()
+        tree_ = Phylo.read(io.StringIO(path_to_tree, 'newick'))
+
         cnasim_tree_nw = "((leaf1:0.01,leaf2:0.01):0.127,((leaf3:0.039,(leaf5:0.023,(leaf7:0.01,leaf8:0.01):0.013):0.016):0.096,(leaf4:0.12,(leaf6:0.061,(leaf9:0.018,leaf10:0.018):0.043):0.059):0.015):0.003)root"
         cnasim_tree_nx = tree_utils.newick_to_nx(cnasim_tree_nw, interior_node_names=[f"int{i+10}" for i in range(10)])
 
