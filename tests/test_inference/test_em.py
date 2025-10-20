@@ -12,7 +12,7 @@ import networkx as nx
 import numpy as np
 from dendropy.calculate import treecompare
 from matplotlib import pyplot as plt
-import scgenome.plotting as pl
+#import scgenome.plotting as pl
 from scipy.special import logsumexp
 
 from cellmates.utils import math_utils
@@ -424,9 +424,13 @@ class EMTestCase(unittest.TestCase):
         print(f"Generated edge _lengths: {l_true}")
         print(f"(from p: {p_from_l(gt_ctr_table[0, 1, :], n_states)}")
 
+        psi_init = {'mu_v': obs_model.mu_v_prior,
+                    'tau_v': obs_model.tau_v_prior,
+                    'mu_w': obs_model.mu_w_prior,
+                    'tau_w': obs_model.tau_w_prior}
         # run EM
         em = EM(n_states=n_states, obs_model=obs_model, evo_model=evo_model)
-        em.fit(data['obs'], theta_init=l_true)
+        em.fit(data['obs'], theta_init=l_true, psi_init=psi_init)
         ctr_table = em.distances
         # change tree _lengths to match the estimated ones
         for edge in data['tree'].preorder_edge_iter():
