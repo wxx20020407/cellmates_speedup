@@ -70,6 +70,10 @@ class ObsModel(ABC):
         """
         pass
 
+    @abstractmethod
+    def initialize(self, psi_init):
+        pass
+
     # @classmethod
     # def get_instance(cls, obs_model, n_states):
     #     """
@@ -101,6 +105,7 @@ class ObsModel(ABC):
     #
 
 
+
 class NormalModel(ObsModel):
     """
     Implementation of the Cell baseline and precision model.
@@ -120,6 +125,14 @@ class NormalModel(ObsModel):
         self.tau_v_prior = tau_v_prior
         self.tau_w_prior = tau_w_prior if tau_w_prior is not None else tau_v_prior
         super().__init__(n_states, **kwargs)
+
+    def initialize(self, psi_init):
+        if psi_init is not None:
+            self.mu_v, self.tau_v = psi_init['mu_v'], psi_init['tau_v']
+            self.mu_w, self.tau_w = psi_init['mu_w'], psi_init['tau_w']
+        else:
+            self.mu_v, self.tau_v = self.mu_v_prior, self.tau_v_prior
+            self.mu_w, self.tau_w = self.mu_w_prior, self.tau_w_prior
 
     def sample(self, cnp: np.ndarray, mu_tau_params: np.ndarray = None, **kwargs):
         """
@@ -211,7 +224,7 @@ class NormalModel(ObsModel):
         M-step to update model parameters given observations and conditional probabilities of the copy number states.
         Follows the eq:
         mu_v = (sum_m sum_i p(C_m^v = i | y_m^{vw}) * y_m^v) / (sum_m sum_i p(C_m^v = i | y_m^{vw}) * i)
-        tau_v = (sum_m sum_i p(C_m^v = i | y_m^{vw})) / (sum_m sum_i p(C_m^v = i | y_m^{vw}) * (y_m^v - mu_v * i)^2)
+        tau_v = 2*(sum_m sum_i p(C_m^v = i | y_m^{vw})) / (sum_m sum_i p(C_m^v = i | y_m^{vw}) * (y_m^v - mu_v * i)^2)
         Parameters
         ----------
         obs_vw, array of shape (n_sites, 2) with observations for pair of leaves
