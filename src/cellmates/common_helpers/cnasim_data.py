@@ -6,6 +6,7 @@ import logging
 import os
 import ast
 from pathlib import Path
+import re
 
 import networkx as nx
 import numpy as np
@@ -16,11 +17,11 @@ import anndata
 # ==================================
 # Main functions (read CNAsim files)
 # ==================================
-def convert_cnasim_output_to_anndata(cnasim_data_dir: str, out_path: str = None):
+def convert_cnasim_output_to_anndata(cnasim_data_dir: str, out_path: str = None, normalize_counts: bool = True) -> str:
     """
     Convert CNAsim output files to anndata object and save it to out_path
     """
-    adata = load_cnasim_output_files(cnasim_data_dir)
+    adata = load_cnasim_output_files(cnasim_data_dir, normalize_counts)
     if out_path is None:
         out_path = os.path.join(cnasim_data_dir, 'adata.h5ad')
     adata.write(Path(out_path))
@@ -71,6 +72,9 @@ def read_cell_types(cnasim_data_path: str) -> (np.ndarray, pd.DataFrame):
     Clones will be sorted by their id number but remapped to a range(num_clones) with
     clone 0 being the normal clone and clone 1 the founder clone.
 
+    If CNAsim is run with no clones, then all tumor cells belong to the one clone named 'aneuploid'.
+    If only tumor cells are simulated, then all cells belong to the founder clone.
+
     Returns:
     - cell_assignment: a 1D array with the clone id for each cell
     - ancestor_clone_map: a dictionary mapping ancestor names to clone ids
@@ -86,12 +90,17 @@ def read_cell_types(cnasim_data_path: str) -> (np.ndarray, pd.DataFrame):
     # reassign a clone id to make sure they are in range(num_clones)
     # unique will merge normal with founder (which has id -1 for convenience)
     unique_clones = cell_types['clone_int'].sort_values().unique().tolist()
-    # print(unique_clones)
-    for i, c in enumerate(unique_clones):
-        if c == -1:
-            continue
-        clone_name = f'clone{c}'
-        clone_id_map[clone_name] = i + 2 # normal is 0, founder is 1
+    if 'aneuploid' in cell_types['clone'].values:
+        # all cells belong to the same clone
+        clone_id_map['aneuploid'] = 2
+    else:
+        # map clones to new ids starting from 2 (clone0: normal, clone1: founder)
+        for i, c in enumerate(unique_clones):
+            if c == -1:
+                continue
+            clone_name = f'clone{c}'
+            clone_id_map[clone_name] = i + 2 # normal is 0, founder is 1
+
     cell_types['clone_id'] = cell_types['clone'].transform(lambda x: clone_id_map[x])
     # map cell to clone
     cell_assignment = np.zeros(cell_types['is_cell'].sum(), dtype=int)
@@ -100,6 +109,35 @@ def read_cell_types(cnasim_data_path: str) -> (np.ndarray, pd.DataFrame):
         cell_assignment[cell_id] = clone_id_map[row['clone']]
 
     return cell_assignment, cell_types
+
+def profiles_to_anndata(profiles_path: str) -> anndata.AnnData:
+    """
+    Convert CNAsim profiles.tsv as in the benchmark files into anndata object
+    profiles.tsv format:
+    CELL	chrom	start	end	CN states
+    leaf1    chr_1    0	1000000	1,1
+    // or
+    cell1    chr1    0 ...
+    """
+    # read profiles.tsv file and make anndata with obs_names and var_names
+    profiles_df = pd.read_csv(profiles_path, delimiter='\t', header=0)
+    # mutate copy number
+    profiles_df['cn'] = profiles_df['CN states'].transform(lambda x: sum(list(map(int, x.split(',')))))
+    # to wide format
+    wide_cn_df = pd.pivot_table(profiles_df, index=['chrom', 'start', 'end'], values='cn', columns='CELL',
+                                sort=False)  # already sorted by cell number
+    # extract cell columns
+    cell_names = wide_cn_df.columns.tolist()
+    cn_profiles = wide_cn_df[cell_names].transpose().to_numpy()
+    adata = anndata.AnnData(cn_profiles)
+    adata.obs_names = cell_names
+    adata.var_names = wide_cn_df.index.map(lambda x: f"{x[0]}:{x[1]}-{x[2]}")
+    # prefix can be 'chr' or 'chr_' and chromosome names can be '1', ... '22', 'X', 'Y'
+    pattern = re.compile(r'^chr[_]?([0-9]+|X|Y)$')
+    adata.var['chr'] = wide_cn_df.index.map(lambda x: re.findall(pattern, x[0]).pop())
+    adata.var['start'] = wide_cn_df.index.map(lambda x: x[1])
+    adata.var['end'] = wide_cn_df.index.map(lambda x: x[2])
+    return adata
 
 def read_cn_profiles(adata: anndata.AnnData, cnasim_data_path: str, n_cells: int, inplace=True) -> np.ndarray:
     """
@@ -125,6 +163,32 @@ def read_cn_profiles(adata: anndata.AnnData, cnasim_data_path: str, n_cells: int
                                                 sort=False)[cells].transpose().to_numpy()
         adata.layers['Bstate'] = pd.pivot_table(profiles_df, index=['chrom', 'start', 'end'], values='Bcn', columns='CELL',
                                                 sort=False)[cells].transpose().to_numpy()
+    # add ancestral profiles if available
+    # format:
+    # CELL	chrom	start	end	CN states
+    # ancestor1	chr1	0	1000000	1,1
+    anc_prof_file = 'ancestral_profiles.tsv'
+    if os.path.exists(os.path.join(cnasim_data_path, anc_prof_file)) and inplace:
+        anc_profiles_df = pd.read_csv(os.path.join(cnasim_data_path, anc_prof_file), delimiter='\t', header=0)
+        anc_profiles_df[['Acn', 'Bcn']] = anc_profiles_df['CN states'].str.split(',', expand=True).astype(int)
+        anc_profiles_df['cn'] = anc_profiles_df['Acn'] + anc_profiles_df['Bcn']
+        wide_anc_cn_df = pd.pivot_table(
+            anc_profiles_df,
+            index=['chrom', 'start', 'end'],
+            values=['cn', 'Acn', 'Bcn'],
+            columns='CELL',
+            sort=False
+        )  # already sorted by cell number
+        anc_cells = wide_anc_cn_df['cn'].columns.tolist()
+        anc_cn_profiles = wide_anc_cn_df['cn'][anc_cells].transpose().to_numpy()
+        # concatenate to existing profiles
+        adata.uns['ancestral-names'] = anc_cells
+        adata.uns['ancestral-cn'] = anc_cn_profiles
+        adata.uns['ancestral-cnA'] = wide_anc_cn_df['Acn'][anc_cells].transpose().to_numpy()
+        adata.uns['ancestral-cnB'] = wide_anc_cn_df['Bcn'][anc_cells].transpose().to_numpy()
+    else:
+        raise FileNotFoundError(f"Ancestral profiles file {anc_prof_file} not found in {cnasim_data_path}. It is required to have ancestral profiles for the cell tree.")
+
     return cn_profiles
 
 def correct_readcounts(adata, min_normal_cells=1, inplace=True) -> np.ndarray:
@@ -187,7 +251,7 @@ def load_counts_init_anndata(cnasim_data_path: str):
                                                 sort=False)[cell_names].transpose().to_numpy()
     return adata
 
-def load_cnasim_output_files(cnasim_data_path: str | Path) -> anndata.AnnData:
+def load_cnasim_output_files(cnasim_data_path: str | Path, normalize_counts: bool = True) -> anndata.AnnData:
     """
     Load CNAsim output files into anndata object. The annData object will contain:
     - X: read counts matrix (n_cells x n_bins)
@@ -218,7 +282,8 @@ def load_cnasim_output_files(cnasim_data_path: str | Path) -> anndata.AnnData:
     adata.obs['normal'] = cell_assignment == 0  # normal is always 0
     adata.obs['clone'] = pd.Categorical(cell_assignment)
     # 3.1 normalize read counts
-    _ = correct_readcounts(adata, inplace=True) # inplace adding layers: ['copy', 'Acopy', 'Bcopy']
+    if normalize_counts:
+        _ = correct_readcounts(adata, inplace=True) # inplace adding layers: ['copy', 'Acopy', 'Bcopy']
     # for each clone, select its founder
     # 4. read and process tree.nwk
     # print(clone_founder)  # ['root', 'ancestor2', 'ancestor19', ...]
@@ -226,10 +291,13 @@ def load_cnasim_output_files(cnasim_data_path: str | Path) -> anndata.AnnData:
     tree_nx = get_sc_tree(cnasim_data_path, cell_types_df)
     clonal_tree_nx = _collapse_equal_clones(tree_nx, clone_attr='clone')
     remapped_clonal_tree_nx = nx.relabel_nodes(clonal_tree_nx, {n: clonal_tree_nx.nodes[n]['clone'] for n in clonal_tree_nx.nodes()})
+    # when normal cells are not simulated, set founder as root (tree structure changes)
+    root_node = 'root' if np.any(adata.obs['normal']) else 'founder'
+    root_node_id = 0 if root_node == 'root' else 1
 
-    cell_tree_newick = _tree_to_newick(tree_nx, root='root', weight='weight') + ";"
-    clonal_tree_newick = _tree_to_newick(clonal_tree_nx, root='root', weight='weight') + ";"
-    clone_id_tree_nwk = _tree_to_newick(remapped_clonal_tree_nx, root=0, weight='weight') + ";"
+    cell_tree_newick = _tree_to_newick(tree_nx, root=root_node, weight='weight') + ";"
+    clonal_tree_newick = _tree_to_newick(clonal_tree_nx, root=root_node, weight='weight') + ";"
+    clone_id_tree_nwk = _tree_to_newick(remapped_clonal_tree_nx, root=root_node_id, weight='weight') + ";"
 
     adata.uns['cell-tree-newick'] = cell_tree_newick
     adata.uns['clonal-tree-newick'] = clonal_tree_newick
@@ -324,9 +392,10 @@ def main():
     )
     cli.add_argument('-i', '--input', type=str, required=True, help="CNAsim files directory (where `readcounts.tsv`, `profiles.tsv`, `cell_types.tsv` and `tree.nwk` are located)")
     cli.add_argument('-o', '--output', type=str, default=None, help="output file path e.g. ./datasets/dat.h5ad")
+    cli.add_argument('--counts-only', action='store_true', help="Only load read counts without normalization or copy number states")
     args = cli.parse_args()
 
-    convert_cnasim_output_to_anndata(args.input, args.output)
+    convert_cnasim_output_to_anndata(args.input, args.output, normalize_counts=not args.counts_only)
     logger.info(f"Wrote {args.output}")
 
 if __name__ == "__main__":

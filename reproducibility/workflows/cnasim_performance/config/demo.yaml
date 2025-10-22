@@ -7,3 +7,4 @@ boundary_noise: [0.04]
 jitter: [0.1]
 n_replicates: 2
 normal_fraction: 0.2
+n_states: 7

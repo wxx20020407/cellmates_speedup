@@ -3,7 +3,6 @@ import random
 import unittest
 import numpy as np
 
-from cellmates.models.evo import SimulationEvoModel
 from cellmates.simulation.datagen import rand_dataset, get_ctr_table, simulate_quadruplet, rand_ann_dataset
 
 
@@ -71,10 +70,6 @@ class DatagenTestCase(unittest.TestCase):
         self.assertIn('state', adata.layers, msg="copy number state layer not found in anndata")
         self.assertEqual(adata.n_obs, n_cells)
         self.assertEqual(adata.n_vars, n_sites)
-
-
-
-
 
 
 if __name__ == '__main__':

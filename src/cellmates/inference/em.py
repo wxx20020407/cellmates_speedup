@@ -14,11 +14,11 @@ from scipy.special import comb
 
 from cellmates.inference.neighbor_joining import build_tree
 from cellmates.models.obs import ObsModel, NormalModel, PoissonModel
-from cellmates.simulation.datagen import rand_dataset, get_ctr_table
+from cellmates.simulation.datagen import rand_dataset
 
 from cellmates.models.evo import EvoModel, CopyTree, JCBModel
 from cellmates.utils.math_utils import l_from_p
-from cellmates.utils.tree_utils import convert_networkx_to_dendropy
+from cellmates.utils.tree_utils import convert_networkx_to_dendropy, get_ctr_table
 
 
 class EM:
