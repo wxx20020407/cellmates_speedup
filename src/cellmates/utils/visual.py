@@ -40,6 +40,14 @@ def plot_cell_pairwise_heatmap(matrix, ax=None, label=None, full=False, **kwargs
     full: bool, whether to show the full matrix or only the upper triangle (default: False)
     kwargs: keyword arguments, passed to sns.heatmap
     """
+    if type(matrix) == dict:
+        # convert to full matrix
+        n_cells = max(max(k) for k in matrix.keys()) + 1
+        full_matrix = np.zeros((n_cells, n_cells))
+        for (i, j), v in matrix.items():
+            full_matrix[i, j] = v
+            full_matrix[j, i] = v
+        matrix = full_matrix
     if ax is None:
         fig, ax = plt.subplots()
     # mask the lower triangle
