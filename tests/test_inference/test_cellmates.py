@@ -37,7 +37,6 @@ class CellmatesTestCase(unittest.TestCase):
         np.random.seed(seed=self.seed)
         dendropy.utility.GLOBAL_RNG.seed(self.seed)
 
-    #@unittest.skip("This test only works when evo_model.new() is commented out in _fit_quadruplet in em.py")
     def test_cellmates_given_c(self):
         # Inference parameters
         max_iter = 20

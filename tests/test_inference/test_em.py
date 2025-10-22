@@ -68,25 +68,21 @@ class EMTestCase(unittest.TestCase):
             print(" ------- ")
         # print(ctr_table)
 
-    @unittest.skip("This test only works if evo_model.new() is removed in the _fit_quadruplet method.")
     def test_em_updates_given_c(self):
         """
         Tests the EM algorithm on a simple quadruplet tree where the true expected number of changes are given and used
         in the M-step. This acts as a sanity check for the remaining terms of the evo M-step and the observation M-step.
-        Returns
-        -------
-
         """
         n_states = 7
         n_sites = 500
         p_sim = np.array([0.02, 0.01, 0.01])
         l_sim = l_from_p(np.array(p_sim), n_states)
         evo_model_sim = CopyTree(n_states)
-        evo_model = JCBModel(n_states)
+        evo_model_temp = JCBModel(n_states) # Used to bypass .new() call in _fit_quadruplet
+        evo_model = JCBModel(n_states)      # Used to mock expected changes
         obs_model = NormalModel(n_states)
 
         data = simulate_quadruplet(n_sites, obs_model, evo_model_sim, edge_lengths=l_sim, n_states=n_states)
-        em = EM(n_states, obs_model, evo_model, tree_build='ctr', verbose=2)
         obs, cnps = (data['obs'], data['cn'])
 
         # Save data plots
@@ -102,10 +98,14 @@ class EMTestCase(unittest.TestCase):
         D = np.array([D_ru, D_uv, D_uw])
         Dp = np.array([Dp_ru, Dp_uv, Dp_uw])
 
-        evo_model.new = MagicMock(return_value=evo_model)   # bypass new model creation to enable mocking
-        evo_model.expected_changes = MagicMock(return_value=(D, Dp, -1.0))
+        evo_model_temp.new = MagicMock(return_value=evo_model)   # bypass new model creation to enable mocking
+        evo_model._expected_changes = MagicMock(return_value=(D, Dp, -1.0))
+        pC1_v, _ = testing.get_marginals_from_cnp(cnps[0], n_states)
+        pC1_w, _ = testing.get_marginals_from_cnp(cnps[1], n_states)
+        evo_model.get_one_slice_marginals = MagicMock(return_value=[pC1_v, pC1_w])
 
         theta_init = [0.2, 0.05, 0.1]
+        em = EM(n_states, obs_model, evo_model_temp, tree_build='ctr', verbose=2)
         (v, w), theta, loglik, it = em._fit_quadruplet(0, 1, obs, theta_init, max_iter=30, rtol=1e-6)
         print(f"True epsilons: {np.array(D)/n_sites}")
         print(f"True l: {math_utils.l_from_p(np.array(D)/n_sites, n_states)}")

@@ -89,11 +89,12 @@ def get_expected_psi(param, obs_model):
     return
 
 
-def get_marginals_from_cnp(cnp, n_states, noise=0.0):
+def get_marginals_from_cnp(cnp: ndarray, n_states: int, noise=0.0):
     """
     Get the one slice and two slice marginals from one copy number profile.
     """
     M = cnp.shape[0]
+    cnp = cnp.astype(int)
     one_slice_marginals = np.zeros((M, n_states))
     two_slice_marginals = np.zeros((M - 1, n_states, n_states))
     for m in range(M):

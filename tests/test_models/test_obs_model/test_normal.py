@@ -97,7 +97,6 @@ class NormalModelTestCase(unittest.TestCase):
         self.assertAlmostEqual(updated_psi['tau_v'], tau_v_true, delta=10.0)
         self.assertAlmostEqual(updated_psi['tau_w'], tau_w_true, delta=10.0)
 
-    @unittest.skip("Requires '.new()' in quad_model=evo_model.new() to be commented out in _fit_quadruplet in em.py")
     def test_EM_given_c(self):
         """
         Tests that the update step works correctly when given the true copy numbers.
@@ -115,6 +114,7 @@ class NormalModelTestCase(unittest.TestCase):
         cnps = data['cn']
         tree_dp = data['tree']
         tree_nx = tree_utils.convert_dendropy_to_networkx(tree_dp)
+        evo_model_temp = JCBModel(n_states=K)
         evo_model = JCBModel(n_states=K)
 
         # Run several update steps with ideal expected changes
