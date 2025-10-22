@@ -23,7 +23,7 @@ def expand_datasets():
     return datasets
 
 NOISE_LEVEL = config["noise_level"] # 0: none, 1: high, 2: low (as in paper)
-SEEDS = config["seeds"] # list of seeds for replicates
+SEEDS = list(range(config["seeds"])) # list of seeds for replicates
 DATASETS = expand_datasets()
 DATASET_NAMES = list(map(lambda x: x+'_'+str(NOISE_LEVEL), DATASETS.keys()))
 SOURCE_PATH = "../../../src"
@@ -39,7 +39,7 @@ rule simulate:
     output:
         "results/{dataset_class}_{noise_lev}/{seed}/simulation.done"
     conda: "envs/cnasim.yml"
-    threads: 4
+    threads: 8
     params:
         n_cells=lambda wildcards: DATASETS[wildcards.dataset_class]["n_cells"],
         n_chromosomes=lambda wildcards: DATASETS[wildcards.dataset_class]["n_chromosomes"],
