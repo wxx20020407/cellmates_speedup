@@ -8,7 +8,7 @@ from cellmates.utils import tree_utils
 from cellmates.utils.tree_utils import convert_networkx_to_dendropy, label_tree, convert_dendropy_to_networkx
 
 
-class MyTestCase(unittest.TestCase):
+class TreeUtilsTestCase(unittest.TestCase):
     def test_convert_nx_to_dendropy(self):
         # build a tree on nx
         nxtree = nx.DiGraph()

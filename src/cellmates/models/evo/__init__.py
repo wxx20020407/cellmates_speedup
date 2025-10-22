@@ -96,6 +96,7 @@ class EvoModel:
         loglik = self.loglikelihood  # computed in the two slice marginals (forward pass)
         self.log_xi = log_xi
         self.log_gamma = log_gamma
+        log_gamma_1 = log_gamma[0]  # first site marginal prob C1 = ijk
 
         comut_mask0 = get_zipping_mask0(self.n_states).transpose()
         comut_mask = get_zipping_mask(self.n_states).transpose(tuple(reversed(range(4))))
@@ -107,16 +108,26 @@ class EvoModel:
                 # use comut_mask0
                 d[0] = np.exp(sp.logsumexp(pair_tsm[~comut_mask0]))  # change
                 dp[0] = np.exp(sp.logsumexp(pair_tsm[comut_mask0]))  # no change
+                # add first state
+                pair_osm_1 = sp.logsumexp(log_gamma_1, axis=(1, 2))
+                exp_p2 = np.exp(pair_osm_1[2])  # p(C1u = 2)
+                d[0] += 1 - exp_p2  # change from r=2 to u != 2
+                dp[0] += exp_p2 # no change from r=2 to u=2
             else:
                 if e == 1:
                     # eps_uv (sum over m, i, i')
                     pair_tsm = sp.logsumexp(log_xi, axis=(0, 3, 6))
+                    pair_osm_1 = sp.logsumexp(log_gamma_1, axis=2)
                 else:
                     # eps_uw (sum over m, j, j')
                     pair_tsm = sp.logsumexp(log_xi, axis=(0, 2, 5))
+                    pair_osm_1 = sp.logsumexp(log_gamma_1, axis=1)
 
                 d[e] = np.exp(sp.logsumexp(pair_tsm[~comut_mask]))
                 dp[e] = np.exp(sp.logsumexp(pair_tsm[comut_mask]))
+                # add first state
+                d[e] += np.exp(sp.logsumexp(pair_osm_1[~comut_mask0]))
+                dp[e] += np.exp(sp.logsumexp(pair_osm_1[comut_mask0]))
 
         return d, dp, loglik
 
@@ -218,7 +229,7 @@ class EvoModel:
         log_xi -= np.expand_dims(sp.logsumexp(log_xi, axis=tuple(range(1, 7))), axis=tuple(range(1, 7)))
         # log_xi = log_xi - sp.logsumexp(log_xi, axis=(1, 2, 3, 4, 5, 6), keepdims=True) # check if faster
         log_gamma = sp.logsumexp(log_xi, axis=(4, 5, 6)) # Check axis for gamma
-        # Gemini told me to add final gamma
+        # last site needs to be added separately
         log_alpha_final = alpha_probs[-1, ...]
         log_evidence = sp.logsumexp(log_alpha_final)
         log_gamma_final = log_alpha_final - log_evidence
@@ -778,9 +789,4 @@ class SimulationEvoModel():
             delta = 1 if random.random() < 0.5 else -1
             delta_CN_focal_uv[s:e] += delta
         return delta_CN_focal_uv
-
-
-
-
-
 

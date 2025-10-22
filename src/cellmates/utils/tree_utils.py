@@ -192,6 +192,8 @@ def write_newick(nx_tree, cell_names, out_path=None, edge_attr='weight') -> str:
     return nwk_str
 
 def make_gt_tree_dist(ad, n_states, cell_names: list) -> tuple[dpy.Tree, np.ndarray]:
+    # TODO: this function can be rewritten to re-use the code from function (D, Dp) = utils.testing.get_expected_changes(cnps, tree_nx, cell_pairs)
+    #   together with utils.testing.get_expected_distances(D, Dp, n_states, cell_pairs)
     # traverse the tree, write lengths to branches and, for each pair, sum lengths between them
     n_sites = ad.n_vars
     nxtree = newick_to_nx(ad.uns['cell-tree-newick'])

@@ -1,4 +1,3 @@
-import io
 import itertools
 import logging
 import os
@@ -6,6 +5,7 @@ import random
 import unittest
 from unittest.mock import MagicMock
 
+import pytest
 import anndata
 import pandas as pd
 import skbio
