@@ -364,3 +364,28 @@ def convert_skbio_to_networkx(tree_nj_skbio: skbio.TreeNode, interior_node_names
     newick = str(tree_nj_skbio)
     tree_nx = newick_to_nx(newick, edge_attr='weight', interior_node_names=interior_node_names)
     return tree_nx
+
+
+def get_two_leaf_internal_nodes(tree_nx):
+    """
+    Get internal nodes that have two leaf children.
+    """
+    two_leaf_internals = []
+    for n in tree_nx.nodes():
+        if tree_nx.out_degree(n) == 2:
+            children = list(tree_nx.successors(n))
+            if all(tree_nx.out_degree(c) == 0 for c in children):
+                two_leaf_internals.append(n)
+    return two_leaf_internals
+
+
+def reconstruct_internal_cnps(leaf_cnps, tree_nx, n_states, method):
+    """
+    Given CNPs of the leaves and a tree, reconstruct the CNPs of the internal nodes by
+    minimum evolution.
+    Assumes leaf_cnps are in the order of leaf node indices.
+    """
+    M, N = leaf_cnps.shape
+
+    internal_cnps = generalized_sankoff_algorithm.reconstruct_cnps_with_block_mutations(tree_nx, leaf_cnps, max_mutations_per_edge=5)
+    return internal_cnps

@@ -1,12 +1,18 @@
 import itertools
+import logging
+import os
 import random
 import unittest
 from unittest.mock import MagicMock
 
 import pytest
+import anndata
+import pandas as pd
 import skbio
+from Bio import Phylo
 from dendropy.calculate import treecompare
 
+from cellmates.common_helpers import cnasim_data
 from cellmates.inference import neighbor_joining
 from cellmates.inference.em import EM
 from cellmates.utils import tree_utils, testing, visual, math_utils
@@ -31,15 +37,14 @@ class CellmatesTestCase(unittest.TestCase):
         np.random.seed(seed=self.seed)
         dendropy.utility.GLOBAL_RNG.seed(self.seed)
 
-    # @unittest.skip("Too slow for regular testing. Plus, might still contain bugs.")
     def test_cellmates_given_c(self):
         # Inference parameters
         max_iter = 20
         rtol = 1e-4
 
         # Simulation parameters
-        n_sites = 400
-        n_cells = 8
+        n_sites = 1000
+        n_cells = 20
         n_states = 7
         n_clonal_events_per_edge = 5
         n_focal_events_per_edge = 5
@@ -63,6 +68,7 @@ class CellmatesTestCase(unittest.TestCase):
 
         # --------- Setup Models and Mock Expected changes D, D' ---------
         obs_model = obs_model_sim
+        evo_model_temp = JCBModel(n_states=n_states)
         evo_model = JCBModel(n_states=n_states)
         cell_pairs = list(itertools.combinations(range(n_cells), r=2))
         D, Dp = testing.get_expected_changes(cnps, tree_nx, cell_pairs)
@@ -72,15 +78,19 @@ class CellmatesTestCase(unittest.TestCase):
         visual.plot_cell_pairwise_heatmap(exp_pairwise_distances, label=np.arange(0, n_cells), ax=ax)
         fig.savefig(out_dir + '/exp_pairwise_distances.png')
 
-        #evo_model.new = MagicMock(return_value=evo_model)  # bypass new model creation to enable mocking
+        evo_model_temp.new = MagicMock(return_value=evo_model)  # bypass new model creation to enable mocking
+        psi_init = {'mu_v': 1.0, 'tau_v': 50.0, 'mu_w': 1.0, 'tau_w': 50.0}
 
         # --------- Run Cellmates EM inference ---------
-        em_alg = EM(n_states, evo_model=evo_model, obs_model=obs_model)
+        em_alg = EM(n_states, evo_model=evo_model_temp, obs_model=obs_model)
         results = []
         for i, (v,w) in enumerate(cell_pairs):
             theta_init = np.array([0.25, 0.25, 0.25])
-            evo_model._expected_changes = MagicMock(return_value=(D[i], Dp[i], -1.0))
-            res_vw = em_alg._fit_quadruplet(v, w, x[:, [v,w]], theta_init=theta_init, max_iter=max_iter, rtol=rtol)
+            pC1_v = testing.get_marginals_from_cnp(cnps[v], n_states)[0]
+            pC1_w = testing.get_marginals_from_cnp(cnps[w], n_states)[0]
+            evo_model.get_one_slice_marginals = MagicMock(return_value=(pC1_v, pC1_w))
+            evo_model._expected_changes = MagicMock(return_value=(D[v,w], Dp[v,w], -1.0))
+            res_vw = em_alg._fit_quadruplet(v, w, x, theta_init=theta_init, psi_init=psi_init, max_iter=max_iter, rtol=rtol)
             results.append(res_vw)
 
         distances = -np.ones((n_cells, n_cells, 3))
@@ -94,7 +104,7 @@ class CellmatesTestCase(unittest.TestCase):
 
         L1_diff = np.zeros((n_cells, n_cells, 3))
         for v,w in cell_pairs:
-            L1_diff[v,w,:] = abs(distances[v,w,:] - exp_distances[v, w, :])
+            L1_diff[v,w,:] = abs(distances[v,w,:] - exp_distances[v, w])
 
         tot_L1_diff = L1_diff.sum(axis=(0,1))
         print(f"Total L1 diff: \n {tot_L1_diff}")
@@ -202,22 +212,20 @@ class CellmatesTestCase(unittest.TestCase):
         fig.savefig(out_dir + '/true_inferred_and_NJ_tree.png')
 
     @unittest.skip("Under development")
-    def test_dice_benchmark_data(self):
-        """
-        Takes the simulated single cell tree and associated CNPs from the DICE benchmark datasets and
-        reconstructs the internal CNPs based on a minimal evolution principle.
-        Then Cellmates is run to infer the tree from the CNPs.
-        """
+    def test_dice_benchmark_PoC_data(self):
+        # TODO: finish this test
         cnasim_tree_nw = "((leaf1:0.01,leaf2:0.01):0.127,((leaf3:0.039,(leaf5:0.023,(leaf7:0.01,leaf8:0.01):0.013):0.016):0.096,(leaf4:0.12,(leaf6:0.061,(leaf9:0.018,leaf10:0.018):0.043):0.059):0.015):0.003)root"
         cnasim_tree_nx = tree_utils.newick_to_nx(cnasim_tree_nw, interior_node_names=[f"int{i+10}" for i in range(10)])
 
+        # CNPs
+        adata = anndata.read_h5ad("../../data/DICE_benchmarks/cnasim_benchmark_A1_0_1.h5ad")
+        cnps = adata.X
         out_dir = testing.create_output_test_folder()
         fig, ax = visual.draw_graph(cnasim_tree_nx, save_path=out_dir + '/cnasim_tree.png')
         # save
         fig.savefig(out_dir + '/cnasim_tree.png')
-
-        # CNPs for the 10 leaves
-        # TODO: load CNPs here
+        fig, ax = visual.plot_cn_profile(cnps, ax=ax)
+        fig.savefig(out_dir + '/cnasim_cn_profile.png')
 
         # Reconstruct internal CNPs based on minimal evolution
         cnps_all = tree_utils.reconstruct_internal_cnps(leaf_cnps=..., tree_nx=cnasim_tree_nx, n_states=7, method='min_evolution')
