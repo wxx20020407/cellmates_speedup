@@ -8,9 +8,11 @@ from scipy import stats as ss
 
 class ObsModel(ABC):
 
-    def __init__(self, n_states: int, **kwargs):
+    def __init__(self, n_states: int, train=False, **kwargs):
         self.n_states = n_states
+        self.train = train
         self.psi = {}      # model parameters
+        self.psi_init = {}  # initial parameters for EM
         self.psi_sim = {}  # parameters used for simulation
 
     @abstractmethod
@@ -114,8 +116,11 @@ class NormalModel(ObsModel):
     p(y_m^v |C^v, mu_v, tau_v) = N(y_vm |mu_v * C_m^v, 1/tau_v)
     """
 
-    def __init__(self, n_states: int, mu_v_prior=1., mu_w_prior=None, tau_v_prior=50., tau_w_prior=None, M=200, **kwargs):
-        super().__init__(n_states, **kwargs)
+    def __init__(self, n_states: int,
+                 mu_v_prior=1., mu_w_prior=None,
+                 tau_v_prior=50., tau_w_prior=None,
+                 M=200, train=False, **kwargs):
+        super().__init__(n_states, train, **kwargs)
         self.M = M
         # Model Parameters
         self.mu_v = None
@@ -138,6 +143,7 @@ class NormalModel(ObsModel):
             self.mu_w, self.tau_w = self.mu_w_prior, self.tau_w_prior
         self.psi = {'mu_v': self.mu_v, 'tau_v': self.tau_v,
                            'mu_w': self.mu_w, 'tau_w': self.tau_w}
+        self.psi_init = self.psi.copy()
 
     def sample(self, cnp: np.ndarray, mu_tau_params: np.ndarray = None, **kwargs):
         """
@@ -220,6 +226,8 @@ class NormalModel(ObsModel):
         """
         Update model parameters after M-step.
         """
+        if not self.train:
+            return
         out_M_step = self.M_step(obs_vw, conditionals_vw, **kwargs)
         mu_v, tau_v, mu_w, tau_w = out_M_step['mu_v'], out_M_step['tau_v'], out_M_step['mu_w'], out_M_step['tau_w']
         self.update_params(mu_v, tau_v, mu_w, tau_w)
@@ -280,7 +288,10 @@ class PoissonModel(ObsModel):
     p(r_m^v |C^v, lambda_v) = Poisson(r_vm | lambda_v)
     """
 
-    def __init__(self, n_states: int, lambda_v_prior: float = 100., lambda_w_prior=None, **kwargs):
+    def __init__(self, n_states: int,
+                 lambda_v_prior: float = 100., lambda_w_prior=None,
+                 train=False,
+                 **kwargs):
         """
         Initialize the model with Poisson parameters.
         Parameters
@@ -288,7 +299,7 @@ class PoissonModel(ObsModel):
         lambda_v_prior : float, Poisson parameter for the read counts r_v
         lambda_w_prior : float, Poisson parameter for the read counts r_w (default: lambda_v_prior)
         """
-        super().__init__(n_states, **kwargs)
+        super().__init__(n_states, train, **kwargs)
         self.lambda_v = None
         self.lambda_w = None
         # Priors for EM for Maximum a posteriori estimation
@@ -352,6 +363,8 @@ class PoissonModel(ObsModel):
         """
         Runs the model M-step and updates the model parameters.
         """
+        if not self.train:
+            return
         out_M_step = self.M_step(obs_vw, conditionals_vw, **kwargs)
         lambda_v, lambda_w = out_M_step['lambda_v'], out_M_step['lambda_w']
         self.update_params(lambda_v, lambda_w)

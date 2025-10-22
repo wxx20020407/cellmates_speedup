@@ -48,7 +48,7 @@ class PoissonModelTestCase(unittest.TestCase):
         n_sites = 100
         K = 7
         lambda_v_true = lambda_w_true = 100.0
-        obs_model = PoissonModel(n_states=K, lambda_v_prior=lambda_v_true, lambda_w_prior=lambda_w_true)
+        obs_model = PoissonModel(n_states=K, lambda_v_prior=lambda_v_true, lambda_w_prior=lambda_w_true, train=True)
         evo_sim_model = SimulationEvoModel(n_clonal_CN_events=5, n_focal_events=5, clonal_CN_length=n_sites // 20)
         # Simulate data
         data = datagen.simulate_quadruplet(n_sites, obs_model, evo_sim_model, n_states=K)

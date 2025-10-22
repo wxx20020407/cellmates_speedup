@@ -74,7 +74,7 @@ class NormalModelTestCase(unittest.TestCase):
         K = 7
         mu_v_true = mu_w_true = 1.0
         tau_v_true = tau_w_true = 50.0
-        obs_model = NormalModel(n_states=K, mu_v_prior=mu_v_true, tau_v_prior=tau_v_true)
+        obs_model = NormalModel(n_states=K, mu_v_prior=mu_v_true, tau_v_prior=tau_v_true, train=True)
         evo_model_sim = SimulationEvoModel(n_clonal_CN_events=5, n_focal_events=5, clonal_CN_length=n_sites // 20)
         # Simulate data
         data = datagen.simulate_quadruplet(n_sites, obs_model, evo_model_sim, n_states=K)
@@ -106,7 +106,7 @@ class NormalModelTestCase(unittest.TestCase):
         K = 7
         mu_v_true = mu_w_true = 1.0
         tau_v_true = tau_w_true = 50.0
-        obs_model = NormalModel(n_states=K, mu_v_prior=mu_v_true, tau_v_prior=tau_v_true)
+        obs_model = NormalModel(n_states=K, mu_v_prior=mu_v_true, tau_v_prior=tau_v_true, train=True)
         # Simulation data uses obs_model priors as true params by default
         evo_model_sim = SimulationEvoModel(n_clonal_CN_events=5, n_focal_events=5, clonal_CN_length=10)
         data = datagen.simulate_quadruplet(n_sites, obs_model, evo_model_sim, n_states=K)
