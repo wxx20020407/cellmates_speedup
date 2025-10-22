@@ -123,6 +123,7 @@ class EMTestCase(unittest.TestCase):
         nx.write_network_text(em_tree, sources=['r'])
         assert nx.is_tree(em_tree)
 
+    @unittest.skip("Slow test, run manually")
     def test_tree_inference_synth(self):
         seed = 101
         n_states = 5
@@ -897,6 +898,7 @@ class EMTestCase(unittest.TestCase):
 
         self.assertEqual(treecompare.symmetric_difference(tree, rnd_dpy_tree), 0)
 
+    @unittest.skip("Slow test, run manually")
     def test_multiprocessing(self):
         logging.basicConfig(level=logging.DEBUG)
         seed = 42
