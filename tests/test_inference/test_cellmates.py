@@ -31,7 +31,7 @@ class CellmatesTestCase(unittest.TestCase):
         np.random.seed(seed=self.seed)
         dendropy.utility.GLOBAL_RNG.seed(self.seed)
 
-    @unittest.skip("Too slow for regular testing. Plus, might still contain bugs.")
+    # @unittest.skip("Too slow for regular testing. Plus, might still contain bugs.")
     def test_cellmates_given_c(self):
         # Inference parameters
         max_iter = 20
