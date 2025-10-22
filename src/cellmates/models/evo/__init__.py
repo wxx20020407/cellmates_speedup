@@ -10,7 +10,7 @@ from cellmates.models.evo.basefunc import get_zipping_mask, get_zipping_mask0, p
     p_delta_start_prob, h_eps, h_eps0
 
 from cellmates.models.obs import ObsModel, PoissonModel
-from cellmates.utils.tree_utils import label_tree, convert_dendropy_to_networkx
+from cellmates.utils import tree_utils
 
 
 class EvoModel:
@@ -19,6 +19,8 @@ class EvoModel:
         self._start_prob = None
         self._trans_mat = None
         self.loglikelihood = None
+        self.log_xi = None
+        self.log_gamma = None
         self.n_states = n_states
         # optional parameters
         self.zero_absorption = kwargs.get('zero_absorption', False)
@@ -90,9 +92,11 @@ class EvoModel:
         dp = np.empty(3) # expected no changes
         # compute two slice marginals
         # prob(Cm = ijk, Cm+1 = i'j'k' | Y)
-        log_xi = self.two_slice_marginals(obs_vw, obs_model=obs_model)
+        log_xi, log_gamma = self.two_slice_marginals(obs_vw, obs_model=obs_model)
         loglik = self.loglikelihood  # computed in the two slice marginals (forward pass)
-        log_gamma_1 = sp.logsumexp(log_xi[0], axis=(3, 4, 5))  # first site marginal prob C1 = ijk
+        self.log_xi = log_xi
+        self.log_gamma = log_gamma
+        log_gamma_1 = log_gamma[0]  # first site marginal prob C1 = ijk
 
         comut_mask0 = get_zipping_mask0(self.n_states).transpose()
         comut_mask = get_zipping_mask(self.n_states).transpose(tuple(reversed(range(4))))
@@ -223,10 +227,18 @@ class EvoModel:
                  log_emission[(np.arange(1, log_emission.shape[0]),) + (np.newaxis,) * 4 + (...,)] + \
                  beta_probs[(np.arange(1, beta_probs.shape[0]), ...) + (np.newaxis,) * 3]
         log_xi -= np.expand_dims(sp.logsumexp(log_xi, axis=tuple(range(1, 7))), axis=tuple(range(1, 7)))
-
+        # log_xi = log_xi - sp.logsumexp(log_xi, axis=(1, 2, 3, 4, 5, 6), keepdims=True) # check if faster
+        log_gamma = sp.logsumexp(log_xi, axis=(4, 5, 6)) # Check axis for gamma
+        # last site needs to be added separately
+        log_alpha_final = alpha_probs[-1, ...]
+        log_evidence = sp.logsumexp(log_alpha_final)
+        log_gamma_final = log_alpha_final - log_evidence
+        log_gamma_final_expanded = log_gamma_final[np.newaxis, ...]
+        log_gamma = np.concatenate([log_gamma, log_gamma_final_expanded], axis=0)
         if self.debug:
             assert np.allclose(sp.logsumexp(log_xi, axis=(1, 2, 3, 4, 5, 6)), np.zeros(n_sites - 1))
-        return log_xi
+            assert np.allclose(sp.logsumexp(log_gamma, axis=(1, 2, 3)), np.zeros(n_sites))
+        return log_xi, log_gamma
 
     def backward_pass(self, obs_vw, log_emissions, normalization=True) -> np.ndarray:
         n_sites = obs_vw.shape[0]
@@ -307,6 +319,14 @@ class EvoModel:
         array shape (n_states,) * 6
         """
         return self._trans_mat
+
+    def get_one_slice_marginals(self):
+        """
+        Compute the one slice marginals from the one slice log gammas.
+        """
+        one_slice_marginal_v = np.einsum('mijk->mj', np.exp(self.log_gamma))
+        one_slice_marginal_w = np.einsum('mijk->mk', np.exp(self.log_gamma))
+        return one_slice_marginal_v, one_slice_marginal_w
 
 
 class CopyTree(EvoModel):
@@ -519,7 +539,7 @@ class JCBModel(EvoModel):
         np.ndarray with shape (4, n_sites) with copy number profiles
         """
         tree = dpy.Tree.get(data="((0,1)2)3;", schema='newick', taxon_namespace=dpy.TaxonNamespace(['0', '1']))
-        label_tree(tree)
+        tree_utils.label_tree(tree)
         tree.is_rooted = True
         # generate edge _lengths
         l_true = np.empty(3)
@@ -664,7 +684,7 @@ class SimulationEvoModel():
     def simulate_cn(self, tree: dpy.Tree, n_sites, chr_idxs=None)-> np.ndarray:
         self.n_sites = n_sites
         self.chr_idxs = chr_idxs
-        nx_tree = convert_dendropy_to_networkx(tree)
+        nx_tree = tree_utils.convert_dendropy_to_networkx(tree)
         n_nodes = len(tree.nodes())
         root_idx = list(filter(lambda p: p[1] == 0, nx_tree.in_degree()))
 

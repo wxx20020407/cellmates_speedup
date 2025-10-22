@@ -13,10 +13,9 @@ import networkx as nx
 import numpy as np
 from dendropy.calculate import treecompare
 from matplotlib import pyplot as plt
-import scgenome.plotting as pl
 from scipy.special import logsumexp
 
-from cellmates.utils import math_utils
+from cellmates.utils import math_utils, testing
 from cellmates.utils.visual import plot_cn_profile, plot_cell_pairwise_heatmap
 from cellmates.models.evo import p_delta_change, CopyTree, JCBModel
 from cellmates.models.obs import NormalModel, PoissonModel
@@ -140,15 +139,19 @@ class EMTestCase(unittest.TestCase):
         }
 
         # plot with scgenome to show tree
-        bio_tree = Phylo.read(io.StringIO(adata.uns['tree']), 'newick')
-        test_folder = create_output_test_folder()
-        g = pl.plot_cell_cn_matrix_fig(adata, tree=bio_tree, show_cell_ids=True)
-        g['fig'].savefig(test_folder + '/cn_profile_true_tree.png')
+        try:
+            import scgenome.plotting as pl
+            bio_tree = Phylo.read(io.StringIO(adata.uns['tree']), 'newick')
+            test_folder = create_output_test_folder()
+            g = pl.plot_cell_cn_matrix_fig(adata, tree=bio_tree, show_cell_ids=True)
+            g['fig'].savefig(test_folder + '/cn_profile_true_tree.png')
 
-        # plot obs
-        g = pl.plot_cell_cn_matrix_fig(adata, layer_name=None, tree=bio_tree, raw=True, show_cell_ids=True)
-        g['fig'].savefig(test_folder + '/obs_profile.png')
-        print("Saved cn profile and reads to", test_folder)
+            # plot obs
+            g = pl.plot_cell_cn_matrix_fig(adata, layer_name=None, tree=bio_tree, raw=True, show_cell_ids=True)
+            g['fig'].savefig(test_folder + '/obs_profile.png')
+            print("Saved cn profile and reads to", test_folder)
+        except Exception:
+            print("Skipped scgenome plotting")
 
         # run EM
         em = EM(n_states=n_states, obs_model='poisson', evo_model='jcb')
@@ -382,7 +385,7 @@ class EMTestCase(unittest.TestCase):
         comp_eps = compute_cn_changes(data['cn'], [(3, 2), (2, 0), (2, 1)])
         comp_lengths = l_from_p(np.array(comp_eps)/n_sites, n_states)
         print(f"Est (CN) edge _lengths: {comp_lengths}")
-        ll_cn = em.compute_pair_likelihood(data['obs'], theta=np.array(comp_eps) / n_sites)
+        ll_cn = em.compute_pair_likelihood(data['obs'], theta=np.array(comp_eps) / n_sites, psi=obs_model.psi)
         print(f"Est (CN) edge _lengths likelihood: {ll_cn}")
         # self.assertGreater(ll_cn, ll_true, msg="Generated lengths fit better than actual CN changes")
         self.assertGreater(ll_est, ll_cn, msg="EM estimates fit better than generated but not than actual CN changes")
@@ -426,9 +429,13 @@ class EMTestCase(unittest.TestCase):
         print(f"Generated edge _lengths: {l_true}")
         print(f"(from p: {p_from_l(gt_ctr_table[0, 1, :], n_states)}")
 
+        psi_init = {'mu_v': obs_model.mu_v_prior,
+                    'tau_v': obs_model.tau_v_prior,
+                    'mu_w': obs_model.mu_w_prior,
+                    'tau_w': obs_model.tau_w_prior}
         # run EM
         em = EM(n_states=n_states, obs_model=obs_model, evo_model=evo_model)
-        em.fit(data['obs'], theta_init=l_true)
+        em.fit(data['obs'], theta_init=l_true, psi_init=psi_init)
         ctr_table = em.distances
         # change tree _lengths to match the estimated ones
         for edge in data['tree'].preorder_edge_iter():
@@ -460,7 +467,7 @@ class EMTestCase(unittest.TestCase):
         comp_eps = compute_cn_changes(data['cn'], [(3, 2), (2, 0), (2, 1)])
         comp_lengths = l_from_p(np.array(comp_eps)/n_sites, n_states)
         print(f"Est (CN) edge _lengths: {comp_lengths}")
-        ll_cn = em.compute_pair_likelihood(data['obs'], theta=np.array(comp_eps) / n_sites)
+        ll_cn = em.compute_pair_likelihood(data['obs'], theta=np.array(comp_eps) / n_sites, psi=obs_model.psi)
         print(f"Est (CN) edge _lengths likelihood: {ll_cn}")
         # self.assertGreater(ll_cn, ll_true, msg="Generated lengths fit better than actual CN changes")
         self.assertGreater(ll_est, ll_cn, msg="EM estimates fit better than generated but not than actual CN changes")
@@ -528,7 +535,7 @@ class EMTestCase(unittest.TestCase):
         print(l_true)
         print(f"Computed edge _lengths:\n{comp_lengths}")
         em = EM(n_states=n_states, obs_model=obs_model, evo_model=JCBModel(n_states))
-        ll_cn = em.compute_pair_likelihood(data['obs'], theta=np.array(comp_eps) / n_sites)
+        ll_cn = em.compute_pair_likelihood(data['obs'], theta=np.array(comp_eps) / n_sites, psi=obs_model.psi)
         print(f"Computed edge _lengths likelihood: {ll_cn}")
         self.assertGreater(ll_cn, ll_gen, msg="Generated lengths fit better than actual CN changes")
         self.assertGreater(ll_est, ll_cn, msg="EM estimates fit better than generated but not than actual CN changes")

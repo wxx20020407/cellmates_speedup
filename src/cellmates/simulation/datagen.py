@@ -30,7 +30,7 @@ class Dataset(TypedDict):
 
 def simulate_quadruplet(n_sites,
                         obs_model: ObsModel | str = 'poisson',
-                        evo_model: EvoModel | str = 'jcb',
+                        evo_model: EvoModel | SimulationEvoModel | str = 'jcb',
                         gamma_params: tuple | list[tuple] = (1, 1),
                         edge_lengths: np.ndarray = None,
                         n_states: int = None, seed: int = None, return_adata=False) -> Dataset | anndata.AnnData:
