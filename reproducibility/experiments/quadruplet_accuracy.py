@@ -70,7 +70,7 @@ def run_experiment(n_sites, length_size, seed, max_iter, file_name, n_states, ga
     em.fit(data['obs'], max_iter=max_iter, num_processors=1, rtol=1e-8, l_init=gt_ctr_table[0, 1])
     exec_time = time.time() - start_time
 
-    true_param_ll = em.compute_pair_likelihood(data['obs'], theta=gt_ctr_table[0, 1])
+    true_param_ll = em.compute_pair_likelihood(data['obs'], theta=gt_ctr_table[0, 1], psi=obs_model.psi)
 
     ctr_table_delta = em.distances - gt_ctr_table
     print(

@@ -76,7 +76,7 @@ def main(snakemake):
            rtol=1e-8, l_init=gt_ctr[0,1])
     exec_time = time.time() - start
     # generating lengths likelihood
-    gen_ll = em.compute_pair_likelihood(data['obs'], theta=gt_ctr[0,1])
+    gen_ll = em.compute_pair_likelihood(data['obs'], theta=gt_ctr[0,1], psi=obs_model.psi)
     # actual lengths likelihood (from copy number changes)
     tree_nwk = data['tree'].as_string(schema='newick').strip()
     assert np.array(data['cn'][3] == 2).all(), "bug: index 3 is assumed to be the root, but tree is: " + tree_nwk  # root
