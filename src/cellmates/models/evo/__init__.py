@@ -647,15 +647,32 @@ def _evolve_cn_event_chain(prev_cn: np.ndarray, pdd: float, n_states: int) -> np
 class SimulationEvoModel():
     """
     Model for simulating copy number evolution.
-    Allows more control over simulated CN events, such as number of overlapping CN events, number of homoplasies
+    Allows more control over simulated CN events, e.g., fixed number of events per edge, event lengths, etc.
     """
 
     def __init__(self,
-                 clonal_CN_prob: float | dict[int] = 0.05, clonal_CN_length_ratio: float = 0.2,
-                 focal_prob: float | dict[int] = 0.05, focal_length_avg: int = 5,
-                 n_clonal_CN_events: int | dict[int] = None, clonal_CN_length: int |dict[int] = None,
-                 n_focal_events: int | dict[int] = None, focal_CN_length: int | dict[int] = None,
+                 clonal_CN_prob: float | dict = 0.05, clonal_CN_length_ratio: float = 0.2,
+                 focal_prob: float | dict = 0.05, focal_length_avg: int = 5,
+                 n_clonal_CN_events: int | dict = None, clonal_CN_length: int |dict = None,
+                 n_focal_events: int | dict = None, focal_CN_length: int | dict = None,
                  allow_overlapping_CN_events=True, n_homoplasies=None, zero_absorption: bool = True):
+        """
+        Initialize simulation model.
+        All dicts should have keys as edge tuples (u,v) where u is the parent node and v is the child node.
+        Parameters
+        ----------
+        clonal_CN_prob: probability of clonal CN event per site per edge.
+        clonal_CN_length_ratio: ratio of the CNP length used as mean for the clonal CN events.
+        focal_prob: probability of focal CN event per site per edge.
+        focal_length_avg: average length of focal CN events.
+        n_clonal_CN_events: fixed number of clonal CN events per edge. If specified, disgards clonal_CN_prob.
+        clonal_CN_length: fixed length of clonal CN events. If specified, disgards clonal_CN_length_ratio.
+        n_focal_events: fixed number of focal CN events per edge. If specified, disgards focal_prob.
+        focal_CN_length: fixed length of focal CN events. If specified, disgards focal_length_avg.
+        allow_overlapping_CN_events: Only implemented for TRUE now.
+        n_homoplasies: Not implemented yet.
+        zero_absorption: Not implemented yet.
+        """
         # Simulation parameters
         self.clonal_CN_prob = clonal_CN_prob
         self.clonal_CN_length_ratio = clonal_CN_length_ratio
