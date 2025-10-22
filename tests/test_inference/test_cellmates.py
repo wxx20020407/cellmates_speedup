@@ -32,11 +32,12 @@ class CellmatesTestCase(unittest.TestCase):
     """
 
     def setUp(self) -> None:
-        random.seed(0)
-        np.random.seed(seed=0)
-        dendropy.utility.GLOBAL_RNG.seed(0)
+        self.seed = 0
+        random.seed(self.seed)
+        np.random.seed(seed=self.seed)
+        dendropy.utility.GLOBAL_RNG.seed(self.seed)
 
-    @unittest.skip("This test only works when evo_model.new() is commented out in _fit_quadruplet in em.py")
+    #@unittest.skip("This test only works when evo_model.new() is commented out in _fit_quadruplet in em.py")
     def test_cellmates_given_c(self):
         # Inference parameters
         max_iter = 20
