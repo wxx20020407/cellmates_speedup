@@ -15,7 +15,7 @@ from dendropy.calculate import treecompare
 from matplotlib import pyplot as plt
 from scipy.special import logsumexp
 
-from cellmates.utils import math_utils, testing
+from cellmates.utils import math_utils
 from cellmates.utils.visual import plot_cn_profile, plot_cell_pairwise_heatmap
 from cellmates.models.evo import p_delta_change, CopyTree, JCBModel
 from cellmates.models.obs import NormalModel, PoissonModel
@@ -138,11 +138,11 @@ class EMTestCase(unittest.TestCase):
             'tree': dendropy.Tree.get(data=adata.uns['tree'], schema='newick')
         }
 
+        bio_tree = Phylo.read(io.StringIO(adata.uns['tree']), 'newick')
+        test_folder = create_output_test_folder()
         # plot with scgenome to show tree
         try:
             import scgenome.plotting as pl
-            bio_tree = Phylo.read(io.StringIO(adata.uns['tree']), 'newick')
-            test_folder = create_output_test_folder()
             g = pl.plot_cell_cn_matrix_fig(adata, tree=bio_tree, show_cell_ids=True)
             g['fig'].savefig(test_folder + '/cn_profile_true_tree.png')
 
@@ -150,8 +150,8 @@ class EMTestCase(unittest.TestCase):
             g = pl.plot_cell_cn_matrix_fig(adata, layer_name=None, tree=bio_tree, raw=True, show_cell_ids=True)
             g['fig'].savefig(test_folder + '/obs_profile.png')
             print("Saved cn profile and reads to", test_folder)
-        except Exception:
-            print("Skipped scgenome plotting")
+        except ImportError:
+            print("scgenome is not installed; skipping scgenome plotting tests.")
 
         # run EM
         em = EM(n_states=n_states, obs_model='poisson', evo_model='jcb')
@@ -179,9 +179,12 @@ class EMTestCase(unittest.TestCase):
         with open(nwk_file_path, 'w') as f:
             f.write(nxtree_to_newick(em_tree, weight='length'))
         em_tree_bio = Phylo.read(nwk_file_path, 'newick')
-        g = pl.plot_cell_cn_matrix_fig(adata, tree=em_tree_bio, show_cell_ids=True)
-        g['fig'].savefig(test_folder + '/cn_profile_inferred_tree.png')
-
+        try:
+            import scgenome.plotting as pl
+            g = pl.plot_cell_cn_matrix_fig(adata, tree=em_tree_bio, show_cell_ids=True)
+            g['fig'].savefig(test_folder + '/cn_profile_inferred_tree.png')
+        except ImportError:
+            print("scgenome is not installed; skipping scgenome plotting tests.")
         # plot diff ctr distances in heatmap
         em_ctr_matrix_full = np.triu(em.distances[..., 0]) + np.tril(em.distances[..., 0].T)
         diff_ctr_dist = adata.obsm['ctr-distance-matrix'] - em_ctr_matrix_full
