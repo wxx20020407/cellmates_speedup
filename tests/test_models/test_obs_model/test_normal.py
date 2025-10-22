@@ -68,6 +68,37 @@ class NormalModelTestCase(unittest.TestCase):
 
     def test_update_given_c(self):
         """
+        Tests that the NormalModel parameters are updated correctly given true copy number profiles.
+        """
+        n_sites = 100
+        K = 7
+        mu_v_true = mu_w_true = 1.0
+        tau_v_true = tau_w_true = 50.0
+        obs_model = NormalModel(n_states=K, mu_v_prior=mu_v_true, tau_v_prior=tau_v_true)
+        evo_model_sim = SimulationEvoModel(n_clonal_CN_events=5, n_focal_events=5, clonal_CN_length=n_sites // 20)
+        # Simulate data
+        data = datagen.simulate_quadruplet(n_sites, obs_model, evo_model_sim, n_states=K)
+        # Initialize parameters away from true values
+        psi_init = {'mu_v': mu_v_true * 4, 'tau_v': tau_v_true * 2, 'mu_w': mu_w_true * 2, 'tau_w': tau_w_true * 2}
+        obs_model.initialize(psi_init)
+        print(f"Initial psi: {obs_model.psi}")
+        # Update parameters given true copy numbers
+        x = data['obs']
+        cnps = data['cn']
+        pC1_v, _ = testing.get_marginals_from_cnp(cnps[0], K)
+        pC1_w, _ = testing.get_marginals_from_cnp(cnps[1], K)
+        obs_model.update(x, (pC1_v, pC1_w))
+        updated_psi = obs_model.psi
+        print(f"Updated psi: {[updated_psi[key].round(2).item() for key in updated_psi.keys()]}")
+        print(f"Expected psi: mu_v={mu_v_true}, tau_v={tau_v_true}, mu_w={mu_w_true}, tau_w={tau_w_true}")
+        self.assertAlmostEqual(updated_psi['mu_v'], mu_v_true, delta=0.1)
+        self.assertAlmostEqual(updated_psi['mu_w'], mu_w_true, delta=0.1)
+        self.assertAlmostEqual(updated_psi['tau_v'], tau_v_true, delta=10.0)
+        self.assertAlmostEqual(updated_psi['tau_w'], tau_w_true, delta=10.0)
+
+
+    def test_EM_given_c(self):
+        """
         Tests that the update step works correctly when given the true copy numbers.
         Initializes the psi parameters away from the true values and checks that they are updated towards them.
         """

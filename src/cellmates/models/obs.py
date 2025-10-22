@@ -276,7 +276,7 @@ class NormalModel(ObsModel):
 
 class PoissonModel(ObsModel):
     """
-    Implementation of the quadruplet specifc Poisson emission model.
+    Implementation of the quadruplet specific Poisson emission model.
     p(r_m^v |C^v, lambda_v) = Poisson(r_vm | lambda_v)
     """
 
