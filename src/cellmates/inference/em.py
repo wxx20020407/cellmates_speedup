@@ -147,7 +147,7 @@ class EM:
         theta_init_[:] = theta_init  # ...copy instead of referencing and validate input size with assignment
         self.obs_model.initialize(psi_init)
         # (`theta_init_ = theta_init` is wrong, but also `theta_init_ = theta_init.copy()` is prone to error
-        quad_model = self.evo_model#.new()
+        quad_model = self.evo_model.new()
         quad_model.theta = theta_init_
         # compute changes is observation and evolution model specific
         d, dp, loglik = quad_model._expected_changes(obs_vw=obs_vw, obs_model=self.obs_model)

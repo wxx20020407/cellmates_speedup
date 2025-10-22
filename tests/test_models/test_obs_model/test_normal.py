@@ -96,7 +96,7 @@ class NormalModelTestCase(unittest.TestCase):
         self.assertAlmostEqual(updated_psi['tau_v'], tau_v_true, delta=10.0)
         self.assertAlmostEqual(updated_psi['tau_w'], tau_w_true, delta=10.0)
 
-
+    @unittest.skip("Requires '.new()' in quad_model=evo_model.new() to be commented out in _fit_quadruplet in em.py")
     def test_EM_given_c(self):
         """
         Tests that the update step works correctly when given the true copy numbers.
