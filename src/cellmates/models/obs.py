@@ -10,7 +10,8 @@ class ObsModel(ABC):
 
     def __init__(self, n_states: int, **kwargs):
         self.n_states = n_states
-        self.psi = {}   # model parameters
+        self.psi = {}      # model parameters
+        self.psi_sim = {}  # parameters used for simulation
 
     @abstractmethod
     def sample(self, cnp, **kwargs):
