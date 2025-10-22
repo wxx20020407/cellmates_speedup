@@ -15,9 +15,9 @@ from matplotlib import pyplot as plt
 #import scgenome.plotting as pl
 from scipy.special import logsumexp
 
-from cellmates.utils import math_utils, testing
+from cellmates.utils import math_utils, testing, tree_utils
 from cellmates.utils.visual import plot_cn_profile, plot_cell_pairwise_heatmap
-from cellmates.models.evo import p_delta_change, CopyTree, JCBModel
+from cellmates.models.evo import p_delta_change, CopyTree, JCBModel, SimulationEvoModel
 from cellmates.models.obs import NormalModel, PoissonModel
 from cellmates.simulation.datagen import rand_dataset, simulate_quadruplet, rand_ann_dataset
 from cellmates.inference.em import jcb_em_ctrtable, EM, jcb_em_alg
@@ -385,34 +385,40 @@ class EMTestCase(unittest.TestCase):
         # self.assertGreater(ll_cn, ll_true, msg="Generated lengths fit better than actual CN changes")
         self.assertGreater(ll_est, ll_cn, msg="EM estimates fit better than generated but not than actual CN changes")
 
-
-
-
-
-    def test_quadruplet_true_init_normal(self):
-        # TEST WITH NORMAL OBS and TRUE INIT for LENGTHS
-        # seed for reproducibility
-        seed = 120
-        # dendropy seed
-        random.seed(seed)
-        np.random.seed(seed)
+    def test_quadruplet_true_init_normal_given_psi(self):
+        """
+        Initialize EM with true theta and psi parameters for NormalModel and JCBModel on a quadruplet tree.
+        Then runs EM for theta parameters only by setting train=False in the observation model.
+        This tests that EM improves likelihood when starting from the true parameters.
+        """
+        testing.set_seed(0)
         n_states = 5
         n_sites = 500
-        gamma_params = [(1*n_sites, 0.01/n_sites), (1*n_sites, 0.03/n_sites), (1*n_sites, 0.008/n_sites)]
-        evo_model_sim = CopyTree(n_states)
-        p_sim = np.array([0.02, 0.01, 0.01])
-        l_sim = l_from_p(np.array(p_sim), n_states)
+        n_focal_events_per_edge = 5
+        n_clonal_events_per_edge = 5
+        clonal_CN_length = n_sites // 20
         evo_model = JCBModel(n_states=n_states, alpha=1)
-        obs_model = NormalModel(n_states=n_states, mu_v_prior=1.0, tau_v_prior=100.0)
-        data = simulate_quadruplet(n_sites, obs_model=obs_model, evo_model=evo_model_sim, edge_lengths=l_sim, n_states=n_states)
-        l_exp = math_utils.get_expected_branch_lengths_from_cnps(data['cn'], n_states)
+        obs_model = NormalModel(n_states=n_states, mu_v_prior=1.0, tau_v_prior=100.0, train=False)
+
+        evo_model_sim = SimulationEvoModel(n_clonal_CN_events=n_clonal_events_per_edge,
+                                           clonal_CN_length=clonal_CN_length,
+                                           n_focal_events=n_focal_events_per_edge)
+        data = simulate_quadruplet(n_sites, obs_model=obs_model, evo_model=evo_model_sim, n_states=n_states)
+        cnps = data['cn']
+        tree_dp = data['tree']
+        tree_nx = tree_utils.convert_dendropy_to_networkx(tree_dp)
+        cell_pairs = [(0, 1)]
+        D, Dp = testing.get_expected_changes(cnps, tree_nx, cell_pairs)
+        l_exp, pairwise_l_exp = testing.get_expected_distances(D, Dp, n_states, cell_pairs)
+
         gt_ctr_table = get_ctr_table(data['tree'])
         # print cn in order r, u, v, w (check simulate_quadruplet doc for sorting info)
         print(f"\nCN (first 20 sites) (r, u, v, w):\n{data['cn'][[3, 2, 0, 1], :20]}")
         print(f"\nObs (first 20 sites) (r, u, v, w):\n{data['obs'].T[:, :20]}")
 
         # save data
-        out_dir = create_output_test_folder(sub_folder_name=f'M_{n_sites}')
+        out_dir = create_output_test_folder(
+            sub_folder_name=f'M{n_sites}_K{n_states}_Clonal{n_clonal_events_per_edge}_Focal{n_focal_events_per_edge}')
         fig, ax = plt.subplots()
         plot_cn_profile(data['cn'], ax=ax)
         fig.savefig(out_dir + '/cn_profile.png')
@@ -446,8 +452,102 @@ class EMTestCase(unittest.TestCase):
         print("Estimated edge _lengths:")
         print(l_est)
         print(f"Expected edge lengths:")
-        l_exp_ruvw =[l_exp[0,1], l_exp[1,2], l_exp[1,3]]
-        print(l_exp_ruvw)
+        print(l_exp[0, 1])
+
+        # check likelihood
+        ll_est = em.loglikelihoods[(0, 1)]
+        evo_model.lengths = l_true
+
+        log_emissions = obs_model.log_emission(data['obs'])
+        _, ll_true = evo_model._forward_pass_likelihood(data['obs'], log_emissions)
+        print(f"Generating lengths likelihood: {ll_true}")
+        print(f"Estimated lengths likelihood: {ll_est}")
+        self.assertGreater(ll_est, ll_true, msg="EM does not improve likelihood at all")
+        # compute cn changes
+        comp_eps = compute_cn_changes(data['cn'], [(3, 2), (2, 0), (2, 1)])
+        comp_lengths = l_from_p(np.array(comp_eps) / n_sites, n_states)
+        print(f"Est (CN) edge _lengths: {comp_lengths}")
+        ll_cn = em.compute_pair_likelihood(data['obs'], theta=np.array(comp_eps) / n_sites, psi=obs_model.psi)
+        print(f"Est (CN) edge _lengths likelihood: {ll_cn}")
+        # self.assertGreater(ll_cn, ll_true, msg="Generated lengths fit better than actual CN changes")
+        self.assertGreater(ll_est, ll_cn, msg="EM estimates fit better than generated but not than actual CN changes")
+        # Parameter checks
+        psi_out = em.obs_model.psi
+        print(f"True psi: {psi_init}")
+        print(f"Estimated psi: {psi_out}")
+        self.assertEqual(psi_out['mu_v'], psi_init['mu_v'], msg="psi updated during optimization.")
+        self.assertEqual(psi_out['mu_w'], psi_init['mu_w'], msg="psi updated during optimization.")
+
+    def test_quadruplet_true_init_normal_obs(self):
+        """
+        Initializes theta and psi to the true values used to generate the data.
+        Tests whether EM improves the likelihood from the true generating parameters and that the estimated parameters
+        are close to the true ones.
+        Returns: THE TRUTH
+        """
+
+        # seed for reproducibility
+        testing.set_seed(0)
+        n_states = 5
+        n_sites = 500
+        n_focal_events_per_edge = 5
+        n_clonal_events_per_edge = 5
+        clonal_CN_length = n_sites//20
+        evo_model = JCBModel(n_states=n_states, alpha=1)
+        obs_model = NormalModel(n_states=n_states, mu_v_prior=1.0, tau_v_prior=100.0, train=True)
+
+        evo_model_sim = SimulationEvoModel(n_clonal_CN_events=n_clonal_events_per_edge,
+                                           clonal_CN_length=clonal_CN_length,
+                                           n_focal_events=n_focal_events_per_edge)
+        data = simulate_quadruplet(n_sites, obs_model=obs_model, evo_model=evo_model_sim, n_states=n_states)
+        cnps = data['cn']
+        tree_dp = data['tree']
+        tree_nx = tree_utils.convert_dendropy_to_networkx(tree_dp)
+        cell_pairs = [(0, 1)]
+        D, Dp = testing.get_expected_changes(cnps, tree_nx, cell_pairs)
+        l_exp, pairwise_l_exp = testing.get_expected_distances(D, Dp, n_states, cell_pairs)
+
+        gt_ctr_table = get_ctr_table(data['tree'])
+        # print cn in order r, u, v, w (check simulate_quadruplet doc for sorting info)
+        print(f"\nCN (first 20 sites) (r, u, v, w):\n{data['cn'][[3, 2, 0, 1], :20]}")
+        print(f"\nObs (first 20 sites) (r, u, v, w):\n{data['obs'].T[:, :20]}")
+
+        # save data
+        out_dir = create_output_test_folder(sub_folder_name=f'M{n_sites}_K{n_states}_Clonal{n_clonal_events_per_edge}_Focal{n_focal_events_per_edge}')
+        fig, ax = plt.subplots()
+        plot_cn_profile(data['cn'], ax=ax)
+        fig.savefig(out_dir + '/cn_profile.png')
+
+        # print tree with _lengths
+        l_true = gt_ctr_table[0, 1, :].tolist()
+        print(f"Generated tree")
+        data['tree'].print_plot(plot_metric='length')
+        print(f"Generated edge _lengths: {l_true}")
+        print(f"(from p: {p_from_l(gt_ctr_table[0, 1, :], n_states)}")
+
+        psi_init = {'mu_v': obs_model.mu_v_prior,
+                    'tau_v': obs_model.tau_v_prior,
+                    'mu_w': obs_model.mu_w_prior,
+                    'tau_w': obs_model.tau_w_prior}
+        # run EM
+        em = EM(n_states=n_states, obs_model=obs_model, evo_model=evo_model)
+        em.fit(data['obs'], theta_init=l_true, psi_init=psi_init)
+        ctr_table = em.distances
+        # change tree _lengths to match the estimated ones
+        for edge in data['tree'].preorder_edge_iter():
+            if edge.head_node.label == '2':
+                edge.length = ctr_table[0, 1, 0]
+            elif edge.head_node.label == '0':
+                edge.length = ctr_table[0, 1, 1]
+            elif edge.head_node.label == '1':
+                edge.length = ctr_table[0, 1, 2]
+        print(f"Estimated tree")
+        data['tree'].print_plot(plot_metric='length')
+        l_est = ctr_table[0, 1, :].tolist()
+        print("Estimated edge _lengths:")
+        print(l_est)
+        print(f"Expected edge lengths:")
+        print(l_exp[0,1])
 
         # check likelihood
         ll_est = em.loglikelihoods[(0, 1)]
@@ -466,6 +566,13 @@ class EMTestCase(unittest.TestCase):
         print(f"Est (CN) edge _lengths likelihood: {ll_cn}")
         # self.assertGreater(ll_cn, ll_true, msg="Generated lengths fit better than actual CN changes")
         self.assertGreater(ll_est, ll_cn, msg="EM estimates fit better than generated but not than actual CN changes")
+        # Parameter checks
+        psi_out = em.obs_model.psi
+        print(f"True psi: {psi_init}")
+        print(f"Estimated psi: {psi_out}")
+        self.assertAlmostEqual(psi_out['mu_v'], psi_init['mu_v'], delta=0.1)
+        self.assertAlmostEqual(psi_out['mu_w'], psi_init['mu_w'], delta=0.1)
+
 
     def test_quadruplet_true_init(self):
         # TEST WITH POISSON OBS and TRUE INIT for LENGTHS

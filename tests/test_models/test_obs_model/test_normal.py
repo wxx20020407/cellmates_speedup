@@ -69,6 +69,7 @@ class NormalModelTestCase(unittest.TestCase):
     def test_update_given_c(self):
         """
         Tests that the NormalModel parameters are updated correctly given true copy number profiles.
+        TODO: 2025-10-22: FAILS due to tau is 2*true value for some reason. Update equations have been double-checked.
         """
         n_sites = 100
         K = 7
@@ -79,7 +80,7 @@ class NormalModelTestCase(unittest.TestCase):
         # Simulate data
         data = datagen.simulate_quadruplet(n_sites, obs_model, evo_model_sim, n_states=K)
         # Initialize parameters away from true values
-        psi_init = {'mu_v': mu_v_true * 4, 'tau_v': tau_v_true * 2, 'mu_w': mu_w_true * 2, 'tau_w': tau_w_true * 2}
+        psi_init = {'mu_v': mu_v_true * 4, 'tau_v': tau_v_true * 4, 'mu_w': mu_w_true * 2, 'tau_w': tau_w_true * 4}
         obs_model.initialize(psi_init)
         print(f"Initial psi: {obs_model.psi}")
         # Update parameters given true copy numbers
@@ -124,7 +125,7 @@ class NormalModelTestCase(unittest.TestCase):
         assert (np.argmax(pC1_v, axis=1) == cnps[0]).all()
         assert (np.argmax(pC1_w, axis=1) == cnps[1]).all()
         evo_model.get_one_slice_marginals = MagicMock(return_value=[pC1_v, pC1_w])
-        evo_model._expected_changes = MagicMock(return_value=[D, Dp, -1.0])
+        evo_model._expected_changes = MagicMock(return_value=[D[(0,1)], Dp[(0,1)], -1.0])
 
         theta_init = np.array([0.2, 0.2, 0.2])
         psi_init = {'mu_v': mu_v_true*4, 'tau_v': tau_v_true*2, 'mu_w': mu_w_true*2, 'tau_w': tau_w_true*2}
