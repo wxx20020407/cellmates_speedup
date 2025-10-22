@@ -69,24 +69,29 @@ class CellmatesTestCase(unittest.TestCase):
 
         # --------- Setup Models and Mock Expected changes D, D' ---------
         obs_model = obs_model_sim
+        evo_model_temp = JCBModel(n_states=n_states)
         evo_model = JCBModel(n_states=n_states)
         cell_pairs = list(itertools.combinations(range(n_cells), r=2))
         D, Dp = testing.get_expected_changes(cnps, tree_nx, cell_pairs)
         exp_distances, exp_pairwise_distances = testing.get_expected_distances(D, Dp, n_states, cell_pairs)
 
         fig, ax = plt.subplots()
-        visual.plot_cell_pairwise_heatmap(exp_pairwise_distances, label=np.arange(0, n_cells), ax=ax)
+        #visual.plot_cell_pairwise_heatmap(exp_pairwise_distances, label=np.arange(0, n_cells), ax=ax)
         fig.savefig(out_dir + '/exp_pairwise_distances.png')
 
-        #evo_model.new = MagicMock(return_value=evo_model)  # bypass new model creation to enable mocking
+        evo_model_temp.new = MagicMock(return_value=evo_model)  # bypass new model creation to enable mocking
+        psi_init = {'mu_v': 1.0, 'tau_v': 50.0, 'mu_w': 1.0, 'tau_w': 50.0}
 
         # --------- Run Cellmates EM inference ---------
-        em_alg = EM(n_states, evo_model=evo_model, obs_model=obs_model)
+        em_alg = EM(n_states, evo_model=evo_model_temp, obs_model=obs_model)
         results = []
         for i, (v,w) in enumerate(cell_pairs):
             theta_init = np.array([0.25, 0.25, 0.25])
+            pC1_v = testing.get_marginals_from_cnp(cnps[v], n_states)[0]
+            pC1_w = testing.get_marginals_from_cnp(cnps[w], n_states)[0]
+            evo_model.get_one_slice_marginals = MagicMock(return_value=(pC1_v, pC1_w))
             evo_model._expected_changes = MagicMock(return_value=(D[v,w], Dp[v,w], -1.0))
-            res_vw = em_alg._fit_quadruplet(v, w, x, theta_init=theta_init, max_iter=max_iter, rtol=rtol)
+            res_vw = em_alg._fit_quadruplet(v, w, x, theta_init=theta_init, psi_init=psi_init, max_iter=max_iter, rtol=rtol)
             results.append(res_vw)
 
         distances = -np.ones((n_cells, n_cells, 3))
@@ -209,7 +214,7 @@ class CellmatesTestCase(unittest.TestCase):
 
     @unittest.skip("Under development")
     def test_dice_benchmark_PoC_data(self):
-
+        # TODO: finish this test
         cnasim_tree_nw = "((leaf1:0.01,leaf2:0.01):0.127,((leaf3:0.039,(leaf5:0.023,(leaf7:0.01,leaf8:0.01):0.013):0.016):0.096,(leaf4:0.12,(leaf6:0.061,(leaf9:0.018,leaf10:0.018):0.043):0.059):0.015):0.003)root"
         cnasim_tree_nx = tree_utils.newick_to_nx(cnasim_tree_nw, interior_node_names=[f"int{i+10}" for i in range(10)])
 
@@ -222,44 +227,6 @@ class CellmatesTestCase(unittest.TestCase):
         fig.savefig(out_dir + '/cnasim_tree.png')
         fig, ax = visual.plot_cn_profile(cnps, ax=ax)
         fig.savefig(out_dir + '/cnasim_cn_profile.png')
-
-        # Reconstruct internal CNPs based on minimal evolution
-        cnps_all = tree_utils.reconstruct_internal_cnps(leaf_cnps=..., tree_nx=cnasim_tree_nx, n_states=7, method='min_evolution')
-
-        # Run Cellmates EM inference on the CNPs
-
-    def test_dice_benchmark_data(self):
-        """
-        Takes the simulated single cell tree and associated CNPs from the DICE benchmark datasets and
-        reconstructs the internal CNPs based on a minimal evolution principle.
-        Then Cellmates is run to infer the tree from the CNPs.
-        """
-
-        # Load the DICE benchmark dataset
-        path_to_datasets = "/Users/haraldme/git/Lagergren Lab/CopyTree/Cellmates/Cellmates/data/DICE_benchmarks/CNAsim"
-        dataset_name = 'A1_0/17'
-        n_cells = 10
-        data_path = os.path.join(path_to_datasets, dataset_name)
-        path_to_cnps = os.path.join(data_path, 'profiles.tsv')
-        path_to_tree = os.path.join(data_path, 'tree.nw')
-        profiles_df = pd.read_csv(path_to_cnps, delimiter='\t', header=0)
-        wide_cn_df = pd.pivot_table(profiles_df, index=['chrom', 'start', 'end'], values='cn', columns='CELL',
-                                    sort=False)  # already sorted by cell number
-        # extract cell columns sorted by cell number
-        cells = [f'cell{i + 1}' for i in range(n_cells)]
-        cn_profiles = wide_cn_df[cells].transpose().to_numpy()
-        tree_ = Phylo.read(io.StringIO(path_to_tree, 'newick'))
-
-        cnasim_tree_nw = "((leaf1:0.01,leaf2:0.01):0.127,((leaf3:0.039,(leaf5:0.023,(leaf7:0.01,leaf8:0.01):0.013):0.016):0.096,(leaf4:0.12,(leaf6:0.061,(leaf9:0.018,leaf10:0.018):0.043):0.059):0.015):0.003)root"
-        cnasim_tree_nx = tree_utils.newick_to_nx(cnasim_tree_nw, interior_node_names=[f"int{i+10}" for i in range(10)])
-
-        out_dir = testing.create_output_test_folder()
-        fig, ax = visual.draw_graph(cnasim_tree_nx, save_path=out_dir + '/cnasim_tree.png')
-        # save
-        fig.savefig(out_dir + '/cnasim_tree.png')
-
-        # CNPs for the 10 leaves
-        # TODO: load CNPs here
 
         # Reconstruct internal CNPs based on minimal evolution
         cnps_all = tree_utils.reconstruct_internal_cnps(leaf_cnps=..., tree_nx=cnasim_tree_nx, n_states=7, method='min_evolution')

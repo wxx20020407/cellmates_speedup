@@ -320,7 +320,7 @@ class EvoModel:
         """
         return self._trans_mat
 
-    def get_one_slice_marginals(self):
+    def get_one_slice_marginals(self)-> tuple[np.ndarray, np.ndarray]:
         """
         Compute the one slice marginals from the one slice log gammas.
         """
