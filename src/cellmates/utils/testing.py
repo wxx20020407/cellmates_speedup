@@ -60,9 +60,9 @@ def get_expected_distances(D: np.ndarray, Dp:np.ndarray, n_states, cell_pairs=No
     cell_pairs = cell_pairs if cell_pairs is not None else list(range(n_cells))
     expected_distances = -np.ones((n_cells, n_cells, 3))
     expected_pairwise_distances = -np.ones((n_cells, n_cells))
-    for v, w in cell_pairs:
-        D_pair = D[v, w]
-        Dp_pair = Dp[v, w]
+    for i, (v, w) in enumerate(cell_pairs):
+        D_pair = D[i]
+        Dp_pair = Dp[i]
         D_uv = D_pair[1]
         D_uw = D_pair[2]
         expected_distances[v, w, :] = math_utils.l_from_p(D_pair / Dp_pair, n_states)

@@ -4,7 +4,6 @@ import logging
 import random
 import time
 import unittest
-import pytest
 from unittest.mock import MagicMock
 
 import dendropy
@@ -124,7 +123,6 @@ class EMTestCase(unittest.TestCase):
         nx.write_network_text(em_tree, sources=['r'])
         assert nx.is_tree(em_tree)
 
-    @pytest.mark.slow
     def test_tree_inference_synth(self):
         seed = 101
         n_states = 5
@@ -653,12 +651,12 @@ class EMTestCase(unittest.TestCase):
         # print("OBS VW (first 20 sites):")
         # print(obs_vw[:20, :].transpose())
         jcb_model.lengths = np.array([sl, ll, ll])
-        log_xi_early_centroid = jcb_model.two_slice_marginals(obs_vw, obs_model)
+        log_xi_early_centroid, _ = jcb_model.two_slice_marginals(obs_vw, obs_model)
         loglik_early = jcb_model.loglikelihood
 
         # compute two-slice marginals assuming centroid is placed closer to the leaves
         jcb_model.lengths = np.array([ll, sl, sl])
-        log_xi_late_centroid = jcb_model.two_slice_marginals(obs_vw, obs_model)
+        log_xi_late_centroid, _ = jcb_model.two_slice_marginals(obs_vw, obs_model)
         loglik_late = jcb_model.loglikelihood
         self.assertGreater(loglik_late, loglik_early)
 

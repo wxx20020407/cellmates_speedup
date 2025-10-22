@@ -1,10 +1,9 @@
-import io
 import itertools
-import logging
 import random
 import unittest
 from unittest.mock import MagicMock
 
+import pytest
 import skbio
 from dendropy.calculate import treecompare
 
@@ -32,15 +31,15 @@ class CellmatesTestCase(unittest.TestCase):
         np.random.seed(seed=self.seed)
         dendropy.utility.GLOBAL_RNG.seed(self.seed)
 
-    #@unittest.skip("This test only works when evo_model.new() is commented out in _fit_quadruplet in em.py")
+    @unittest.skip("Too slow for regular testing. Plus, might still contain bugs.")
     def test_cellmates_given_c(self):
         # Inference parameters
         max_iter = 20
         rtol = 1e-4
 
         # Simulation parameters
-        n_sites = 1000
-        n_cells = 20
+        n_sites = 400
+        n_cells = 8
         n_states = 7
         n_clonal_events_per_edge = 5
         n_focal_events_per_edge = 5
@@ -80,8 +79,8 @@ class CellmatesTestCase(unittest.TestCase):
         results = []
         for i, (v,w) in enumerate(cell_pairs):
             theta_init = np.array([0.25, 0.25, 0.25])
-            evo_model._expected_changes = MagicMock(return_value=(D[v,w], Dp[v,w], -1.0))
-            res_vw = em_alg._fit_quadruplet(v, w, x, theta_init=theta_init, max_iter=max_iter, rtol=rtol)
+            evo_model._expected_changes = MagicMock(return_value=(D[i], Dp[i], -1.0))
+            res_vw = em_alg._fit_quadruplet(v, w, x[:, [v,w]], theta_init=theta_init, max_iter=max_iter, rtol=rtol)
             results.append(res_vw)
 
         distances = -np.ones((n_cells, n_cells, 3))

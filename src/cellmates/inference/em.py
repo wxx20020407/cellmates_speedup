@@ -120,7 +120,7 @@ class EM:
             self.logger.debug(f'using single processor')
             results = []
             for s, t in itertools.combinations(range(self.n_cells), r=2):
-                results.append(self._fit_quadruplet(s, t, obs[:, [s, t]], theta_init_, psi_init, max_iter, rtol))
+                results.append(self._fit_quadruplet(s, t, obs[:, [s, t]], theta_init_, max_iter, rtol, psi_init))
 
         # collect results
         for (s, t), l_i, loglik, it in results:
@@ -136,8 +136,8 @@ class EM:
 
 
     def _fit_quadruplet(self, v: int, w: int, obs_vw: np.ndarray,
-                        theta_init: np.ndarray, psi_init: dict,
-                        max_iter: int, rtol: float):
+                        theta_init: np.ndarray,
+                        max_iter: int, rtol: float, psi_init: dict = None):
         # define quad logger with cell pair tag adding to the class logger
         logger = self.logger.getChild(f'{v},{w}')
         logger.setLevel(self.logger.level)
@@ -194,7 +194,7 @@ class EM:
         """
         shm = shared_memory.SharedMemory(name=shared_obs_mem_name)
         obs_vw = np.ndarray((self.n_sites, self.n_cells), dtype=np.float64, buffer=shm.buf)[..., [v, w]]
-        return self._fit_quadruplet(v, w, obs_vw, l_init, psi_init, max_iter, rtol)
+        return self._fit_quadruplet(v, w, obs_vw, l_init, max_iter, rtol, psi_init)
 
     def transform(self):
         # alternative method for the distances getter
@@ -210,7 +210,7 @@ class EM:
         """
         # run forward algorithm
         psi = self.obs_model.psi if psi is None else psi
-        _, _, loglik, _ = self._fit_quadruplet(0, 1, obs_vw, theta, psi, max_iter=0, rtol=0)
+        _, _, loglik, _ = self._fit_quadruplet(0, 1, obs_vw, theta, max_iter=0, rtol=0, psi_init=psi)
         return loglik
 
     @property
