@@ -16,6 +16,11 @@ N_STATES = config["n_states"]
 BIN_LENGTH = 1000000  # 1Mb bins
 CN_LENGTH_MEAN = 10000000  # 10Mb average CNA length
 SOURCE_PATH = "../../../src"
+RESULTS_DIR = config.get("results_dir", "results")
+
+# alias os.path.join -> opj
+def opj(*args):
+    return os.path.join(*args)
 
 wildcard_constraints:
     replicate=r"\d+",
@@ -28,13 +33,13 @@ wildcard_constraints:
     n_chrom=r"\d+"
 
 rule all:
-    input: 'results/stats.csv', 'results/analysis_notebook.ipynb'
+    input: opj(RESULTS_DIR, 'stats.csv'), opj(RESULTS_DIR, 'analysis_notebook.ipynb')
 
 # simulate data with cnasim
 rule simulate:
     output:
         # dir=temp(directory("data/R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_E1{e1}_E2{e2}_C{n_chrom}/")),
-        counts=os.path.join("results/data", "R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_E1{e1}_E2{e2}_C{n_chrom}", "cnasim_tmp", "readcounts.tsv")
+        counts=opj(RESULTS_DIR, "data", "R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_E1{e1}_E2{e2}_C{n_chrom}", "cnasim_tmp", "readcounts.tsv")
     conda: "envs/cnasim.yml"
     params:
         replicate=lambda wc: int(wc.replicate),
@@ -57,8 +62,8 @@ rule simulate:
 
 rule prepare_anndata:
     input:
-        counts=os.path.join("results/data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_E1{e1}_E2{e2}_C{n_chrom}", "cnasim_tmp", "readcounts.tsv")
-    output: os.path.join("results/data", "R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_E1{e1}_E2{e2}_C{n_chrom}", "input.h5ad")
+        counts=os.path.join(RESULTS_DIR, "data","R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_E1{e1}_E2{e2}_C{n_chrom}", "cnasim_tmp", "readcounts.tsv")
+    output: os.path.join(RESULTS_DIR, "data", "R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_E1{e1}_E2{e2}_C{n_chrom}", "input.h5ad")
     params:
         cnasim_dir=subpath(input.counts, parent=True)
     conda: "envs/base.yml"
@@ -68,11 +73,11 @@ rule prepare_anndata:
     """
 
 rule run_cellmates:
-    input: os.path.join("results/data", "R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_E1{e1}_E2{e2}_C{n_chrom}", "input.h5ad")
+    input: os.path.join(RESULTS_DIR, "data", "R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_E1{e1}_E2{e2}_C{n_chrom}", "input.h5ad")
     output:
-        cm_dist=os.path.join("results/data", "R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_E1{e1}_E2{e2}_C{n_chrom}", "cm_out", "distance_matrix.npy"),
-        cm_tree=os.path.join("results/data", "R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_E1{e1}_E2{e2}_C{n_chrom}", "cm_out", "tree.nwk"),
-        cm_cells=os.path.join("results/data", "R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_E1{e1}_E2{e2}_C{n_chrom}", "cm_out", "cell_names.txt")
+        cm_dist=os.path.join(RESULTS_DIR, "data", "R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_E1{e1}_E2{e2}_C{n_chrom}", "cm_out", "distance_matrix.npy"),
+        cm_tree=os.path.join(RESULTS_DIR, "data", "R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_E1{e1}_E2{e2}_C{n_chrom}", "cm_out", "tree.nwk"),
+        cm_cells=os.path.join(RESULTS_DIR, "data", "R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_E1{e1}_E2{e2}_C{n_chrom}", "cm_out", "cell_names.txt")
     params:
         directory=subpath(output.cm_dist, parent=True)
     conda: "cellmates"
@@ -83,11 +88,11 @@ rule run_cellmates:
 
 rule evaluate:
     input:
-        truth_ad=os.path.join("results/data", "R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_E1{e1}_E2{e2}_C{n_chrom}", "input.h5ad"),
-        cm_dist=os.path.join("results/data", "R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_E1{e1}_E2{e2}_C{n_chrom}", "cm_out", "distance_matrix.npy"),
-        cm_tree=os.path.join("results/data", "R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_E1{e1}_E2{e2}_C{n_chrom}", "cm_out", "tree.nwk"),
-        cm_cells=os.path.join("results/data", "R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_E1{e1}_E2{e2}_C{n_chrom}", "cm_out", "cell_names.txt")
-    output: os.path.join("results/data", "R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_E1{e1}_E2{e2}_C{n_chrom}", "eval_tmp.csv")
+        truth_ad=os.path.join(RESULTS_DIR, "data", "R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_E1{e1}_E2{e2}_C{n_chrom}", "input.h5ad"),
+        cm_dist=os.path.join(RESULTS_DIR, "data", "R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_E1{e1}_E2{e2}_C{n_chrom}", "cm_out", "distance_matrix.npy"),
+        cm_tree=os.path.join(RESULTS_DIR, "data", "R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_E1{e1}_E2{e2}_C{n_chrom}", "cm_out", "tree.nwk"),
+        cm_cells=os.path.join(RESULTS_DIR, "data", "R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_E1{e1}_E2{e2}_C{n_chrom}", "cm_out", "cell_names.txt")
+    output: os.path.join(RESULTS_DIR, "data", "R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_E1{e1}_E2{e2}_C{n_chrom}", "eval_tmp.csv")
     params:
         n_states=N_STATES,
         seed=lambda wc: int(wc.replicate)
@@ -96,10 +101,10 @@ rule evaluate:
 
 rule combine_results:
     input:
-        expand(os.path.join("results/data", "R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_E1{e1}_E2{e2}_C{n_chrom}", "eval_tmp.csv"),
+        expand(os.path.join(RESULTS_DIR, "data", "R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_E1{e1}_E2{e2}_C{n_chrom}", "eval_tmp.csv"),
             replicate=range(1,N_REPLICATES + 1), n_cells=N_CELLS_LIST, n_bins=N_BINS_LIST, n_clones=N_CLONES_LIST, lamda=LAMDA_LIST, e1=E1_LIST, e2=E2_LIST, n_chrom=N_CHROM_LIST
         )
-    output: "results/stats.csv"
+    output: opj(RESULTS_DIR, "stats.csv")
     shell: """
     echo "Combining results"
     head -n 1 {input[0]} > {output}
@@ -117,8 +122,8 @@ rule combine_results:
 #     script: "scripts/plot_input.R"
 
 rule analysis_notebook:
-    input: "results/stats.csv"
+    input: opj(RESULTS_DIR, "stats.csv")
     conda: "cellmates"
-    log: "results/analysis_notebook.ipynb"
+    log: opj(RESULTS_DIR, "analysis_notebook.ipynb")
     notebook: "notebooks/plots.py.ipynb"
 
