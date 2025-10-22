@@ -144,7 +144,7 @@ class EM:
         quad_model = self.evo_model.new()
         quad_model.theta = theta_init_
         # compute changes is observation and evolution model specific
-        d, dp, loglik = quad_model._expected_changes(obs_vw=obs_vw, obs_model=self.obs_model)
+        d, dp, loglik = quad_model.multi_chr_expected_changes(obs_vw=obs_vw, obs_model=self.obs_model)
         convergence = False
         it = 0
         logger.debug(f'[{it}/{max_iter}] LL = {loglik} d = {d} dp = {dp}')
