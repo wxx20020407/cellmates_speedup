@@ -228,7 +228,10 @@ def relabel_name_to_int(nxtree: nx.DiGraph, cell_names: list) -> nx.DiGraph:
     and ancestors are labeled from n to n+m-1 where m is the number of ancestors.
     """
     cells_mapping = {name: i for i, name in enumerate(cell_names)}
-    ancestors_mapping = {n: i + len(cell_names) for i, n in enumerate(nxtree.nodes()) if n not in cells_mapping}
+    ancestors = set(nxtree.nodes()) - set(cell_names)
+    ancestors = sorted(list(ancestors))
+    n_cells = len(cell_names)
+    ancestors_mapping = {n: i + n_cells for i, n in enumerate(ancestors)}
     full_mapping = {**cells_mapping, **ancestors_mapping}
     # check that all cell names are in the tree and they are leaves
     for name in cell_names:
