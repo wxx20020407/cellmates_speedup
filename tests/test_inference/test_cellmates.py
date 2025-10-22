@@ -76,7 +76,7 @@ class CellmatesTestCase(unittest.TestCase):
         exp_distances, exp_pairwise_distances = testing.get_expected_distances(D, Dp, n_states, cell_pairs)
 
         fig, ax = plt.subplots()
-        #visual.plot_cell_pairwise_heatmap(exp_pairwise_distances, label=np.arange(0, n_cells), ax=ax)
+        visual.plot_cell_pairwise_heatmap(exp_pairwise_distances, label=np.arange(0, n_cells), ax=ax)
         fig.savefig(out_dir + '/exp_pairwise_distances.png')
 
         evo_model_temp.new = MagicMock(return_value=evo_model)  # bypass new model creation to enable mocking
@@ -105,7 +105,7 @@ class CellmatesTestCase(unittest.TestCase):
 
         L1_diff = np.zeros((n_cells, n_cells, 3))
         for v,w in cell_pairs:
-            L1_diff[v,w,:] = abs(distances[v,w,:] - exp_distances[v, w, :])
+            L1_diff[v,w,:] = abs(distances[v,w,:] - exp_distances[v, w])
 
         tot_L1_diff = L1_diff.sum(axis=(0,1))
         print(f"Total L1 diff: \n {tot_L1_diff}")
