@@ -80,7 +80,7 @@ def get_expected_distances(D:dict, Dp:dict, n_states, cell_pairs=None)-> tuple[d
         D_uv = D_pair[1]
         D_uw = D_pair[2]
         expected_distances[v, w] = math_utils.l_from_p(D_pair / Dp_pair, n_states)
-        expected_pairwise_distances[v, w] = expected_distances[v, w, 1] + expected_distances[v, w, 2]
+        expected_pairwise_distances[v, w] = expected_distances[v, w][1] + expected_distances[v, w][2]
 
     return expected_distances, expected_pairwise_distances
 
