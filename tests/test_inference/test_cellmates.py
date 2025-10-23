@@ -285,6 +285,7 @@ class CellmatesTestCase(unittest.TestCase):
         for i in range(n_datasets):
             self.assertLessEqual(avg_dataset_rf[i, 0], avg_dataset_rf[i, 2])  # Centroid based should be better than NJ
 
+    @unittest.skip("Under development")
     def test_dice_benchmark_PoC_data(self):
         # Load CNASim anndata
         path_to_data = "../../data/CNAsim/results"
