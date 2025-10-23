@@ -222,16 +222,17 @@ def make_gt_tree_dist(ad, n_states, cell_names: list) -> tuple[dpy.Tree, np.ndar
     return dpy_tree, dist_matrix
 
 
-def relabel_name_to_int(nxtree: nx.DiGraph, cell_names: list) -> nx.DiGraph:
+def relabel_name_to_int(nxtree: nx.DiGraph, cell_names: list, ancestors_mapping=None) -> nx.DiGraph:
     """
     Give integer labels to nodes in the tree. Cell names (leaves) are labeled from 0 to n-1 in the order of cell_names
     and ancestors are labeled from n to n+m-1 where m is the number of ancestors.
     """
     cells_mapping = {name: i for i, name in enumerate(cell_names)}
-    ancestors = set(nxtree.nodes()) - set(cell_names)
-    ancestors = sorted(list(ancestors))
-    n_cells = len(cell_names)
-    ancestors_mapping = {n: i + n_cells for i, n in enumerate(ancestors)}
+    if ancestors_mapping is None:
+        ancestors = set(nxtree.nodes()) - set(cell_names)
+        ancestors = sorted(list(ancestors))
+        n_cells = len(cell_names)
+        ancestors_mapping = {n: i + n_cells for i, n in enumerate(ancestors)}
     full_mapping = {**cells_mapping, **ancestors_mapping}
     # check that all cell names are in the tree and they are leaves
     for name in cell_names:
