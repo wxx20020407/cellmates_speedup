@@ -15,6 +15,7 @@ from dendropy.calculate import treecompare
 from cellmates.common_helpers import cnasim_data
 from cellmates.inference import neighbor_joining
 from cellmates.inference.em import EM
+from cellmates.models.obs import NormalModel
 from cellmates.utils import tree_utils, testing, visual, math_utils
 
 import dendropy
@@ -211,26 +212,122 @@ class CellmatesTestCase(unittest.TestCase):
         axs[1].set_title('Inferred tree')
         fig.savefig(out_dir + '/true_inferred_and_NJ_tree.png')
 
-    @unittest.skip("Under development")
+    def test_dice_benchmark_PoC_data_on_expected_lengths(self):
+        # Load CNASim anndata
+        path_to_data = "../../data/CNAsim/results"
+        dataset_name = "A1_0/0"
+        adata = anndata.read_h5ad(os.path.join(path_to_data, dataset_name, "anndata.h5ad"))
+
+        cnasim_tree_dp, cnasim_tree_nx, cnp_concat, n_cells = self.prepare_cnasim_data(adata, dataset_name)
+
+        # --------- Setup Models and Mock Expected changes D, D' ---------
+        n_states = 7
+        max_iter = 20
+        tol = 1e-4
+        # Use CNPs from CNASim construct D, D' matrices
+        cell_pairs = list(itertools.combinations(range(n_cells), r=2))
+        D, Dp = testing.get_expected_changes(cnp_concat, cnasim_tree_nx, cell_pairs)
+        l_quad_exp, l_pair_exp = testing.get_expected_distances(D, Dp, n_states, cell_pairs)
+
+        distances = -np.ones((n_cells, n_cells, 3))
+        for v, w in cell_pairs:
+            distances[v, w, :] = l_quad_exp[v, w]
+        tree_res_nx = neighbor_joining.build_tree(distances, internal_indexing=True)
+        tree_nj_skbio = tree_utils.skbio_neighbour_joining_from_pairwise_distances(pairwise_distances=l_pair_exp)
+
+        tree_nj_dp = dendropy.Tree.get(data=str(tree_nj_skbio), schema="newick",
+                                       taxon_namespace=cnasim_tree_dp.taxon_namespace)
+        tree_utils.label_tree(tree_nj_dp, method='int')
+
+        tree_res_dp = tree_utils.convert_networkx_to_dendropy(tree_res_nx,
+                                                              taxon_namespace=cnasim_tree_dp.taxon_namespace)
+
+        # Compare trees
+        rf_dist = treecompare.symmetric_difference(cnasim_tree_dp, tree_res_dp)
+        print(f"RF dist: \n {rf_dist}")
+        rf_dist_nj = treecompare.symmetric_difference(cnasim_tree_dp, tree_nj_dp)
+        print(f"RF dist_nj: \n {rf_dist_nj}")
+
     def test_dice_benchmark_PoC_data(self):
-        # TODO: finish this test
-        cnasim_tree_nw = "((leaf1:0.01,leaf2:0.01):0.127,((leaf3:0.039,(leaf5:0.023,(leaf7:0.01,leaf8:0.01):0.013):0.016):0.096,(leaf4:0.12,(leaf6:0.061,(leaf9:0.018,leaf10:0.018):0.043):0.059):0.015):0.003)root"
-        cnasim_tree_nx = tree_utils.newick_to_nx(cnasim_tree_nw, interior_node_names=[f"int{i+10}" for i in range(10)])
+        # Load CNASim anndata
+        path_to_data = "../../data/CNAsim/results"
+        dataset_name = "B5_0/0"
+        adata = anndata.read_h5ad(os.path.join(path_to_data, dataset_name, "anndata.h5ad"))
 
-        # CNPs
-        adata = anndata.read_h5ad("../../data/DICE_benchmarks/cnasim_benchmark_A1_0_1.h5ad")
-        cnps = adata.X
-        out_dir = testing.create_output_test_folder()
-        fig, ax = visual.draw_graph(cnasim_tree_nx, save_path=out_dir + '/cnasim_tree.png')
-        # save
+        cnasim_tree_dp, cnasim_tree_nx, cnp_concat, n_cells = self.prepare_cnasim_data(adata, dataset_name)
+
+        # --------- Setup Models and Mock Expected changes D, D' ---------
+        n_states = 7
+        max_iter = 20
+        tol = 1e-4
+        # Use CNPs from CNASim construct D, D' matrices
+        cell_pairs = list(itertools.combinations(range(n_cells), r=2))
+        D, Dp = testing.get_expected_changes(cnp_concat, cnasim_tree_nx, cell_pairs)
+        l_quad_exp, l_pair_exp = testing.get_expected_distances(D, Dp, n_states, cell_pairs)
+
+        evo_model_temp = JCBModel(n_states=7)
+        evo_model = JCBModel(n_states=7)
+        evo_model_temp.new = MagicMock(return_value=evo_model)  # bypass new model
+        obs_model = NormalModel(n_states=7, mu_v=1.0, tau_v=10.0, mu_w=1.0, tau_w=10.0)
+
+        psi_init = {'mu_v': 1.0, 'tau_v': 10.0, 'mu_w': 1.0, 'tau_w': 10.0}
+
+        em_alg = EM(n_states, evo_model=evo_model_temp, obs_model=obs_model)
+
+        # Run Cellmates EM inference
+        distances = -np.ones((n_cells, n_cells, 3))
+        for i, (v,w) in enumerate(cell_pairs):
+            theta_init = np.array([0.25, 0.25, 0.25])
+            pC1_v = testing.get_marginals_from_cnp(cnp_concat[v], n_states)[0]
+            pC1_w = testing.get_marginals_from_cnp(cnp_concat[w], n_states)[0]
+            evo_model.get_one_slice_marginals = MagicMock(return_value=(pC1_v, pC1_w))
+            evo_model._expected_changes = MagicMock(return_value=(D[v,w], Dp[v,w], -1.0))
+            out_quad = em_alg._fit_quadruplet(v, w, cnp_concat, theta_init=theta_init, psi_init=psi_init,
+                                  max_iter=max_iter, rtol=tol)
+            (v, w), theta_vw, loglik, it = out_quad
+            distances[v, w, :] = theta_vw
+
+        tree_res_nx = neighbor_joining.build_tree(distances, internal_indexing=True)
+
+        tree_res_dp = tree_utils.convert_networkx_to_dendropy(tree_res_nx, taxon_namespace=cnasim_tree_dp.taxon_namespace)
+
+        # Compare trees
+        rf_dist = treecompare.symmetric_difference(cnasim_tree_dp, tree_res_dp)
+        print(f"RF dist: \n {rf_dist}")
+
+    def prepare_cnasim_data(self, adata, dataset_name):
+        # Get CNPs
+        cnp_obs_A = adata.layers['Astate']
+        cnp_obs_B = adata.layers['Bstate']
+        cnp_anc_A = adata.uns['ancestral-cnA']
+        cnp_anc_B = adata.uns['ancestral-cnB']
+        cnp_obs_concat = np.concatenate([cnp_obs_A, cnp_obs_B], axis=1)
+        cnp_anc_concat = np.concatenate([cnp_anc_A, cnp_anc_B], axis=1)
+        cnp_concat = np.concatenate([cnp_obs_concat, cnp_anc_concat], axis=0)
+        n_cells = cnp_obs_concat.shape[0]
+        n_ancestors = cnp_anc_concat.shape[0]
+        n_sites = cnp_obs_concat.shape[1]
+        C_max = cnp_obs_concat.max()
+        n_states = min(C_max, 10)
+        print(f"Number of cells: {n_cells}, number of ancestors: {n_ancestors}, number of sites: {n_sites},"
+              f" max CN state: {C_max}, n_states for inference: {n_states}")
+        # Get true tree
+        cnasim_tree_nw = adata.uns['cell-tree-newick']
+        cnasim_tree_nx = tree_utils.newick_to_nx(cnasim_tree_nw)
+        cell_names = [f"cell{i}" for i in range(1, n_cells + 1)]
+        cnasim_tree_nx = tree_utils.relabel_name_to_int(cnasim_tree_nx, cell_names)
+        cnasim_tree_dp = tree_utils.convert_networkx_to_dendropy(cnasim_tree_nx)
+        # save visualizations
+        out_dir = testing.create_output_test_folder(sub_folder_name=f"{dataset_name}")
+        fig, ax = visual.draw_graph(cnasim_tree_nx, save_path=out_dir + '/cnasim_tree.png',
+                                    node_size=30, with_labels=True)
         fig.savefig(out_dir + '/cnasim_tree.png')
-        fig, ax = visual.plot_cn_profile(cnps, ax=ax)
+        plt.close()
+        fig, ax = plt.subplots()
+        ax = visual.plot_cn_profile(cnp_concat)
         fig.savefig(out_dir + '/cnasim_cn_profile.png')
+        return cnasim_tree_dp, cnasim_tree_nx, cnp_concat, n_cells
 
-        # Reconstruct internal CNPs based on minimal evolution
-        cnps_all = tree_utils.reconstruct_internal_cnps(leaf_cnps=..., tree_nx=cnasim_tree_nx, n_states=7, method='min_evolution')
-
-        # Run Cellmates EM inference on the CNPs
 
 
 
