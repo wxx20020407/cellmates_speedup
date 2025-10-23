@@ -30,7 +30,7 @@ def create_output_test_folder(sub_folder_name=None) -> str:
         os.makedirs(test_folder)
     return test_folder
 
-def get_expected_changes(cnps, tree_nx, cell_pairs=None)-> tuple[dict, dict]:
+def get_expected_changes(cnps, tree_nx, cell_pairs=None, ancestor_labeling: dict=None)-> tuple[dict, dict]:
     """
     Compute the expected changes between cell pairs w.r.t. their lowest common ancestor (LCA) in the tree based.
     I.e. constructs a quadruplet for each cell pair (root, LCA, v, w) and computes the changes D and D' between:
@@ -84,7 +84,7 @@ def get_expected_distances(D:dict, Dp:dict, n_states, cell_pairs=None)-> tuple[d
 
 
 def get_expected_psi(param, obs_model):
-    return
+    raise NotImplementedError
 
 
 def get_marginals_from_cnp(cnp: ndarray, n_states: int, noise=0.0,
