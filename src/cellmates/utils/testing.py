@@ -80,7 +80,7 @@ def get_expected_distances(D:dict, Dp:dict, n_states, cell_pairs=None)-> tuple[d
         D_uv = D_pair[1]
         D_uw = D_pair[2]
         expected_distances[v, w] = math_utils.l_from_p(D_pair / Dp_pair, n_states)
-        expected_pairwise_distances[v, w] = D_uv + D_uw
+        expected_pairwise_distances[v, w] = expected_distances[v, w, 1] + expected_distances[v, w, 2]
 
     return expected_distances, expected_pairwise_distances
 
@@ -89,12 +89,15 @@ def get_expected_psi(param, obs_model):
     return
 
 
-def get_marginals_from_cnp(cnp: ndarray, n_states: int, noise=0.0):
+def get_marginals_from_cnp(cnp: ndarray, n_states: int, noise=0.0,
+                           cut_max=True)-> tuple[ndarray, ndarray]:
     """
     Get the one slice and two slice marginals from one copy number profile.
     """
     M = cnp.shape[0]
     cnp = cnp.astype(int)
+    if cut_max:
+        cnp[cnp >= n_states] = n_states - 1
     one_slice_marginals = np.zeros((M, n_states))
     two_slice_marginals = np.zeros((M - 1, n_states, n_states))
     for m in range(M):
