@@ -213,40 +213,77 @@ class CellmatesTestCase(unittest.TestCase):
         fig.savefig(out_dir + '/true_inferred_and_NJ_tree.png')
 
     def test_dice_benchmark_PoC_data_on_expected_lengths(self):
-        # Load CNASim anndata
+        datasets = ["D1_0"]#, "D2_0", "D3_0", "D4_0", "D5_0", "D6_0", "D7_0", "D8_0"]
+        dataseeds = [0]#, 1, 2]
         path_to_data = "../../data/CNAsim/results"
-        dataset_name = "A1_0/0"
-        adata = anndata.read_h5ad(os.path.join(path_to_data, dataset_name, "anndata.h5ad"))
+        n_datasets = len(datasets)
+        n_seeds = len(dataseeds)
+        rf_dist_matrix = np.zeros((n_datasets, n_seeds, 3))
 
-        cnasim_tree_dp, cnasim_tree_nx, cnp_concat, n_cells = self.prepare_cnasim_data(adata, dataset_name)
+        for i, dataset in enumerate(datasets):
+            for dataseed in dataseeds:
+                dataset_name = f"{dataset}/{dataseed}"
+                print(f"Running test on dataset: {dataset_name}")
 
-        # --------- Setup Models and Mock Expected changes D, D' ---------
-        n_states = 7
-        max_iter = 20
-        tol = 1e-4
-        # Use CNPs from CNASim construct D, D' matrices
-        cell_pairs = list(itertools.combinations(range(n_cells), r=2))
-        D, Dp = testing.get_expected_changes(cnp_concat, cnasim_tree_nx, cell_pairs)
-        l_quad_exp, l_pair_exp = testing.get_expected_distances(D, Dp, n_states, cell_pairs)
+                # Load CNASim anndata
+                adata = anndata.read_h5ad(os.path.join(path_to_data, dataset_name, "anndata.h5ad"))
 
-        distances = -np.ones((n_cells, n_cells, 3))
-        for v, w in cell_pairs:
-            distances[v, w, :] = l_quad_exp[v, w]
-        tree_res_nx = neighbor_joining.build_tree(distances, internal_indexing=True)
-        tree_nj_skbio = tree_utils.skbio_neighbour_joining_from_pairwise_distances(pairwise_distances=l_pair_exp)
+                out_dir = testing.create_output_test_folder(sub_folder_name=f"{dataset_name}")
+                out_prep = self.prepare_cnasim_data(adata, dataset_name, out_dir, K_max=10)
+                cnp_tot, cnp_hap = out_prep['cnp_tot'], out_prep['cnp_hap']
+                cnasim_tree_dp, cnasim_tree_nx = out_prep['cnasim_tree_dp'], out_prep['cnasim_tree_nx']
+                n_cells = out_prep['n_cells']
+                cell_names = out_prep['cell_names']
 
-        tree_nj_dp = dendropy.Tree.get(data=str(tree_nj_skbio), schema="newick",
-                                       taxon_namespace=cnasim_tree_dp.taxon_namespace)
-        tree_utils.label_tree(tree_nj_dp, method='int')
+                # --------- Setup Models and Mock Expected changes D, D' ---------
+                n_states = 7
+                max_iter = 20
+                tol = 1e-4
+                # Use CNPs from CNASim construct D, D' matrices
+                tree_dp, dist_matrix = tree_utils.make_gt_tree_dist(ad=adata, n_states=n_states, cell_names=cell_names)
+                cell_pairs = list(itertools.combinations(range(n_cells), r=2))
+                D, Dp = testing.get_expected_changes(cnp_hap, cnasim_tree_nx, cell_pairs)
+                l_quad_exp, l_pair_exp = testing.get_expected_distances(D, Dp, n_states, cell_pairs)
 
-        tree_res_dp = tree_utils.convert_networkx_to_dendropy(tree_res_nx,
-                                                              taxon_namespace=cnasim_tree_dp.taxon_namespace)
+                distances = -np.ones((n_cells, n_cells, 3))
+                for v, w in cell_pairs:
+                    distances[v, w, :] = l_quad_exp[v, w]
+                tree_res_nx = neighbor_joining.build_tree(distances, internal_indexing=True)
+                tree_res_nx2 = neighbor_joining.build_tree(dist_matrix, internal_indexing=True)
+                tree_nj_skbio = tree_utils.skbio_neighbour_joining_from_pairwise_distances(pairwise_distances=l_pair_exp)
 
-        # Compare trees
-        rf_dist = treecompare.symmetric_difference(cnasim_tree_dp, tree_res_dp)
-        print(f"RF dist: \n {rf_dist}")
-        rf_dist_nj = treecompare.symmetric_difference(cnasim_tree_dp, tree_nj_dp)
-        print(f"RF dist_nj: \n {rf_dist_nj}")
+                tree_nj_dp = dendropy.Tree.get(data=str(tree_nj_skbio), schema="newick",
+                                               taxon_namespace=cnasim_tree_dp.taxon_namespace)
+                tree_utils.label_tree(tree_nj_dp, method='int')
+
+                tree_res_dp = tree_utils.convert_networkx_to_dendropy(tree_res_nx,
+                                                                      taxon_namespace=cnasim_tree_dp.taxon_namespace)
+                tree_res_dp2 = tree_utils.convert_networkx_to_dendropy(tree_res_nx2,
+                                                                       taxon_namespace=cnasim_tree_dp.taxon_namespace)
+
+                # Compare trees
+                rf_dist = tree_utils.normalized_rf_distance(cnasim_tree_dp, tree_res_dp)
+                rf_dist2 = tree_utils.normalized_rf_distance(cnasim_tree_dp, tree_res_dp2)
+                print(f"RF dist: \n {rf_dist}")
+                print(f"RF dist2: \n {rf_dist2}")
+                rf_dist_nj = tree_utils.normalized_rf_distance(cnasim_tree_dp, tree_nj_dp)
+                print(f"RF dist_nj: \n {rf_dist_nj}")
+
+                # Save metrics in numpy array
+                rf_out = np.array([rf_dist, rf_dist2, rf_dist_nj])
+                np.save(os.path.join(out_dir, 'rf_distances.npy'), rf_out)
+                rf_dist_matrix[i, dataseed, :] = rf_out
+
+        # Save summary of all results
+        avg_dataset_rf = rf_dist_matrix.mean(axis=1)
+        avg_all = rf_dist_matrix.mean(axis=(0,1))
+        print(f"Average RF distances per dataset:\n {avg_dataset_rf}")
+        print(f"Average RF distances overall:\n {avg_all}")
+        np.save(os.path.join(out_dir, 'avg_dataset_rf.npy'), avg_dataset_rf)
+        np.save(os.path.join(out_dir, 'avg_all_rf.npy'), avg_all)
+
+        for i in range(n_datasets):
+            self.assertLessEqual(avg_dataset_rf[i, 0], avg_dataset_rf[i, 2])  # Centroid based should be better than NJ
 
     def test_dice_benchmark_PoC_data(self):
         # Load CNASim anndata
@@ -295,38 +332,65 @@ class CellmatesTestCase(unittest.TestCase):
         rf_dist = treecompare.symmetric_difference(cnasim_tree_dp, tree_res_dp)
         print(f"RF dist: \n {rf_dist}")
 
-    def prepare_cnasim_data(self, adata, dataset_name):
-        # Get CNPs
+    def prepare_cnasim_data(self, adata, dataset_name, out_dir, K_max=10):
+        # Get observed CNPs and meta data
+        cnp_obs = adata.layers['state']
         cnp_obs_A = adata.layers['Astate']
         cnp_obs_B = adata.layers['Bstate']
-        cnp_anc_A = adata.uns['ancestral-cnA']
-        cnp_anc_B = adata.uns['ancestral-cnB']
         cnp_obs_concat = np.concatenate([cnp_obs_A, cnp_obs_B], axis=1)
-        cnp_anc_concat = np.concatenate([cnp_anc_A, cnp_anc_B], axis=1)
-        cnp_concat = np.concatenate([cnp_obs_concat, cnp_anc_concat], axis=0)
-        n_cells = cnp_obs_concat.shape[0]
-        n_ancestors = cnp_anc_concat.shape[0]
-        n_sites = cnp_obs_concat.shape[1]
-        C_max = cnp_obs_concat.max()
-        n_states = min(C_max, 10)
-        print(f"Number of cells: {n_cells}, number of ancestors: {n_ancestors}, number of sites: {n_sites},"
-              f" max CN state: {C_max}, n_states for inference: {n_states}")
+        n_cells = cnp_obs.shape[0]
+        n_sites = cnp_obs.shape[1]
+        C_max = cnp_obs.max()
+        n_states = min(C_max, K_max)
+
+        anc_names = adata.uns['ancestral-names']
+        anc_mapping = {name: i for i, name in enumerate(anc_names)}
+        anc_mapping_tree = {name: n_cells+i for i, name in enumerate(anc_names)}
+
         # Get true tree
         cnasim_tree_nw = adata.uns['cell-tree-newick']
         cnasim_tree_nx = tree_utils.newick_to_nx(cnasim_tree_nw)
         cell_names = [f"cell{i}" for i in range(1, n_cells + 1)]
-        cnasim_tree_nx = tree_utils.relabel_name_to_int(cnasim_tree_nx, cell_names)
+        cnasim_tree_nx = tree_utils.relabel_name_to_int(cnasim_tree_nx, cell_names, anc_mapping_tree)
         cnasim_tree_dp = tree_utils.convert_networkx_to_dendropy(cnasim_tree_nx)
+
+        # Get ancestral CNPs
+        cnp_anc = adata.uns['ancestral-cn']
+        cnp_anc_sorted = cnp_anc[[anc_mapping[name] for name in anc_names], :]
+        cnp_tot_concat = np.concatenate([cnp_obs, cnp_anc_sorted], axis=0)
+
+        cnp_anc_A = adata.uns['ancestral-cnA']
+        cnp_anc_B = adata.uns['ancestral-cnB']
+        cnp_anc_concat = np.concatenate([cnp_anc_A, cnp_anc_B], axis=1)
+        cnp_anc_concat_sorted = cnp_anc_concat[[anc_mapping[name] for name in anc_names], :]
+        cnp_hap_concat = np.concatenate([cnp_obs_concat, cnp_anc_concat_sorted], axis=0)
+        n_ancestors = cnp_anc.shape[0]
+
+        print(f"Number of cells: {n_cells}, number of ancestors: {n_ancestors}, number of sites: {n_sites},"
+              f" max CN state: {C_max}, n_states for inference: {n_states}")
+
         # save visualizations
-        out_dir = testing.create_output_test_folder(sub_folder_name=f"{dataset_name}")
         fig, ax = visual.draw_graph(cnasim_tree_nx, save_path=out_dir + '/cnasim_tree.png',
                                     node_size=30, with_labels=True)
         fig.savefig(out_dir + '/cnasim_tree.png')
         plt.close()
         fig, ax = plt.subplots()
-        ax = visual.plot_cn_profile(cnp_concat)
-        fig.savefig(out_dir + '/cnasim_cn_profile.png')
-        return cnasim_tree_dp, cnasim_tree_nx, cnp_concat, n_cells
+        ax = visual.plot_cn_profile(cnp_hap_concat, ax=ax)
+        fig.savefig(out_dir + '/cnasim_haplotype_cn_profile.png')
+        plt.close()
+        fig, ax = plt.subplots()
+        ax = visual.plot_cn_profile(cnp_tot_concat, ax=ax)
+        fig.savefig(out_dir + '/cnasim_total_cn_profile.png')
+        plt.close()
+        out_dict = {
+            'cnp_hap': cnp_hap_concat,
+            'cnp_tot': cnp_tot_concat,
+            'cnasim_tree_dp': cnasim_tree_dp,
+            'cnasim_tree_nx': cnasim_tree_nx,
+            'n_cells': n_cells,
+            'cell_names': cell_names
+        }
+        return out_dict
 
 
 
