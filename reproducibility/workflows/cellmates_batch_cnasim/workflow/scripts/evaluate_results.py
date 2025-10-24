@@ -13,6 +13,7 @@ def main(snakemake):
     cm_tree_path = snakemake.input['cm_tree']
     cm_cell_names_path = snakemake.input['cm_cells']
     n_states = snakemake.params['n_states']
+    dataset = snakemake.params['dataset']
     seed = snakemake.params['seed']
     out_csv = snakemake.output[0]
 
@@ -63,7 +64,7 @@ def main(snakemake):
     print(f"F1 score clades: GT {f1_gt}, EM {f1_em}")
     # save results
     # for each edge, plot error, edge depth (TODO)
-    results = pd.DataFrame({'dat_path': [truth_ad_path], 'seed': [seed], 'n_cells': [n_cells], 'n_states': [n_states], 'n_clones': [len(set(clone_assignments))],
+    results = pd.DataFrame({'dat_path': [truth_ad_path], 'dataset': [dataset], 'seed': [seed], 'n_cells': [n_cells], 'n_states': [n_states], 'n_clones': [len(set(clone_assignments))],
                             'n_sites': [ad.n_vars],
                             'lambda': [ad.uns['cnasim-params']['placement_param']],
                             'ru_mse': [err_list[0]],

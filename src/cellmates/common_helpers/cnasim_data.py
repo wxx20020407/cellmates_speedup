@@ -198,7 +198,7 @@ def correct_readcounts(adata, min_normal_cells=1, inplace=True) -> np.ndarray:
     Requires the `normal` column in adata.obs to be set.
     """
     normal_cn = 2.
-    if not adata.uns['use_uniform_coverage']:
+    if not adata.uns['cnasim-params']['use_uniform_coverage']:
         logging.warning("CNAsim data was simulated with non-uniform coverage. Read count correction may be inaccurate.")
 
     if 'normal' not in adata.obs or adata.obs['normal'].sum() < min_normal_cells:

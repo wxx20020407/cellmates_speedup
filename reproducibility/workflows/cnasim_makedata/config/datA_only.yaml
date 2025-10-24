@@ -1,0 +1,37 @@
+seeds: 5
+noise_level: 0
+
+defaults:
+  n_cells: 250
+  n_chromosomes: 22
+  chromosome_length: 100
+  mean_cnas_per_edge: 2
+  bin_size: 1000000
+  n_clones: 0
+  wgd: false
+  boundary_noise: 0
+  jitter: 0
+
+A:
+  variable: n_cells
+  values: [10, 25, 50, 75, 100, 250, 500]
+
+B:
+  variable: [n_chromosomes, chromosome_length]  # chrom length in Mbp
+  values: []
+
+C:
+  variable: [wgd, n_clones, founder_chrom_rate, clone_chrom_rate, chrom_arm_rate]
+  values: []
+
+D:
+  variable: mean_cnas_per_edge
+  values: []
+
+E:
+  variable: [bin_size, min_cn_length]
+  values: []
+
+F:
+  variable: [boundary_noise, jitter]
+  values: []
