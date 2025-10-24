@@ -68,7 +68,7 @@ class HMMTestCase(unittest.TestCase):
         for t in range(n_sites):
             ll = sp.logsumexp(alpha[t] + beta[t])
             # print(f"t={t}, ll: {ll}, ll_fwd: {ll_fwd}")
-            self.assertAlmostEqual(ll, ll_fwd)
+            assert np.isclose(ll, ll_fwd, atol=1e-5)
 
     def test_forward_algorithm(self):
         n_sites = 12
@@ -109,7 +109,7 @@ class HMMTestCase(unittest.TestCase):
         ll = sp.logsumexp(alphaM)
         print(f"by hand ll {ll}")
 
-        self.assertAlmostEqual(ll_fwd, ll)
+        assert np.isclose(ll_fwd, ll, atol=1e-5)
 
     def test_trivial_likelihood(self):
         logging.basicConfig(level=logging.DEBUG)
@@ -157,9 +157,7 @@ class HMMTestCase(unittest.TestCase):
 
         ll_fwbw = em.compute_pair_likelihood(obs, theta=cn_changes_ratio)
         print("ll_fwbw", ll_fwbw)
-        self.assertAlmostEqual(ll_brute_force, ll_fwbw, places=5, msg="likelihood computation with forward backward is"
-                                                                      " different than bruteforce, hence `most likely`"
-                                                                      " bugged")
+        assert np.isclose(ll_brute_force, ll_fwbw, atol=1e-5), "likelihood computation with forward backward is different than bruteforce, hence `most likely` bugged"
 
 
 

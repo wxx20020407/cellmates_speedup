@@ -32,7 +32,7 @@ class ObsModel(ABC):
         return False
 
     @abstractmethod
-    def log_emission(self, obs_vw, **kwargs):
+    def log_emission(self, obs_vw, **kwargs) -> np.ndarray:
         """
         Compute the log probability of the observations for each site
         $$
@@ -48,7 +48,30 @@ class ObsModel(ABC):
         -------
         array of shape (n_sites, n_states, n_states), log p(y_m^{vw} | C_m^v = i, C_m^w = j) for each m, i, j
         """
-        return False
+        return np.zeros((obs_vw.shape[0], self.n_states, self.n_states))
+
+    @abstractmethod
+    def log_emission_split(self, obs_vw, **kwargs) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Compute the log probability of the observations for each site separately for v and w
+        $$
+        \log p(y_m^{v} | C_m^v = i)
+        $$
+        $$
+        \log p(y_m^{w} | C_m^w = j)
+        $$
+
+        Parameters
+        ----------
+        obs_vw, array of shape (n_sites, 2) with observations for pair of leaves
+        kwargs, additional parameters depending on the model
+
+        Returns
+        -------
+        tuple of two arrays each of shape (n_sites, n_states), log p(y_m^{v} | C_m^v = i) and log p(y_m^{w} | C_m^w = j) for each m, i and m, j
+        """
+        return (np.zeros((obs_vw.shape[0], self.n_states)),
+                np.zeros((obs_vw.shape[0], self.n_states)))
 
     @abstractmethod
     def update(self, obs_vw, conditionals_vw, **kwargs):
@@ -212,15 +235,44 @@ class NormalModel(ObsModel):
         """
         n_sites = obs_vw.shape[0]
         log_emissions = np.empty((n_sites, self.n_states, self.n_states))
+        # use log_emission_split and combine
+        log_emissions_v, log_emissions_w = self.log_emission_split(obs_vw, **kwargs)
+        log_emissions[...] = log_emissions_v[:, :, None] + log_emissions_w[:, None, :]
+        return log_emissions
+
+    def log_emission_split(self, obs_vw, **kwargs) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Compute the log probability of the observations for each site separately for v and w
+        $$
+        \log p(y_m^{v} | C_m^v = i)
+        $$
+        $$
+        \log p(y_m^{w} | C_m^w = j)
+        $$
+
+        Parameters
+        ----------
+        obs_vw, array of shape (n_sites, 2) with observations for pair of leaves
+        kwargs, additional parameters depending on the model
+
+        Returns
+        -------
+        tuple of two arrays each of shape (n_sites, n_states), log p(y_m^{v} | C_m^v = i) and log p(y_m^{w} | C_m^w = j) for each m, i and m, j
+        """
+        n_sites = obs_vw.shape[0]
+        log_emissions_v = np.empty((n_sites, self.n_states))
+        log_emissions_w = np.empty((n_sites, self.n_states))
         mu = np.array([self.mu_v, self.mu_w])
         tau = np.array([self.tau_v, self.tau_w])
-        cn_mesh = np.meshgrid(*[range(self.n_states)] * 2, indexing='ij')
-        loc_param = mu[:, None, None] * cn_mesh
-        # log p(y_m^v | . ) + log p(y_m^w | . )
-        # loc param: (n_bins, n_states, n_states)
-        log_emissions[...] = ss.norm.logpdf(obs_vw[..., None, None], loc=loc_param[None, ...], scale=(tau**(-1/2))[None, :, None, None]).sum(axis=1)
+        cn_states = np.arange(self.n_states)
+        loc_param_v = mu[0] * cn_states
+        loc_param_w = mu[1] * cn_states
+        # log p(y_m^v | . )
+        log_emissions_v[...] = ss.norm.logpdf(obs_vw[:, 0][:, None], loc=loc_param_v[None, :], scale=(tau[0]**(-1/2)))
+        # log p(y_m^w | . )
+        log_emissions_w[...] = ss.norm.logpdf(obs_vw[:, 1][:, None], loc=loc_param_w[None, :], scale=(tau[1]**(-1/2)))
 
-        return log_emissions
+        return log_emissions_v, log_emissions_w
 
     def update(self, obs_vw, conditionals_vw, **kwargs):
         """
@@ -347,17 +399,46 @@ class PoissonModel(ObsModel):
         -------
         array of shape (n_sites, n_states, n_states), log p(y_m^{vw} | C_m^v = i, C_m^w = j) for each m, i, j
         """
-        pois_mean_eps = 1e-10
         n_sites = obs_vw.shape[0]
         log_emissions = np.empty((n_sites, self.n_states, self.n_states))
-        lam = np.array([self.lambda_v_prior, self.lambda_w_prior])
-        cn_mesh = np.meshgrid(*[range(self.n_states)] * 2, indexing='ij')
-        poisson_params = np.clip(lam[:, None, None] * cn_mesh, a_min=pois_mean_eps, a_max=None)
-        # log p(y_m^v | . ) + log p(y_m^w | . )
-        # loc param: (n_bins, n_states, n_states)
-        log_emissions[...] = ss.poisson.logpmf(obs_vw[..., None, None], poisson_params[None, ...]).sum(axis=1)
-
+        # use log_emission_split and combine
+        log_emissions_v, log_emissions_w = self.log_emission_split(obs_vw, **kwargs)
+        log_emissions[...] = log_emissions_v[:, :, None] + log_emissions_w[:, None, :]
         return log_emissions
+
+    def log_emission_split(self, obs_vw, **kwargs) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Compute the log probability of the observations for each site separately for v and w
+        $$
+        \log p(y_m^{v} | C_m^v = i)
+        $$
+        $$
+        \log p(y_m^{w} | C_m^w = j)
+        $$
+
+        Parameters
+        ----------
+        obs_vw, array of shape (n_sites, 2) with observations for pair of leaves
+        kwargs, additional parameters depending on the model
+
+        Returns
+        -------
+        tuple of two arrays each of shape (n_sites, n_states), log p(y_m^{v} | C_m^v = i) and log p(y_m^{w} | C_m^w = j) for each m, i and m, j
+        """
+        pois_mean_eps = 1e-10
+        n_sites = obs_vw.shape[0]
+        log_emissions_v = np.empty((n_sites, self.n_states))
+        log_emissions_w = np.empty((n_sites, self.n_states))
+        lam = np.array([self.lambda_v, self.lambda_w])
+        cn_states = np.arange(self.n_states)
+        poisson_params_v = np.clip(lam[0] * cn_states, a_min=pois_mean_eps, a_max=None)
+        poisson_params_w = np.clip(lam[1] * cn_states, a_min=pois_mean_eps, a_max=None)
+        # log p(y_m^v | . )
+        log_emissions_v[...] = ss.poisson.logpmf(obs_vw[:, 0][:, None], poisson_params_v[None, :])
+        # log p(y_m^w | . )
+        log_emissions_w[...] = ss.poisson.logpmf(obs_vw[:, 1][:, None], poisson_params_w[None, :])
+
+        return log_emissions_v, log_emissions_w
 
     def update(self, obs_vw, conditionals_vw, **kwargs):
         """

@@ -317,9 +317,9 @@ if __name__ == '__main__':
     seed = 42
     logging.basicConfig(level=logging.DEBUG)
     # test EM algorithm
-    n_cells = 4
+    n_cells = 8
     n_states = 7
-    n_sites = 200
+    n_sites = 500
     data = rand_dataset(n_states, n_sites, obs_model='poisson', p_change=0.05, n_cells=n_cells, seed=seed)
     # true ctr_table
     true_ctr_table = get_ctr_table(data['tree'])
