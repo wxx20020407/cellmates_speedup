@@ -8,3 +8,4 @@ jitter: [0.1]
 n_replicates: 5
 normal_fraction: 0.2
 n_states: 7
+max_iter: 60
