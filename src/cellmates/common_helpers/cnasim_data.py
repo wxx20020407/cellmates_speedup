@@ -193,17 +193,21 @@ def read_cn_profiles(adata: anndata.AnnData, cnasim_data_path: str, n_cells: int
 
 def correct_readcounts(adata, min_normal_cells=1, inplace=True) -> np.ndarray:
     """
-    Correct read counts, normalizing the counts using normal cells as reference
+    Correct read counts, normalizing the counts using normal cells as reference. If normal cells are not
+    available, use cnasim parameters to compute mean reads per bin per copy and normalize accordingly.
     Requires the `normal` column in adata.obs to be set.
     """
-    if 'normal' not in adata.obs:
-        raise ValueError("Missing 'normal' column in adata.obs")
-    if adata.obs['normal'].sum() < min_normal_cells:
-        raise ValueError("Not enough normal cells to normalize read counts")
-
     normal_cn = 2.
-    baseline = adata[adata.obs['normal']].X.mean(axis=0) / normal_cn # counts per copy
-    # TODO: implement ploidy correction for WGD cells if any (using e.g. ploidy info from data)
+    if not adata.uns['cnasim-params']['use_uniform_coverage']:
+        logging.warning("CNAsim data was simulated with non-uniform coverage. Read count correction may be inaccurate.")
+
+    if 'normal' not in adata.obs or adata.obs['normal'].sum() < min_normal_cells:
+        # use cnasim params to compute mean read counts per bin per copy
+        baseline = adata.uns['cnasim-params']['bin_length'] * adata.uns['cnasim-params']['coverage'] / adata.uns['cnasim-params']['read_length']
+    else:
+        baseline = adata[adata.obs['normal']].X.mean(axis=0) / normal_cn # counts per copy
+
+    copy = adata.X / baseline
 
     if 'Acount' in adata.layers and inplace:
         # normalize also phased data
@@ -211,7 +215,7 @@ def correct_readcounts(adata, min_normal_cells=1, inplace=True) -> np.ndarray:
         adata.layers['Bcopy'] = adata.layers['Bcount'] / baseline
 
     if inplace:
-        adata.layers['copy'] = adata.X / baseline
+        adata.layers['copy'] = copy
 
     return adata.layers['copy']
 

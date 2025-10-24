@@ -1,0 +1,98 @@
+"""
+This Snakemake workflow runs cellmates on pre-simulated data from CNAsim,
+evaluates the results, and combines them into a summary statistics file.
+The dataset directory structure is assumed to be the one from the DICE experiments,
+therefore
+datasets/
+    A1_0/
+        0/
+            anndata.h5ad
+            cm_out/
+                distance_matrix.npy
+                tree.nwk
+                cell_names.txt
+        1/
+            ...
+    A1_1/
+        ...
+    evaluation/
+        stats.csv
+The final results are combined into a single CSV file with evaluation statistics.
+"""
+configfile: "config/config.yaml"
+
+import os
+import glob
+# which datasets to process is defined in the config file
+wildcard_constraints:
+    dataset="|".join(config["datasets"]),
+    seed="\d+" if len(config["seeds"]) == 0 else "|".join(str(s) for s in config["seeds"])
+
+# parameters
+data_dir = config["data_dir"]
+eval_dir = os.path.join(data_dir, "evaluation")
+# constraint
+DATASET_LIST = glob_wildcards(data_dir + "/{dataset}/{seed}")
+
+allowed_datasets = set(config["datasets"])
+allowed_seeds = {str(s) for s in config["seeds"]}
+
+filtered_pairs = [
+    (d, s) for d, s in zip(DATASET_LIST.dataset, DATASET_LIST.seed)
+    if d in allowed_datasets and (not allowed_seeds or s in allowed_seeds)
+]
+
+DATASET_LIST = type(DATASET_LIST)(
+    dataset=[d for d, _ in filtered_pairs],
+    seed=[s for _, s in filtered_pairs],
+)
+N_STATES = 7
+
+rule all:
+    input: os.path.join(eval_dir, "stats.csv"), os.path.join(eval_dir, "analysis_notebook.ipynb"),
+
+rule run_cellmates:
+    input: os.path.join(data_dir, "{dataset}", "{seed}", "anndata.h5ad")
+    output:
+        cm_dist=os.path.join(data_dir, "{dataset}", "{seed}", "cm_out", "distance_matrix.npy"),
+        cm_tree=os.path.join(data_dir, "{dataset}", "{seed}", "cm_out", "tree.nwk"),
+        cm_cells=os.path.join(data_dir, "{dataset}", "{seed}", "cm_out", "cell_names.txt")
+    params:
+        directory=os.path.join(data_dir, "{dataset}", "{seed}", "cm_out")
+    conda: "cellmates"
+    threads: 16
+    shell: """
+    cellmates -i {input} -o {params.directory} -v 2 --n-states {N_STATES} --num-processors {threads}
+    """
+
+rule evaluate:
+    input:
+        truth_ad=os.path.join(data_dir, "{dataset}", "{seed}", "anndata.h5ad"),
+        cm_dist=os.path.join(data_dir, "{dataset}", "{seed}", "cm_out", "distance_matrix.npy"),
+        cm_tree=os.path.join(data_dir, "{dataset}", "{seed}", "cm_out", "tree.nwk"),
+        cm_cells=os.path.join(data_dir, "{dataset}", "{seed}", "cm_out", "cell_names.txt")
+    output: os.path.join(data_dir, "{dataset}", "{seed}", "eval_tmp.csv")
+    params:
+        n_states=N_STATES,
+        dataset=lambda wc: wc.dataset,
+        seed=lambda wc: int(wc.seed)
+    conda: "cellmates"
+    script: "scripts/evaluate_results.py"
+
+rule combine_results:
+    input: expand(os.path.join(data_dir, "{dataset}","{seed}","eval_tmp.csv"), dataset=DATASET_LIST.dataset, seed=DATASET_LIST.seed)
+    output: os.path.join(eval_dir, "stats.csv")
+    shell: """
+    echo "Combining results"
+    head -n 1 {input[0]} > {output}
+    for f in {input}; do
+        tail -n +2 $f >> {output}
+    done
+    """
+
+rule analysis_notebook:
+    input: os.path.join(eval_dir, "stats.csv")
+    conda: "cellmates"
+    log: os.path.join(eval_dir, "analysis_notebook.ipynb")
+    notebook: "notebooks/plots.py.ipynb"
+

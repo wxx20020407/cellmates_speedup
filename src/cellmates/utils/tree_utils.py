@@ -222,13 +222,17 @@ def make_gt_tree_dist(ad, n_states, cell_names: list) -> tuple[dpy.Tree, np.ndar
     return dpy_tree, dist_matrix
 
 
-def relabel_name_to_int(nxtree: nx.DiGraph, cell_names: list) -> nx.DiGraph:
+def relabel_name_to_int(nxtree: nx.DiGraph, cell_names: list, ancestors_mapping=None) -> nx.DiGraph:
     """
     Give integer labels to nodes in the tree. Cell names (leaves) are labeled from 0 to n-1 in the order of cell_names
     and ancestors are labeled from n to n+m-1 where m is the number of ancestors.
     """
     cells_mapping = {name: i for i, name in enumerate(cell_names)}
-    ancestors_mapping = {n: i + len(cell_names) for i, n in enumerate(nxtree.nodes()) if n not in cells_mapping}
+    if ancestors_mapping is None:
+        ancestors = set(nxtree.nodes()) - set(cell_names)
+        ancestors = sorted(list(ancestors))
+        n_cells = len(cell_names)
+        ancestors_mapping = {n: i + n_cells for i, n in enumerate(ancestors)}
     full_mapping = {**cells_mapping, **ancestors_mapping}
     # check that all cell names are in the tree and they are leaves
     for name in cell_names:
@@ -389,3 +393,24 @@ def reconstruct_internal_cnps(leaf_cnps, tree_nx, n_states, method):
 
     internal_cnps = generalized_sankoff_algorithm.reconstruct_cnps_with_block_mutations(tree_nx, leaf_cnps, max_mutations_per_edge=5)
     return internal_cnps
+
+
+def skbio_neighbour_joining_from_pairwise_distances(pairwise_distances: np.ndarray | dict)-> skbio.TreeNode:
+    """
+    Takes an upper triangular pairwise distance matrix or a dict of pairwise distances and runs skbio neighbor joining
+    to reconstruct a tree.
+    Returns a skbio.TreeNode
+    """
+    if isinstance(pairwise_distances, dict):
+        n_cells = max(max(v, w) for v, w in pairwise_distances.keys()) + 1
+        pairwise_distances_matrix = np.zeros((n_cells, n_cells))
+        for (v, w), dist in pairwise_distances.items():
+            pairwise_distances_matrix[v, w] = dist
+        pairwise_distances = pairwise_distances_matrix
+    n_cells = pairwise_distances.shape[0]
+    pairwise_distances = np.triu(pairwise_distances) + np.triu(pairwise_distances, k=1).T
+    np.fill_diagonal(pairwise_distances, 0)
+    skbio_dm = skbio.DistanceMatrix(pairwise_distances, ids=[str(i) for i in range(n_cells)])
+    tree_nj_skbio = skbio.tree.nj(skbio_dm)
+    tree_nj_skbio = tree_nj_skbio.root_at_midpoint()
+    return tree_nj_skbio

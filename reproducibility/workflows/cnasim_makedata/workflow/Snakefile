@@ -67,5 +67,5 @@ rule prepare_anndata:
     conda: "envs/base.yml"
     shell: """
     echo "Converting CNAsim output to anndata"
-    python {SOURCE_PATH}/cellmates/common_helpers/cnasim_data.py -i {params.cnasim_dir} -o {output} --counts-only
+    python {SOURCE_PATH}/cellmates/common_helpers/cnasim_data.py -i {params.cnasim_dir} -o {output}
     """
