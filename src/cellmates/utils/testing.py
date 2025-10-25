@@ -4,6 +4,7 @@ import random
 from typing import Any
 
 import numpy as np
+from matplotlib import pyplot as plt
 from numpy import ndarray, dtype, float64
 import dendropy as dpy
 
@@ -112,3 +113,30 @@ def set_seed(seed):
     np.random.seed(seed)
     random.seed(seed)
     dpy.utility.GLOBAL_RNG.seed(seed)
+
+
+def plot_diagnostics(diagnostics: dict, out_dir: str) -> None:
+    """
+    Plot diagnostics from EM algorithm.
+    """
+    fig, ax = plt.subplots(3, 1, figsize=(8, 12))
+    ax[0].plot(diagnostics['loglikelihoods'], marker='o')
+    ax[0].set_title('Log-likelihoods over iterations')
+    ax[0].set_xlabel('Iteration')
+    ax[0].set_ylabel('Log-likelihood')
+    labels = [r"$\theta_{ru}$", r"$\theta_{uv}$", r"$\theta_{uw}$"]
+    for i in range(3):
+        thetas_i = [theta[i] for theta in diagnostics['thetas']]
+        ax[1].plot(thetas_i, marker='o', color='C'+str(i), label=labels[i])
+    ax[1].legend()
+    ax[1].set_title('Theta parameters over iterations')
+    ax[1].set_xlabel('Iteration')
+    ax[1].set_ylabel('Theta')
+    ax[2].plot(diagnostics['psis'], marker='o', color='green')
+    ax[2].set_title('Psi parameters over iterations')
+    ax[2].set_xlabel('Iteration')
+    ax[2].set_ylabel('Psi')
+    plt.tight_layout()
+    plt.savefig(os.path.join(out_dir, 'em_diagnostics.png'))
+
+    return None

@@ -332,22 +332,29 @@ class EMTestCase(unittest.TestCase):
         seed = 120
         random.seed(seed)
         np.random.seed(seed)
-        n_states = 5
-        n_sites = 1000
-        p_sim = np.array([0.02, 0.01, 0.01])
-        l_sim = l_from_p(np.array(p_sim), n_states)
+        n_states = 7
+        n_sites = 2000
+        n_CN_ru, n_CN_uv, n_CN_uw = 25, 2, 10
+        n_fCN_ru, n_fCN_uv, n_fCN_uw = 25, 4, 12
+        n_clonal_events_per_edge = {(3,2): n_CN_ru, (2,0): n_CN_uv, (2,1): n_CN_uw}
+        n_focal_events_per_edge = {(3,2): n_fCN_ru, (2,0): n_fCN_uv, (2,1): n_fCN_uw}
+        clonal_CN_event_ratio = 0.1
 
-        evo_model_sim = CopyTree(n_states)
+        evo_model_sim = SimulationEvoModel(n_states,
+                                           n_clonal_CN_events=n_clonal_events_per_edge,
+                                           clonal_CN_length_ratio=clonal_CN_event_ratio,
+                                           n_focal_events=n_focal_events_per_edge)
         evo_model = JCBModel(n_states=n_states, alpha=1)
         obs_model = NormalModel(n_states=n_states, mu_v_prior=1.0, tau_v_prior=100.0)
-        data = simulate_quadruplet(n_sites, obs_model=obs_model, evo_model=evo_model_sim, edge_lengths=l_sim, n_states=n_states)
+        data = simulate_quadruplet(n_sites, obs_model=obs_model, evo_model=evo_model_sim, n_states=n_states)
         gt_ctr_table = get_ctr_table(data['tree'])
         # print cn in order r, u, v, w (check simulate_quadruplet doc for sorting info)
         print(f"CN (r, u, v, w):\n{data['cn'][[3, 2, 0, 1], :20]}")
         # plot
         fig, ax = plt.subplots()
         plot_cn_profile(data['cn'], ax=ax)
-        out_dir = create_output_test_folder(sub_folder_name=f'M_{n_sites}')
+        sub_folder_name = f'M{n_sites}_K{n_states}_CN_{n_CN_ru}_{n_CN_uv}_{n_CN_uw}_focCN_{n_fCN_ru}_{n_fCN_uv}_{n_fCN_uw}'
+        out_dir = create_output_test_folder(sub_folder_name=sub_folder_name)
         fig.savefig(out_dir + '/cn_profile.png')
 
         l_true = gt_ctr_table[0, 1, :].tolist()
@@ -357,8 +364,10 @@ class EMTestCase(unittest.TestCase):
         print(f"(from p: {p_from_l(gt_ctr_table[0, 1, :], n_states)}")
 
         # run EM
-        em = EM(n_states=n_states, obs_model=obs_model, evo_model=evo_model)
+        em = EM(n_states=n_states, obs_model=obs_model, evo_model=evo_model, diagnostics=True)
         em.fit(data['obs'], theta_init=None)
+        diagnostics_data = em.diagnostic_data
+        testing.plot_diagnostics(diagnostics_data, out_dir)
         ctr_table = em.distances
         # change tree _lengths to match the estimated ones
         for edge in data['tree'].preorder_edge_iter():
