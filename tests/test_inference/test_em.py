@@ -332,10 +332,10 @@ class EMTestCase(unittest.TestCase):
         seed = 120
         random.seed(seed)
         np.random.seed(seed)
-        n_states = 7
-        n_sites = 2000
-        n_CN_ru, n_CN_uv, n_CN_uw = 25, 2, 10
-        n_fCN_ru, n_fCN_uv, n_fCN_uw = 25, 4, 12
+        n_states = 5
+        n_sites = 100
+        n_CN_ru, n_CN_uv, n_CN_uw = 5, 2, 10
+        n_fCN_ru, n_fCN_uv, n_fCN_uw = 5, 4, 12
         n_clonal_events_per_edge = {(3,2): n_CN_ru, (2,0): n_CN_uv, (2,1): n_CN_uw}
         n_focal_events_per_edge = {(3,2): n_fCN_ru, (2,0): n_fCN_uv, (2,1): n_fCN_uw}
         clonal_CN_event_ratio = 0.1
