@@ -673,18 +673,21 @@ class SimulationEvoModel():
         n_homoplasies: Not implemented yet.
         zero_absorption: Not implemented yet.
         """
-        # Simulation parameters
+        # ------- Simulation parameters -------
+        # Clonal CN event parameters
         self.clonal_CN_prob = clonal_CN_prob
         self.clonal_CN_length_ratio = clonal_CN_length_ratio
         self.n_clonal_CN_events = n_clonal_CN_events
         self.clonal_CN_length = clonal_CN_length
+        # Focal CN event parameters
         self.focal_prob = focal_prob
         self.focal_length_avg = focal_length_avg
         self.n_focal_events = n_focal_events
         self.focal_CN_length = focal_CN_length
-        self.allow_overlapping_CN_events = allow_overlapping_CN_events
-        self.n_homoplasies = n_homoplasies
-        self.zero_absorption = zero_absorption
+        # Type of events parameters
+        self.allow_overlapping_CN_events = allow_overlapping_CN_events # Only implemented for TRUE now
+        self.n_homoplasies = n_homoplasies  # Not implemented yet
+        self.zero_absorption = zero_absorption # Not implemented yet
 
         # Simulation helpers
         self.n_sites = None
@@ -743,7 +746,7 @@ class SimulationEvoModel():
     def draw_number_of_CN_events(self, u, v):
         # Draw number of clonal CN events
         if self.n_clonal_CN_events is None:
-            clonal_rate = self.clonal_CN_rate * self.n_sites
+            clonal_rate = self.clonal_CN_prob * self.n_sites
             n_clonal_events_uv = ss.poisson(clonal_rate)
         else:
             if isinstance(self.n_clonal_CN_events, dict):
@@ -752,7 +755,7 @@ class SimulationEvoModel():
                 n_clonal_events_uv = self.n_clonal_CN_events
         # Draw number of focal CN events
         if self.n_focal_events is None:
-            focal_rate = self.focal_rate * self.n_sites
+            focal_rate = self.focal_prob * self.n_sites
             n_focal_events_uv = ss.poisson(focal_rate)
         else:
             if isinstance(self.n_focal_events, dict):

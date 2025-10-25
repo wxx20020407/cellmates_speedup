@@ -15,6 +15,12 @@ class ObsModel(ABC):
         self.psi_init = {}  # initial parameters for EM
         self.psi_sim = {}  # parameters used for simulation
 
+    def psi_array(self) -> np.ndarray:
+        """
+        Get model parameters as a flat array.
+        """
+        return np.array(list(self.psi.values()))
+
     @abstractmethod
     def sample(self, cnp, **kwargs):
         """
