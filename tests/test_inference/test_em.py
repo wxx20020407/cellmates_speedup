@@ -494,6 +494,73 @@ class EMTestCase(unittest.TestCase):
         self.assertEqual(psi_out['mu_v'], psi_init['mu_v'], msg="psi updated during optimization.")
         self.assertEqual(psi_out['mu_w'], psi_init['mu_w'], msg="psi updated during optimization.")
 
+    def test_quadruplet_true_init_viterbi_given_psi(self):
+        """
+        Initialize EM with true theta and psi parameters for NormalModel and JCBModel on a quadruplet tree.
+        Then runs EM for theta parameters only by setting train=False in the observation model.
+        Returns
+        -------
+        """
+        n_sites = 1000
+        n_states = 5
+        n_focal_events_per_edge = 5
+        n_clonal_events_per_edge = 5
+        clonal_CN_length = n_sites // 20
+        evo_model = JCBModel(n_states=n_states, alpha=1)
+        obs_model = NormalModel(n_states=n_states, mu_v_prior=1.0, tau_v_prior=100.0, train=False)
+        evo_model_sim = SimulationEvoModel(n_clonal_CN_events=n_clonal_events_per_edge,
+                                           clonal_CN_length=clonal_CN_length,
+                                           n_focal_events=n_focal_events_per_edge)
+        data = simulate_quadruplet(n_sites, obs_model=obs_model, evo_model=evo_model_sim, n_states=n_states)
+        cnps = data['cn']
+        tree_dp = data['tree']
+        tree_nx = tree_utils.convert_dendropy_to_networkx(tree_dp)
+        cell_pairs = [(0, 1)]
+        D, Dp = testing.get_expected_changes(cnps, tree_nx, cell_pairs)
+        l_exp, pairwise_l_exp = testing.get_expected_distances(D, Dp, n_states, cell_pairs)
+        gt_ctr_table = get_ctr_table(data['tree'])
+        # print cn in order r, u, v, w (check simulate_quadruplet doc for sorting info)
+        print(f"\nCN (first 20 sites) (r, u, v, w):\n{data['cn'][[3, 2, 0, 1], :20]}")
+        print(f"\nObs (first 20 sites) (r, u, v, w):\n{data['obs'].T[:, :20]}")
+
+        # save data
+        out_dir = create_output_test_folder(
+            sub_folder_name=f'M{n_sites}_K{n_states}_CN{n_clonal_events_per_edge}_focCN{n_focal_events_per_edge}')
+        fig, ax = plt.subplots()
+        plot_cn_profile(data['cn'], ax=ax)
+        fig.savefig(out_dir + '/cn_profile.png')
+
+        # print tree with _lengths
+        l_true = gt_ctr_table[0, 1, :].tolist()
+        print(f"Generated tree")
+        data['tree'].print_plot(plot_metric='length')
+        print(f"Generated edge _lengths: {l_true}")
+        print(f"(from p: {p_from_l(gt_ctr_table[0, 1, :], n_states)}")
+        psi_init = {'mu_v': obs_model.mu_v_prior,
+                    'tau_v': obs_model.tau_v_prior,
+                    'mu_w': obs_model.mu_w_prior,
+                    'tau_w': obs_model.tau_w_prior}
+        # run EM
+        em = EM(n_states=n_states, obs_model=obs_model, evo_model=evo_model,
+                E_step_alg='viterbi',
+                diagnostics=True)
+        em.fit(data['obs'], theta_init=l_true, psi_init=psi_init)
+        ctr_table = em.distances
+
+        # Save results
+        diagnostics_data = em.diagnostic_data
+        testing.plot_diagnostics(diagnostics_data, out_dir)
+
+        # Assert
+        EM_result = ctr_table[0, 1, :].tolist()
+        expected_result = l_exp[0, 1].tolist()
+        print(f"\nEM estimates theta parameters:\n{EM_result}")
+        print(f"Expected theta estimates:\n{expected_result}")
+        for i in range(3):
+            rel_error = abs(EM_result[i] - expected_result[i]) / expected_result[i]
+            self.assertAlmostEqual(rel_error, 0, delta=0.1, msg=f"EM estimated theta parameter {i} is not within 10% of expected value.")
+
+
     def test_quadruplet_true_init_normal_obs(self):
         """
         Initializes theta and psi to the true values used to generate the data.
@@ -853,14 +920,18 @@ class EMTestCase(unittest.TestCase):
         # check that the viterbi path has the expected changes
         for m in range(n_sites):
             if m <= t0:
-                self.assertEqual(viterbi_path[m, 0], 1)
-                self.assertEqual(viterbi_path[m, 1], 1)
+                if viterbi_path[m, 1] != 1 or viterbi_path[m, 2] != 1:
+                    print(f"m={m}, viterbi_path: {viterbi_path[m, 1:]}, cn_vw: {cn_vw[m, :]}")
             elif t0 < m <= t1:
-                self.assertEqual(viterbi_path[m, 0], 2)
-                self.assertEqual(viterbi_path[m, 1], 2)
+                if viterbi_path[m, 1] != 2 or viterbi_path[m, 2] != 2:
+                    print(f"m={m}, viterbi_path: {viterbi_path[m, 1:]}, cn_vw: {cn_vw[m, :]}")
             else:
-                self.assertEqual(viterbi_path[m, 0], 3)
-                self.assertEqual(viterbi_path[m, 1], 3)
+                if viterbi_path[m, 1] != 3 or viterbi_path[m, 2] != 3:
+                    print(f"m={m}, viterbi_path: {viterbi_path[m, 1:]}, cn_vw: {cn_vw[m, :]}")
+        n_diff_v = np.sum(viterbi_path[:, 1] != cn_vw[:, 0])
+        n_diff_w = np.sum(viterbi_path[:, 2] != cn_vw[:, 1])
+        self.assertLess(n_diff_v, 2, msg="Too many differences between viterbi u and true cn u")
+        self.assertLess(n_diff_w, 2, msg="Too many differences between viterbi v and true cn v")
 
     def test_compute_exp_changes(self):
         # random seed

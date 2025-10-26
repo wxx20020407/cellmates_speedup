@@ -28,7 +28,8 @@ class EM:
     """
     def __init__(self, n_states: int = 7, obs_model: ObsModel | str = 'poisson',
                  evo_model: EvoModel | str = 'jcb', tree_build='ctr',
-                 alpha=1., verbose: int = 0, diagnostics: bool = False):
+                 alpha=1., verbose: int = 0, diagnostics: bool = False,
+                 E_step_alg: str = 'forward_backward'):
         # model variables
         self.min_iter = 3
         if isinstance(evo_model, str):
@@ -40,6 +41,7 @@ class EM:
         else:
             self.obs_model: ObsModel = obs_model
         self.tree_build = tree_build  # algorithm for tree reconstruction
+        self.E_step_alg = E_step_alg # E-step algorithm
         self._n_sites = None
         self._n_cells = None
         self._n_states = n_states

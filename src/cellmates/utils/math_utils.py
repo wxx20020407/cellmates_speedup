@@ -161,6 +161,10 @@ def viterbi_matrix_K6(
     Performs the standard O(M*K^6) Viterbi algorithm using
     vectorized numpy operations instead of explicit for-loops.
 
+    Returns:
+        best_path: List of (l, p, o) tuples representing the most probable path
+        max_log_prob: Log probability of the best path
+
     WARNING: This function is EXTREMELY memory-intensive.
     """
     M, K, _ = log_emissions.shape
@@ -232,6 +236,6 @@ def viterbi_matrix_K6(
         best_path_flat[t] = prev_state_flat
 
     best_path = np.array([_unflatten_state(idx, K) for idx in best_path_flat])
-
-    return best_path, max_log_prob
+    best_path_ordered = best_path[: [1, 2, 0]]  # reorder to (uv, uw, ru)
+    return best_path_ordered, max_log_prob
 

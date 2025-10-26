@@ -73,7 +73,8 @@ class EvoModel:
         # node_cn[:] = _evolve_cn_event_chain(prev_cn, pdd, self.n_states)  # old method
         return node_cn
 
-    def _expected_changes(self, obs_vw, obs_model: ObsModel = None) -> tuple[np.ndarray, np.ndarray, float]:
+    def _expected_changes(self, obs_vw, obs_model: ObsModel = None,
+                          alg='forward-backward') -> tuple[np.ndarray, np.ndarray, float]:
         """
         Compute the expected number of changes which over the copy number conditional distribution for the three branches:
          (r, u), (u, v), (u, w).
@@ -92,6 +93,11 @@ class EvoModel:
         dp = np.empty(3) # expected no changes
         # compute two slice marginals
         # prob(Cm = ijk, Cm+1 = i'j'k' | Y)
+        if alg == 'viterbi':
+            viterbi_path, path_log_lik = self.compute_viterbi_path(obs_model.log_emission(obs_vw))
+            # count changes along viterbi path
+            d, dp = self.counts_from_paths(viterbi_path)
+            return d, dp, path_log_lik
         log_xi, log_gamma = self.two_slice_marginals(obs_vw, obs_model=obs_model)
         loglik = self.loglikelihood  # computed in the two slice marginals (forward pass)
         self.log_xi = log_xi
@@ -131,7 +137,8 @@ class EvoModel:
 
         return d, dp, loglik
 
-    def multi_chr_expected_changes(self, obs_vw, obs_model: ObsModel = None) -> tuple[np.ndarray, np.ndarray, float]:
+    def multi_chr_expected_changes(self, obs_vw, obs_model: ObsModel = None,
+                                   alg='forward-backward') -> tuple[np.ndarray, np.ndarray, float]:
         """
         Compute the expected number of changes which over the copy number conditional distribution for the three branches:
          (r, u), (u, v), (u, w). This function handles multiple chromosomes by splitting the observations
@@ -159,7 +166,7 @@ class EvoModel:
         chr_start = 0
         for chr_end in self.chromosome_ends + [obs_vw.shape[0]]:
             chr_obs = obs_vw[chr_start:chr_end]
-            chr_d, chr_dp, chr_loglik = self._expected_changes(chr_obs, obs_model=obs_model)
+            chr_d, chr_dp, chr_loglik = self._expected_changes(chr_obs, obs_model=obs_model, alg=alg)
             d += chr_d
             dp += chr_dp
             loglik += chr_loglik
@@ -308,14 +315,12 @@ class EvoModel:
     def compute_viterbi_path(self, log_emissions) -> np.ndarray:
         """
         Compute the viterbi path of the hidden markov model.
-        TODO: Remove log_pi assumption of starting in (1, 1, 1)
         """
         M = log_emissions.shape[0]
         K = self.n_states
         theta_ru, theta_uv, theta_uw = self.theta
         cnp_r = np.ones(M) * 2  # fix root cn = 2
-        raw_pi = np.zeros((K, K, K))
-        raw_pi[1, 1, 1] = 1.0  # Start in the CN=2 state
+        raw_pi = np.ones((K, K, K)) # Uniform pi prior, will be fully dictated by log_emissions
         log_pi = np.log(raw_pi / raw_pi.sum())
         best_path, max_log_prob = math_utils.viterbi_matrix_K6(
             log_emissions, cnp_r, log_pi, theta_ru, theta_uv, theta_uw
@@ -345,6 +350,13 @@ class EvoModel:
         one_slice_marginal_v = np.einsum('mijk->mj', np.exp(self.log_gamma))
         one_slice_marginal_w = np.einsum('mijk->mk', np.exp(self.log_gamma))
         return one_slice_marginal_v, one_slice_marginal_w
+
+    def counts_from_paths(self, viterbi_path):
+        """
+        Calculates the number of changes and no-changes from the provided Viterbi path.
+        """
+        D, Dp = math_utils.compute_cn_changes(viterbi_path, pairs=[(0, 1), (0, 2), (3, 2)])
+        return D, Dp
 
 
 class CopyTree(EvoModel):
