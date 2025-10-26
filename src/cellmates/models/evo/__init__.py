@@ -10,7 +10,7 @@ from cellmates.models.evo.basefunc import get_zipping_mask, get_zipping_mask0, p
     p_delta_start_prob, h_eps, h_eps0
 
 from cellmates.models.obs import ObsModel, PoissonModel
-from cellmates.utils import tree_utils
+from cellmates.utils import tree_utils, math_utils
 
 
 class EvoModel:
@@ -305,6 +305,24 @@ class EvoModel:
                 f"Forward pass normalization error:{sp.logsumexp(alpha, axis=(1, 2, 3))}"
         return alpha, log_likelihood
 
+    def compute_viterbi_path(self, log_emissions) -> np.ndarray:
+        """
+        Compute the viterbi path of the hidden markov model.
+        TODO: Remove log_pi assumption of starting in (1, 1, 1)
+        """
+        M = log_emissions.shape[0]
+        K = self.n_states
+        theta_ru, theta_uv, theta_uw = self.theta
+        cnp_r = np.ones(M) * 2  # fix root cn = 2
+        raw_pi = np.zeros((K, K, K))
+        raw_pi[1, 1, 1] = 1.0  # Start in the CN=2 state
+        log_pi = np.log(raw_pi / raw_pi.sum())
+        best_path, max_log_prob = math_utils.viterbi_matrix_K6(
+            log_emissions, cnp_r, log_pi, theta_ru, theta_uv, theta_uw
+        )
+        return np.array(best_path), max_log_prob
+
+
     @property
     def start_prob(self):
         """
@@ -564,6 +582,8 @@ class JCBModel(EvoModel):
         cn = self.simulate_cn(tree, n_sites)
 
         return cn
+
+
 
 
 def _evolve_cn_event_pois(prev_cn: np.ndarray, pdd: float, n_states: int, zero_absorption: bool = False,

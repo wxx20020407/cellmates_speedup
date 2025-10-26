@@ -828,6 +828,40 @@ class EMTestCase(unittest.TestCase):
         self.assertGreater(joint_prob_log_ll, joint_prob_log_le)
         self.assertGreater(joint_prob_log_ll, joint_prob_log_ee)
 
+    def test_compute_viterbi_path(self):
+        n_sites = 100
+        t0 = n_sites // 4  # first change idx
+        t1 = n_sites // 2  # second change idx
+
+        n_states = 4
+        p_change = 2 / n_sites
+        ll = l_from_p(p_change * 2, n_states)
+        sl = l_from_p(p_change / 10, n_states)
+        jcb_model = JCBModel(n_states=n_states)
+        obs_vw = np.array([
+            [100] * (t0 + 1) + [200] * (t1 - t0) + [300] * (n_sites - t1 - 1),
+            [100] * (t0 + 1) + [200] * (t1 - t0) + [300] * (n_sites - t1 - 1)
+        ]).transpose() + np.random.randint(-10, 10, (n_sites, 2))
+        cn_vw = np.round(obs_vw / 100).astype(int)
+        obs_model = PoissonModel(n_states, 100, 100)
+        # compute viterbi path assuming centroid is placed closer to the leaves
+        jcb_model.lengths = np.array([ll, sl, sl])
+        log_emissions = obs_model.log_emission(obs_vw)
+        viterbi_path, _ = jcb_model.compute_viterbi_path(log_emissions)
+
+        self.assertEqual(viterbi_path.shape, (n_sites, 3))
+        # check that the viterbi path has the expected changes
+        for m in range(n_sites):
+            if m <= t0:
+                self.assertEqual(viterbi_path[m, 0], 1)
+                self.assertEqual(viterbi_path[m, 1], 1)
+            elif t0 < m <= t1:
+                self.assertEqual(viterbi_path[m, 0], 2)
+                self.assertEqual(viterbi_path[m, 1], 2)
+            else:
+                self.assertEqual(viterbi_path[m, 0], 3)
+                self.assertEqual(viterbi_path[m, 1], 3)
+
     def test_compute_exp_changes(self):
         # random seed
         random.seed(101)
