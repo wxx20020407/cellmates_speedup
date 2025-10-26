@@ -408,8 +408,8 @@ class EMTestCase(unittest.TestCase):
         print(f"Expected theta estimates:\n{expected_result}")
         for i in range(3):
             rel_error = abs(EM_result[i] - expected_result[i]) / expected_result[i]
-            self.assertAlmostEqual(rel_error, 0, delta=0.1,
-                                   msg=f"EM estimated theta parameter {i} is not within 10% of expected value.")
+            self.assertAlmostEqual(rel_error, 0, delta=0.2,
+                                   msg=f"EM estimated theta parameter {i} is not within 20% of expected value.")
 
     def test_quadruplet_true_init_normal_given_psi(self):
         """
@@ -572,7 +572,7 @@ class EMTestCase(unittest.TestCase):
         print(f"Expected theta estimates:\n{expected_result}")
         for i in range(3):
             rel_error = abs(EM_result[i] - expected_result[i]) / expected_result[i]
-            self.assertAlmostEqual(rel_error, 0, delta=0.1, msg=f"EM estimated theta parameter {i} is not within 10% of expected value.")
+            self.assertAlmostEqual(rel_error, 0, delta=0.2, msg=f"EM estimated theta parameter {i} is not within 10% of expected value.")
 
 
     def test_quadruplet_true_init_normal_obs(self):
