@@ -213,7 +213,7 @@ class CellmatesTestCase(unittest.TestCase):
         fig.savefig(out_dir + '/true_inferred_and_NJ_tree.png')
 
     def test_dice_benchmark_PoC_data_on_expected_lengths(self):
-        datasets = ["D1_0"]#, "D2_0", "D3_0", "D4_0", "D5_0", "D6_0", "D7_0", "D8_0"]
+        datasets = ["A1_0"]#, "D2_0", "D3_0", "D4_0", "D5_0", "D6_0", "D7_0", "D8_0"]
         dataseeds = [0]#, 1, 2]
         path_to_data = "../../data/CNAsim/results"
         n_datasets = len(datasets)

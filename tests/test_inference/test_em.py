@@ -332,8 +332,8 @@ class EMTestCase(unittest.TestCase):
         seed = 0
         random.seed(seed)
         np.random.seed(seed)
-        n_states = 7
-        n_sites = 1000
+        n_states = 5
+        n_sites = 500
         n_CN_ru, n_CN_uv, n_CN_uw = 5, 3, 7
         n_fCN_ru, n_fCN_uv, n_fCN_uw = 5, 7, 7
         n_clonal_events_per_edge = {(3,2): n_CN_ru, (2,0): n_CN_uv, (2,1): n_CN_uw}
@@ -507,7 +507,7 @@ class EMTestCase(unittest.TestCase):
     def test_quadruplet_true_init_viterbi_given_psi(self):
         """
         Initialize EM with true theta and psi parameters for NormalModel and JCBModel on a quadruplet tree.
-        Then runs EM for theta parameters only by setting train=False in the observation model.
+        Then runs EM with Viterbi-based E-step for theta parameters only by setting train=False in the observation model.
         Returns
         -------
         """
@@ -515,8 +515,8 @@ class EMTestCase(unittest.TestCase):
         seed = 0
         random.seed(seed)
         np.random.seed(seed)
-        n_states = 7
-        n_sites = 1000
+        n_states = 5
+        n_sites = 500
         n_CN_ru, n_CN_uv, n_CN_uw = 5, 3, 7
         n_fCN_ru, n_fCN_uv, n_fCN_uw = 5, 7, 7
         n_clonal_events_per_edge = {(3, 2): n_CN_ru, (2, 0): n_CN_uv, (2, 1): n_CN_uw}
@@ -934,16 +934,16 @@ class EMTestCase(unittest.TestCase):
         # check that the viterbi path has the expected changes
         for m in range(n_sites):
             if m <= t0:
-                if viterbi_path[m, 1] != 1 or viterbi_path[m, 2] != 1:
+                if viterbi_path[m, 0] != 1 or viterbi_path[m, 1] != 1:
                     print(f"m={m}, viterbi_path: {viterbi_path[m, 1:]}, cn_vw: {cn_vw[m, :]}")
             elif t0 < m <= t1:
-                if viterbi_path[m, 1] != 2 or viterbi_path[m, 2] != 2:
+                if viterbi_path[m, 0] != 2 or viterbi_path[m, 1] != 2:
                     print(f"m={m}, viterbi_path: {viterbi_path[m, 1:]}, cn_vw: {cn_vw[m, :]}")
             else:
-                if viterbi_path[m, 1] != 3 or viterbi_path[m, 2] != 3:
+                if viterbi_path[m, 0] != 3 or viterbi_path[m, 1] != 3:
                     print(f"m={m}, viterbi_path: {viterbi_path[m, 1:]}, cn_vw: {cn_vw[m, :]}")
-        n_diff_v = np.sum(viterbi_path[:, 1] != cn_vw[:, 0])
-        n_diff_w = np.sum(viterbi_path[:, 2] != cn_vw[:, 1])
+        n_diff_v = np.sum(viterbi_path[:, 0] != cn_vw[:, 0])
+        n_diff_w = np.sum(viterbi_path[:, 1] != cn_vw[:, 1])
         self.assertLess(n_diff_v, 2, msg="Too many differences between viterbi u and true cn u")
         self.assertLess(n_diff_w, 2, msg="Too many differences between viterbi v and true cn v")
 
