@@ -49,7 +49,7 @@ class MathUtilsTestCase(unittest.TestCase):
         print(f"Memory for K^6 tensor (float64): ~{(K ** 6 * 8) / (1024 ** 2) :.2f} MB")
 
         # --- 2. Simulate Data ---
-        obs_model = NormalModel(K, mu_v_prior=1.0, tau_w_prior=100.0)
+        obs_model = NormalModel(K, mu_v_prior=1.0, tau_v_prior=100.0)
         evo_model_sim = SimulationEvoModel(n_clonal_CN_events=5, n_focal_events=5, clonal_CN_length=M//20)
         data = datagen.simulate_quadruplet(M, obs_model, evo_model_sim, n_states=K)
         cnps = data['cn']
