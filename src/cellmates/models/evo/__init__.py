@@ -3,6 +3,7 @@ import random
 
 import dendropy as dpy
 import networkx as nx
+import numba
 import numpy as np
 from scipy import special as sp, stats as sp_stats, stats as ss
 
@@ -190,85 +191,171 @@ class EvoModel:
     #         return JCBModel(n_states=n_states)
     #     else:
     #         raise ValueError(f"Unknown evolutionary model {evo_model}")
-    def two_slice_marginals_fast(self, obs_vw, obs_model: ObsModel, **kwargs) -> np.ndarray:
+    def two_slice_marginals_jit(self, obs_vw, obs_model: ObsModel, **kwargs) -> np.ndarray:
         """
         Improvement over two_slice_marginals with better memory management and operations.
         """
-        def _forward_pass_likelihood(obs_vw, log_emissions_v, log_emissions_w, log_trans_mat, log_start_prob, normalization: None | int = 0) -> tuple[np.ndarray, float]:
-            # FIXME: make log_emissions_v, log_emissions_w input to avoid recomputation
-            log_emissions = log_emissions_v + log_emissions_w  # FIXME: wrong placeholder
+
+        # lookup functions
+        @numba.njit(parallel=False, fastmath=True)
+        def x0(i, j, log_cp):
+            if i != j:
+                return log_cp[0]
+            else:
+                return log_cp[1]
+
+        @numba.njit(parallel=False, fastmath=True)
+        def x(jj, j, i, ii, log_cp):
+            if ii - i + j < 0 or ii - i + j > n_states - 1:
+                return 1 / n_states
+            else:
+                change = ii - i != jj - j
+                return log_cp[0] if change else log_cp[1]
+
+        @numba.njit(parallel=False, fastmath=True)
+        def _forward_pass_likelihood(obs_vw, log_emissions_v, log_emissions_w, normalization: None | int = 0) -> tuple[np.ndarray, float]:
+            change_probs = self.compute_change_probs()
+            log_change_probs = np.log(change_probs)
             # transmat idx = (i, j, k, x, y, z) = (m-1, m)
             n_sites = obs_vw.shape[0]
             n_states = self.trans_mat.shape[0]
-            if log_trans_mat is None:
-                log_trans_mat = np.log(self.trans_mat)
-            if log_start_prob is None:
-                eps = 1e-10  # to avoid log(0)
-                log_start_prob = np.log(self.start_prob.clip(eps))
 
             alpha = np.empty((n_sites, n_states, n_states, n_states), dtype=np.float32)
             # init alpha[0] = start_prob * emission[0] (in log-form)
-            alpha[0, ...] = log_start_prob + log_emissions[0, None, ...]
             log_lik_acc = 0.
             for m in range(n_sites):
-                if m > 0:
-                    log_acc = sp.logsumexp(alpha[m - 1, :, :, :, None, None, None] + log_trans_mat, axis=(0, 1, 2))
-                    alpha[m, ...] = log_acc + log_emissions[m, None, :, :]
-                if normalization is not None and m % normalization == 0 and m < n_sites - 1:
-                    norm = sp.logsumexp(alpha[m])
+                for iuvw in range(n_states ** 3):
+                    iu = iuvw // (n_states ** 2)
+                    iv = (iuvw // n_states) % n_states
+                    iw = iuvw % n_states
+                    acc_m = log_emissions_v[m, iv] + log_emissions_w[m, iw]
+                    if m == 0:
+                        acc_m += x0(iu, 2, log_change_probs[0])  # start prob r=2
+                        alpha[m, iu, iv, iw] = acc_m
+                    else:
+                        acc_ju = -np.inf
+                        for ju in range(n_states):
+                            acc_jv = -np.inf
+                            for jv in range(n_states):
+                                acc_jw = -np.inf
+                                for jw in range(n_states):
+                                    acc_jw = np.logaddexp(
+                                        alpha[m - 1, ju, jv, jw] + x(jw, iw, ju, iu, log_change_probs[2]),
+                                        acc_jw
+                                    )
+                                acc_jv = np.logaddexp(
+                                    x(jv, iv, ju, iu, log_change_probs[1]) + acc_jw,
+                                    acc_jv
+                                )
+                            acc_ju = np.logaddexp(
+                                x0(ju, iu, log_change_probs[0]) + acc_jv,
+                                acc_ju
+                            )
+                        alpha[m, iu, iv, iw] = acc_m + acc_ju
+                # normalization step
+                if normalization is not None and m % normalization == 0 and m > 0:
+                    # numba friendly logsumexp
+                    max_alpha = -np.inf
+                    for iuvw in range(n_states ** 3):
+                        iu = iuvw // (n_states ** 2)
+                        iv = (iuvw // n_states) % n_states
+                        iw = iuvw % n_states
+                        if alpha[m, iu, iv, iw] > max_alpha:
+                            max_alpha = alpha[m, iu, iv, iw]
+                    sum_exp = 0.
+                    for iuvw in range(n_states ** 3):
+                        iu = iuvw // (n_states ** 2)
+                        iv = (iuvw // n_states) % n_states
+                        iw = iuvw % n_states
+                        sum_exp += np.exp(alpha[m, iu, iv, iw] - max_alpha)
+                    norm = max_alpha + np.log(sum_exp)
                     # normalization step
-                    alpha[m] -= norm
-                    # update log likelihood to save computation
+                    for iuvw in range(n_states ** 3):
+                        iu = iuvw // (n_states ** 2)
+                        iv = (iuvw // n_states) % n_states
+                        iw = iuvw % n_states
+                        alpha[m, iu, iv, iw] -= norm
                     log_lik_acc += norm
-
-            log_likelihood = log_lik_acc + sp.logsumexp(alpha[-1])
+            log_likelihood = log_lik_acc
 
             return alpha, log_likelihood
 
-        @np.jit(nopython=True, parallel=False, fastmath=True)
-        def _jit_backward_pass(n_sites, n_states, log_emissions_v, log_emissions_w, change_probs, normalization):
-            # lookup functions
-            def x0(i, j, change_prob):
-                if i != j:
-                    return np.log(change_prob[0])
-                else:
-                    return np.log(change_prob[1])
-            def x(jj, j, i, ii, change_prob):
-                if ii - i + j < 0 or ii - i + j > n_states - 1:
-                    return 1 / n_states
-                else:
-                    change = ii - i != jj - j
-                    return np.log(change_prob[0]) if change else np.log(change_prob[1])
-
+        @numba.njit(parallel=False, fastmath=True)
+        def _jit_backward_pass(n_sites, n_states, log_emissions_v, log_emissions_w, change_probs, normalization: None | int = 0) -> np.ndarray:
+            log_change_probs = np.log(change_probs)
             beta = np.zeros((n_sites, n_states, n_states, n_states), dtype=np.float32)
-            if normalization:
-                beta[-1, ...] = - 3 * np.log(n_states)
+            beta[-1, ...] = - 3 * np.log(n_states)
             for m in range(n_sites - 2, -1, -1):
                 for iuvw in range(n_states ** 3):
                     iu = iuvw // (n_states ** 2)
                     iv = (iuvw // n_states) % n_states
                     iw = iuvw % n_states
+                    acc_jv = -np.inf
                     for jv in range(n_states):
                         # yv
-                        acc = -np.inf
+                        acc_jw = -np.inf
                         for jw in range(n_states):
                             # yw
-                            acc = -np.inf
+                            acc_ju = -np.inf
                             for ju in range(n_states):
-                                acc = np.logaddexp(
-                                    x0(ju, iu, change_probs[0]) + x(jv, iv, ju, iu, change_probs[1]) + x(jw, iw, ju, iu, change_probs[2]) +  beta[m + 1, ju, jv, jw],
-                                    acc
+                                acc_ju = np.logaddexp(
+                                    x0(ju, iu, log_change_probs[0]) + x(jv, iv, ju, iu, log_change_probs[1]) + x(jw, iw, ju, iu, log_change_probs[2]) +  beta[m + 1, ju, jv, jw],
+                                    acc_ju
                                 )
-                                # FIXME: finish implementation
-            return
+                            acc_jw = np.logaddexp(log_emissions_w[m + 1, jw] + acc_ju, acc_jw)
+                        acc_jv = np.logaddexp(log_emissions_v[m + 1, jv] + acc_jw, acc_jv)
+                    beta[m, iu, iv, iw] = acc_jv
+                # normalization step
+                if normalization is not None and m % normalization == 0 and m > 0:
+                    # numba friendly logsumexp
+                    max_beta = -np.inf
+                    for iuvw in range(n_states ** 3):
+                        iu = iuvw // (n_states ** 2)
+                        iv = (iuvw // n_states) % n_states
+                        iw = iuvw % n_states
+                        if beta[m, iu, iv, iw] > max_beta:
+                            max_beta = beta[m, iu, iv, iw]
+                    sum_exp = 0.
+                    for iuvw in range(n_states ** 3):
+                        iu = iuvw // (n_states ** 2)
+                        iv = (iuvw // n_states) % n_states
+                        iw = iuvw % n_states
+                        sum_exp += np.exp(beta[m, iu, iv, iw] - max_beta)
+                    norm = max_beta + np.log(sum_exp)
+                    # normalization step
+                    for iuvw in range(n_states ** 3):
+                        iu = iuvw // (n_states ** 2)
+                        iv = (iuvw // n_states) % n_states
+                        iw = iuvw % n_states
+                        beta[m, iu, iv, iw] -= norm
 
-        def _backward_pass(obs_vw, log_emissions_v, log_emissions_w, log_trans_mat, normalization: None | int = 0) -> np.ndarray:
+            return beta
+
+        def _backward_pass(obs_vw, log_emissions_v, log_emissions_w, normalization: None | int = 0) -> np.ndarray:
             n_sites = obs_vw.shape[0]
             n_states = self.trans_mat.shape[0]
             # precompute eps values
             change_probs = self.compute_change_probs()  # shape (3, 2) change_probs[e, 0] = p(change), change_probs[e, 1] = p(no change), e=0:ru, e=1:uv, e=2:uw
             beta = _jit_backward_pass(n_sites, n_states, log_emissions_v, log_emissions_w, change_probs, normalization)
             return beta
+
+        def _compute_xi(alpha_probs, beta_probs, log_emissions_v, log_emissions_w, log_trans_mat, n_sites, n_states) -> np.ndarray:
+            log_xi = np.empty((n_sites - 1, n_states, n_states, n_states, n_states, n_states, n_states), dtype=np.float32)
+            # group summations properly to avoid unnecessary computations
+            for m in range(n_sites - 1):
+                norm = -np.inf
+                for i in range(n_states):
+                    for j in range(n_states):
+                        for k in range(n_states):
+                            log_acc = alpha_probs[m, i, j, k] + log_trans_mat[i, j, k, :, :, :]
+                            log_acc += log_emissions_v[m + 1, :, :]  # broadcasting over y,z
+                            log_acc += log_emissions_w[m + 1, :, :]  # broadcasting over y,z
+                            log_acc += beta_probs[m + 1, :, :, :]  # broadcasting over x,y,z
+                            log_xi[m, i, j, k, :, :, :] = log_acc
+                            norm = np.logaddexp(norm, sp.logsumexp(log_acc))
+                # normalize xi
+                log_xi[m, ...] -= norm
+            return log_xi
 
         n_states = self.n_states
         assert obs_model.n_states == n_states
@@ -286,19 +373,12 @@ class EvoModel:
         # log emission shape (n_sites, n_states, n_states)
         log_emissions_v, log_emissions_w = obs_model.log_emission_split(obs_vw)
         # compute forward: shape (n_sites, n_states, n_states, n_states)
-        alpha_probs, self.loglikelihood = _forward_pass_likelihood(obs_vw, log_emissions_v, log_emissions_w, log_trans_mat, log_start_prob, normalization=normalization)
+        alpha_probs, self.loglikelihood = _forward_pass_likelihood(obs_vw, log_emissions_v, log_emissions_w, normalization=normalization)
         # compute backward: shape (n_sites, n_states, n_states, n_states)
-        beta_probs = _backward_pass(obs_vw, log_emissions_v, log_emissions_w, log_trans_mat, normalization=normalization)
+        beta_probs = _backward_pass(obs_vw, log_emissions_v, log_emissions_w, normalization=normalization)
         # tsm shape: (n_sites - 1,) + (n_states,) * 6
         # compute two slice: xi
-        # FIXME: rewrite xi
-        log_xi = None
-        # log_xi = alpha_probs[(np.arange(n_sites - 1), ...) + (np.newaxis,) * 3] + \
-        #          log_trans_mat[np.newaxis, ...] + \
-        #          log_emissions_v[(np.arange(1, log_emissions_v.shape[0]),) + (np.newaxis,) * 4 + (...,)] + \
-        #          beta_probs[(np.arange(1, beta_probs.shape[0]), ...) + (np.newaxis,) * 3]
-        log_xi -= np.expand_dims(sp.logsumexp(log_xi, axis=tuple(range(1, 7))), axis=tuple(range(1, 7)))
-        # log_xi = log_xi - sp.logsumexp(log_xi, axis=(1, 2, 3, 4, 5, 6), keepdims=True) # check if faster
+        log_xi = _compute_xi(alpha_probs, beta_probs, log_emissions_v, log_emissions_w, log_trans_mat, n_sites, n_states)
         log_gamma = sp.logsumexp(log_xi, axis=(4, 5, 6)) # Check axis for gamma
         # last site needs to be added separately
         log_alpha_final = alpha_probs[-1, ...]
@@ -704,6 +784,17 @@ class JCBModel(EvoModel):
         cn = self.simulate_cn(tree, n_sites)
 
         return cn
+
+    def compute_change_probs(self):
+        change_probs = np.empty((3, 2))
+        for e in range(3):
+            l = self.lengths[e]
+            alpha = self.alpha
+            p_no_change = 1 - (self.n_states - 1) / self.n_states * (1 - np.exp(- self.n_states * alpha * l))
+            p_change = 1 - p_no_change
+            change_probs[e, 0] = p_change
+            change_probs[e, 1] = p_no_change
+        return change_probs
 
 
 def _evolve_cn_event_pois(prev_cn: np.ndarray, pdd: float, n_states: int, zero_absorption: bool = False,
