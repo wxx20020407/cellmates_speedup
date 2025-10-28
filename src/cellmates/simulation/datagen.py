@@ -77,16 +77,18 @@ def simulate_quadruplet(n_sites,
     edge_lengths = ss.gamma.rvs(gamma_params[:, 0], scale=gamma_params[:, 1]) if edge_lengths is None else edge_lengths
     if isinstance(evo_model, CopyTree):
         edge_lengths = p_from_l(edge_lengths, n_states=n_states)
-    for edge in tree.preorder_edge_iter():
-        # root to centroid u
-        if edge.head_node.label == '2':
-            edge.length = edge_lengths[0]
-        # centroid to v
-        elif edge.head_node.label == '0':
-            edge.length = edge_lengths[1]
-        # centroid to w
-        elif edge.head_node.label == '1':
-            edge.length = edge_lengths[2]
+    if not isinstance(evo_model, SimulationEvoModel):
+        # generated lengths are not used so they shouldn't be set on the tree
+        for edge in tree.preorder_edge_iter():
+            # root to centroid u
+            if edge.head_node.label == '2':
+                edge.length = edge_lengths[0]
+            # centroid to v
+            elif edge.head_node.label == '0':
+                edge.length = edge_lengths[1]
+            # centroid to w
+            elif edge.head_node.label == '1':
+                edge.length = edge_lengths[2]
 
     out_dataset = rand_dataset(n_states, n_sites, evo_model=evo_model, obs_model=obs_model, tree=tree, seed=seed)
     if return_adata:
