@@ -1,9 +1,12 @@
 import time
+
+import pandas as pd
+import seaborn as sns
+import matplotlib.pyplot as plt
 from pomegranate.hmm import DenseHMM
 from pomegranate.distributions import Normal
 
 import numpy as np
-import seaborn as sns
 from cellmates.models.evo import JCBModel
 from cellmates.models.obs import PoissonModel, NormalModel
 from cellmates.simulation.datagen import simulate_quadruplet
@@ -40,8 +43,6 @@ def make_emissions(X, n_states, mu, tau):
 
 def main():
     seed = 42
-    # n_sites = 200
-    # n_states = 6
     reps = 5
 
     # gather times for different n_states and n_sites
@@ -102,30 +103,50 @@ def main():
                     lik_diff = old_likelihoods[i] - new_likelihoods[i]
                     f.write(f"{n_states},{n_sites},{old_times[i]:.6f},{new_times[i]:.6f},{speedup:.4f},{lik_diff.item():.6f}\n")
 
-            print("Results written to", out_file)
-            # plot results to check O(K^6 M) and check constants
-            res_df = sns.load_dataset("csv", data=out_file)
-            # plot over n_sites for each n_states (hue=n_states)
-            sns.lineplot(data=res_df, x="n_sites", y="old_time_per_run", hue="n_states", marker="o", label="Old")
-            sns.lineplot(data=res_df, x="n_sites", y="new_time_per_run", hue="n_states", marker="o", linestyle="--", label="New")
-            sns.scatterplot(data=res_df, x="n_sites", y="old_time_per_run", hue="n_states", marker="o")
-            sns.scatterplot(data=res_df, x="n_sites", y="new_time_per_run", hue="n_states", marker="o", linestyle="--")
-            sns.plt.xlabel("Number of Sites")
-            sns.plt.ylabel("Time per Run (s)")
-            sns.plt.title("Forward-Backward Time Comparison")
-            sns.plt.legend()
-            sns.plt.savefig("forward_backward_speed_comparison.png")
-            # plot over n_states for each n_sites (hue=n_sites)
-            sns.lineplot(data=res_df, x="n_states", y="old_time_per_run", hue="n_sites", marker="o", label="Old")
-            sns.lineplot(data=res_df, x="n_states", y="new_time_per_run", hue="n_sites", marker="o", linestyle="--", label="New")
-            sns.scatterplot(data=res_df, x="n_states", y="old_time_per_run", hue="n_sites", marker="o")
-            sns.scatterplot(data=res_df, x="n_states", y="new_time_per_run", hue="n_sites", marker="o", linestyle="--")
-            sns.plt.xlabel("Number of States")
-            sns.plt.ylabel("Time per Run (s)")
-            sns.plt.title("Forward-Backward Time Comparison")
-            sns.plt.legend()
-            sns.plt.savefig("forward_backward_speed_comparison_states.png")
+    print("Results written to", out_file)
+    # plot results to check O(K^6 M) and check constants
+    res_df = pd.read_csv(out_file)
+    # two plots: time vs n_states (hue=n_sites), time vs n_sites (hue=n_states)
+    sns.set(style="whitegrid")
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6))
 
+    # Plot 1
+    sns.lineplot(data=res_df, x="n_states", y="old_time_per_run", hue="n_sites", marker="o", ax=ax1)
+    sns.lineplot(data=res_df, x="n_states", y="new_time_per_run", hue="n_sites", marker="o", linestyle="--", ax=ax1)
+    ax1.set_yscale("log")
+    ax1.set_title("Forward-Backward Time vs Number of States")
+    ax1.set_xlabel("Number of States")
+    ax1.set_ylabel("Time per Run (s)")
+
+    # Create custom legend for plot 1
+    handles, labels = ax1.get_legend_handles_labels()
+    # Add custom entries for linestyle
+    from matplotlib.lines import Line2D
+    custom_lines = [Line2D([0], [0], color='black', linestyle='-', marker='o'),
+                    Line2D([0], [0], color='black', linestyle='--', marker='o')]
+    handles = handles + custom_lines
+    labels = labels + ['numpy', 'pomegranate']
+    ax1.legend(handles, labels, title="Number of Sites / Method", bbox_to_anchor=(1.05, 1), loc='upper left')
+
+    # Plot 2
+    sns.lineplot(data=res_df, x="n_sites", y="old_time_per_run", hue="n_states", marker="o", ax=ax2)
+    sns.lineplot(data=res_df, x="n_sites", y="new_time_per_run", hue="n_states", marker="o", linestyle="--", ax=ax2)
+    ax2.set_yscale("log")
+    ax2.set_title("Forward-Backward Time vs Number of Sites")
+    ax2.set_xlabel("Number of Sites")
+    ax2.set_ylabel("Time per Run (s)")
+
+    # Create custom legend for plot 2
+    handles, labels = ax2.get_legend_handles_labels()
+    custom_lines = [Line2D([0], [0], color='black', linestyle='-', marker='o'),
+                    Line2D([0], [0], color='black', linestyle='--', marker='o')]
+    handles = handles + custom_lines
+    labels = labels + ['numpy', 'pomegranate']
+    ax2.legend(handles, labels, title="Number of States / Method", bbox_to_anchor=(1.05, 1), loc='upper left')
+
+    plt.tight_layout()
+    plt.savefig("forward_backward_speed_test_results.png", bbox_inches='tight')
+    print("Plots saved to forward_backward_speed_test_results.png")
 
 
 if __name__ == "__main__":
