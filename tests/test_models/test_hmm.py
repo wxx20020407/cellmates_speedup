@@ -62,9 +62,9 @@ class HMMTestCase(unittest.TestCase):
         evo_model = CopyTree(n_states=n_states)
         evo_model.theta = np.array([1/12, 1/12, 1/12])
 
-        _, ll_fwd = evo_model._forward_pass_likelihood(obs, log_emissions, normalization=True)
-        alpha, _ = evo_model._forward_pass_likelihood(obs, log_emissions, normalization=False)
-        beta = evo_model.backward_pass(obs, log_emissions, normalization=False)
+        _, ll_fwd = evo_model._forward_pass_likelihood(obs, log_emissions)
+        alpha, _ = evo_model._forward_pass_likelihood(obs, log_emissions)
+        beta = evo_model.backward_pass(log_emissions)
         for t in range(n_sites):
             ll = sp.logsumexp(alpha[t] + beta[t])
             # print(f"t={t}, ll: {ll}, ll_fwd: {ll_fwd}")

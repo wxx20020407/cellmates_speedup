@@ -11,6 +11,8 @@ from cellmates.models.evo.basefunc import get_zipping_mask, get_zipping_mask0, p
 
 from cellmates.models.obs import ObsModel, PoissonModel
 from cellmates.utils import tree_utils, math_utils
+from cellmates.utils.hmm import _forward_likelihood_broadcast, _forward_likelihood_pomegranate, \
+    _forward_backward_broadcast, _forward_backward_pomegranate
 
 
 class EvoModel:
@@ -19,7 +21,7 @@ class EvoModel:
         self._start_prob = None
         self._trans_mat = None
         self.loglikelihood = None
-        self.log_xi = None
+        self.expected_counts = None
         self.log_gamma = None
         self.n_states = n_states
         # optional parameters
@@ -98,9 +100,9 @@ class EvoModel:
             # count changes along viterbi path
             d, dp = self.counts_from_paths(viterbi_path)
             return d, dp, path_log_lik
-        log_xi, log_gamma = self.two_slice_marginals(obs_vw, obs_model=obs_model)
+        expected_counts, log_gamma = self.two_slice_marginals(obs_vw, obs_model=obs_model)
         loglik = self.loglikelihood  # computed in the two slice marginals (forward pass)
-        self.log_xi = log_xi
+        self.expected_counts = expected_counts
         self.log_gamma = log_gamma
         log_gamma_1 = log_gamma[0]  # first site marginal prob C1 = ijk
 
@@ -110,7 +112,7 @@ class EvoModel:
         for e in range(3):
             if e == 0:
                 # l_ru (sum over m, j, k, j', k')
-                pair_tsm = sp.logsumexp(log_xi, axis=(0, 2, 3, 5, 6))
+                pair_tsm = sp.logsumexp(expected_counts, axis=(2, 3, 5, 6))
                 # use comut_mask0
                 d[0] = np.exp(sp.logsumexp(pair_tsm[~comut_mask0]))  # change
                 dp[0] = np.exp(sp.logsumexp(pair_tsm[comut_mask0]))  # no change
@@ -122,11 +124,11 @@ class EvoModel:
             else:
                 if e == 1:
                     # eps_uv (sum over m, i, i')
-                    pair_tsm = sp.logsumexp(log_xi, axis=(0, 3, 6))
+                    pair_tsm = sp.logsumexp(expected_counts, axis=(3, 6))
                     pair_osm_1 = sp.logsumexp(log_gamma_1, axis=2)
                 else:
                     # eps_uw (sum over m, j, j')
-                    pair_tsm = sp.logsumexp(log_xi, axis=(0, 2, 5))
+                    pair_tsm = sp.logsumexp(expected_counts, axis=(2, 5))
                     pair_osm_1 = sp.logsumexp(log_gamma_1, axis=1)
 
                 d[e] = np.exp(sp.logsumexp(pair_tsm[~comut_mask]))
@@ -198,7 +200,7 @@ class EvoModel:
     #     else:
     #         raise ValueError(f"Unknown evolutionary model {evo_model}")
 
-    def two_slice_marginals(self, obs_vw, obs_model: ObsModel) -> np.ndarray:
+    def two_slice_marginals(self, obs_vw, obs_model: ObsModel, alg='pomegranate') -> np.ndarray:
         """
         Computes the two slice marginals of a hidden markov model with three latent chains.
         Specifically, for each point m of the chain (site), and each pair of triplet states
@@ -212,63 +214,32 @@ class EvoModel:
 
         Returns
         -------
-        array of shape (n_sites - 1,) + (n_states,) * 6, log two slice marginals
-        (n_sites -1, n_states, n_states, n_states, n_states, n_states, n_states)
+            expected_counts: array of shape (n_states,) * 6, expected number of transitions over each Markov edge,
+            log_gamma: array of shape (n_sites, n_states, n_states, n_states), one slice log marginals
 
         """
         n_states = self.n_states
-        assert obs_model.n_states == n_states
-        n_sites = obs_vw.shape[0]
+        assert obs_model.n_states == n_states, "observation model number of states must match evolutionary model number of states"
+        log_emissions = obs_model.log_emission(obs_vw)
+        match alg:
+            case 'broadcast':
+                expected_counts, log_gamma, log_p = _forward_backward_broadcast(log_emissions, self.trans_mat, self.start_prob)
+            case 'pomegranate':
+                expected_counts, log_gamma, log_p = _forward_backward_pomegranate(log_emissions, self.trans_mat, self.start_prob)
 
-        # define emission prob (for emission pair)
-        # log emission shape (n_sites, n_states, n_states)
-        log_emission = obs_model.log_emission(obs_vw)
-        # compute forward: shape (n_sites, n_states, n_states, n_states)
-        alpha_probs, self.loglikelihood = self._forward_pass_likelihood(obs_vw, log_emission)
-        # compute backward: shape (n_sites, n_states, n_states, n_states)
-        beta_probs = self.backward_pass(obs_vw, log_emission)
-        # tsm shape: (n_sites - 1,) + (n_states,) * 6
-        # compute two slice: xi
-        log_xi = alpha_probs[(np.arange(n_sites - 1), ...) + (np.newaxis,) * 3] + \
-                 np.log(self.trans_mat)[np.newaxis, ...] + \
-                 log_emission[(np.arange(1, log_emission.shape[0]),) + (np.newaxis,) * 4 + (...,)] + \
-                 beta_probs[(np.arange(1, beta_probs.shape[0]), ...) + (np.newaxis,) * 3]
-        log_xi -= np.expand_dims(sp.logsumexp(log_xi, axis=tuple(range(1, 7))), axis=tuple(range(1, 7)))
-        # log_xi = log_xi - sp.logsumexp(log_xi, axis=(1, 2, 3, 4, 5, 6), keepdims=True) # check if faster
-        log_gamma = sp.logsumexp(log_xi, axis=(4, 5, 6)) # Check axis for gamma
-        # last site needs to be added separately
-        log_alpha_final = alpha_probs[-1, ...]
-        log_evidence = sp.logsumexp(log_alpha_final)
-        log_gamma_final = log_alpha_final - log_evidence
-        log_gamma_final_expanded = log_gamma_final[np.newaxis, ...]
-        log_gamma = np.concatenate([log_gamma, log_gamma_final_expanded], axis=0)
-        if self.debug:
-            assert np.allclose(sp.logsumexp(log_xi, axis=(1, 2, 3, 4, 5, 6)), np.zeros(n_sites - 1))
-            assert np.allclose(sp.logsumexp(log_gamma, axis=(1, 2, 3)), np.zeros(n_sites))
-        return log_xi, log_gamma
+        self.loglikelihood = log_p
 
-    def backward_pass(self, obs_vw, log_emissions, normalization=True) -> np.ndarray:
-        n_sites = obs_vw.shape[0]
-        n_states = self.trans_mat.shape[0]
+        return expected_counts, log_gamma
 
-        # initialize beta[M] = 1. (in log form)
-        beta = np.zeros((n_sites, n_states, n_states, n_states))
-        if normalization:
-            beta[-1, ...] = - 3 * np.log(n_states)
-
-        # compute iteratively
-        for m in reversed(range(n_sites - 1)):
-            beta[m, ...] = sp.logsumexp(beta[m + 1, None, None, None, :, :, :] +
-                                  np.log(self.trans_mat) +
-                                  log_emissions[m + 1, None, None, None, None, :, :], axis=(3, 4, 5))
-            # normalization step
-            if normalization:
-                beta[m] -= sp.logsumexp(beta[m])
-            # print(f"beta{m} sum: {sp.logsumexp(beta[m])}")
-
+    def backward_pass(self, log_emissions, alg='pomegranate') -> np.ndarray:
+        match alg:
+            case 'broadcast':
+                beta = _backward_likelihood_broadcast(log_emissions, self.trans_mat)
+            case 'pomegranate':
+                beta = _backward_likelihood_pomegranate(log_emissions, self.trans_mat)
         return beta
 
-    def _forward_pass_likelihood(self, obs_vw, log_emissions, normalization=True) -> tuple[np.ndarray, float]:
+    def _forward_pass_likelihood(self, log_emissions, alg='pomegranate') -> tuple[np.ndarray, float]:
         """
         Compute the forward pass of the hidden markov model with three latent chains and return the forward probabilities
         as well as the log likelihood of the observations.
@@ -283,34 +254,17 @@ class EvoModel:
         tuple with alpha array of shape (n_sites, n_states, n_states, n_states) with forward probabilities and
         log likelihood of the observations
         """
-        eps = 1e-10  # to avoid log(0)
-        # transmat idx = (i, j, k, x, y, z) = (m-1, m)
-        n_sites = obs_vw.shape[0]
-        n_states = self.trans_mat.shape[0]
-        alpha = np.empty((n_sites, n_states, n_states, n_states))
+        n_sites, n_states, _ = log_emissions.shape
+        alpha, log_p = None, None
+        match alg:
+            case 'broadcast':
+                alpha, log_p = _forward_likelihood_broadcast(log_emissions, self.trans_mat, self.start_prob)
+            case 'pomegranate':
+                alpha, log_p = _forward_likelihood_pomegranate(log_emissions, self.trans_mat, self.start_prob)
+            case _:
+                raise ValueError(f"Unknown algorithm {alg} for forward pass likelihood computation.")
 
-        # init alpha[0] = start_prob * emission[0] (in log-form)
-        alpha[0, ...] = np.log(self.start_prob.clip(eps)) + log_emissions[0, None, ...]
-        norm = sp.logsumexp(alpha[0])
-        if normalization:
-            alpha[0] -= norm
-
-        log_likelihood = norm
-        for m in range(1, n_sites):
-            log_acc = sp.logsumexp(alpha[m - 1, :, :, :, None, None, None] + np.log(self.trans_mat), axis=(0, 1, 2))
-            alpha[m, ...] = log_acc + log_emissions[m, None, :, :]
-            norm = sp.logsumexp(alpha[m])
-            if normalization:
-                # normalization step
-                alpha[m] -= norm
-
-            # update log likelihood to save computation
-            log_likelihood += norm
-
-        if normalization:
-            assert np.allclose(sp.logsumexp(alpha, axis=(1, 2, 3)), np.zeros(n_sites)),\
-                f"Forward pass normalization error:{sp.logsumexp(alpha, axis=(1, 2, 3))}"
-        return alpha, log_likelihood
+        return alpha, log_p
 
     def compute_viterbi_path(self, log_emissions) -> np.ndarray:
         """
