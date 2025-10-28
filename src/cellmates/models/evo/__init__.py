@@ -10,7 +10,9 @@ from cellmates.models.evo.basefunc import get_zipping_mask, get_zipping_mask0, p
     p_delta_start_prob, h_eps, h_eps0
 
 from cellmates.models.obs import ObsModel, PoissonModel
-from cellmates.utils.tree_utils import label_tree
+from cellmates.utils import tree_utils, math_utils
+from cellmates.utils.hmm import _forward_likelihood_broadcast, _forward_likelihood_pomegranate, \
+    _forward_backward_broadcast, _forward_backward_pomegranate, _backward_pass_broadcast, _backward_pass_pomegranate
 
 
 class EvoModel:
@@ -19,12 +21,16 @@ class EvoModel:
         self._start_prob = None
         self._trans_mat = None
         self.loglikelihood = None
+        self.expected_counts = None
+        self.log_gamma = None
         self.n_states = n_states
+        self.hmm_alg = kwargs.get('hmm_alg', 'pomegranate')
         # optional parameters
         self.zero_absorption = kwargs.get('zero_absorption', False)
         self.focal_rate = kwargs.get('focal_rate', 0.)
         self.event_length_ratio = kwargs.get('event_length_ratio', 0.2)
         self.chromosome_ends = kwargs.get('chromosome_ends', []) # list of chromosome end positions (0-indexed) excluding last position
+        self.debug = kwargs.get('debug', False)
 
     @property
     def theta(self):
@@ -70,7 +76,8 @@ class EvoModel:
         # node_cn[:] = _evolve_cn_event_chain(prev_cn, pdd, self.n_states)  # old method
         return node_cn
 
-    def _expected_changes(self, obs_vw, obs_model: ObsModel = None) -> tuple[np.ndarray, np.ndarray, float]:
+    def _expected_changes(self, obs_vw, obs_model: ObsModel = None,
+                          alg='forward-backward') -> tuple[np.ndarray, np.ndarray, float]:
         """
         Compute the expected number of changes which over the copy number conditional distribution for the three branches:
          (r, u), (u, v), (u, w).
@@ -89,33 +96,53 @@ class EvoModel:
         dp = np.empty(3) # expected no changes
         # compute two slice marginals
         # prob(Cm = ijk, Cm+1 = i'j'k' | Y)
-        log_xi = self.two_slice_marginals(obs_vw, obs_model=obs_model)
+        if alg == 'viterbi':
+            viterbi_path, path_log_lik = self.compute_viterbi_path(obs_model.log_emission(obs_vw))
+            # FIXME: set log_gamma
+            # count changes along viterbi path
+            d, dp = self.counts_from_paths(viterbi_path)
+            return d, dp, path_log_lik
+        expected_counts, log_gamma = self.forward_backward(obs_vw, obs_model=obs_model)
         loglik = self.loglikelihood  # computed in the two slice marginals (forward pass)
+        self.expected_counts = expected_counts
+        self.log_gamma = log_gamma
+        log_gamma_1 = log_gamma[0]  # first site marginal prob C1 = ijk
 
         comut_mask0 = get_zipping_mask0(self.n_states).transpose()
         comut_mask = get_zipping_mask(self.n_states).transpose(tuple(reversed(range(4))))
         # count expected changes/no-changes
         for e in range(3):
             if e == 0:
-                # l_ru (sum over m, j, k, j', k')
-                pair_tsm = sp.logsumexp(log_xi, axis=(0, 2, 3, 5, 6))
+                # l_ru (sum over j, k, j', k')
+                pair_tsm = np.sum(expected_counts, axis=(1, 2, 4, 5))
                 # use comut_mask0
-                d[0] = np.exp(sp.logsumexp(pair_tsm[~comut_mask0]))  # change
-                dp[0] = np.exp(sp.logsumexp(pair_tsm[comut_mask0]))  # no change
+                d[0] = np.sum(pair_tsm[~comut_mask0])  # change
+                dp[0] = np.sum(pair_tsm[comut_mask0])  # no change
+                # add first state
+                pair_osm_1 = sp.logsumexp(log_gamma_1, axis=(1, 2))
+                exp_p2 = np.exp(pair_osm_1[2])  # p(C1u = 2)
+                d[0] += 1 - exp_p2  # change from r=2 to u != 2
+                dp[0] += exp_p2 # no change from r=2 to u=2
             else:
                 if e == 1:
-                    # eps_uv (sum over m, i, i')
-                    pair_tsm = sp.logsumexp(log_xi, axis=(0, 3, 6))
+                    # eps_uv (sum over i, i')
+                    pair_tsm = np.sum(expected_counts, axis=(2, 5))
+                    pair_osm_1 = sp.logsumexp(log_gamma_1, axis=2)
                 else:
-                    # eps_uw (sum over m, j, j')
-                    pair_tsm = sp.logsumexp(log_xi, axis=(0, 2, 5))
+                    # eps_uw (sum over j, j')
+                    pair_tsm = np.sum(expected_counts, axis=(1, 4))
+                    pair_osm_1 = sp.logsumexp(log_gamma_1, axis=1)
 
-                d[e] = np.exp(sp.logsumexp(pair_tsm[~comut_mask]))
-                dp[e] = np.exp(sp.logsumexp(pair_tsm[comut_mask]))
+                d[e] = np.sum(pair_tsm[~comut_mask])
+                dp[e] = np.sum(pair_tsm[comut_mask])
+                # add first state
+                d[e] += np.exp(sp.logsumexp(pair_osm_1[~comut_mask0]))
+                dp[e] += np.exp(sp.logsumexp(pair_osm_1[comut_mask0]))
 
         return d, dp, loglik
 
-    def multi_chr_expected_changes(self, obs_vw, obs_model: ObsModel = None) -> tuple[np.ndarray, np.ndarray, float]:
+    def multi_chr_expected_changes(self, obs_vw, obs_model: ObsModel = None,
+                                   alg='forward-backward') -> tuple[np.ndarray, np.ndarray, float]:
         """
         Compute the expected number of changes which over the copy number conditional distribution for the three branches:
          (r, u), (u, v), (u, w). This function handles multiple chromosomes by splitting the observations
@@ -143,7 +170,7 @@ class EvoModel:
         chr_start = 0
         for chr_end in self.chromosome_ends + [obs_vw.shape[0]]:
             chr_obs = obs_vw[chr_start:chr_end]
-            chr_d, chr_dp, chr_loglik = self._expected_changes(chr_obs, obs_model=obs_model)
+            chr_d, chr_dp, chr_loglik = self._expected_changes(chr_obs, obs_model=obs_model, alg=alg)
             d += chr_d
             dp += chr_dp
             loglik += chr_loglik
@@ -175,68 +202,43 @@ class EvoModel:
     #     else:
     #         raise ValueError(f"Unknown evolutionary model {evo_model}")
 
-    def two_slice_marginals(self, obs_vw, obs_model: ObsModel) -> np.ndarray:
+    def forward_backward(self, obs_vw, obs_model: ObsModel) -> np.ndarray:
         """
-        Computes the two slice marginals of a hidden markov model with three latent chains.
-        Specifically, for each point m of the chain (site), and each pair of triplet states
-        (i,j,k)[m] -> (i'j'k')[m+1], it computes the
-            $$ \log P(X_m = (i,j,k), X_{m+1} = (i',j',k') | Y, \theta) $$
-        Also computes the log likelihood of the observations in the forward pass (saved in self.loglikelihood attribute).
+        Perform the forward-backward algorithm to compute the expected number of transitions
+        and the one-slice log marginals. It also saves the loglikelihood of the observations.
         Parameters
         ----------
         obs_vw array of shape (n_sites, 2)
         obs_model instance of ObsModel
-
         Returns
         -------
-        array of shape (n_sites - 1,) + (n_states,) * 6, log two slice marginals
-        (n_sites -1, n_states, n_states, n_states, n_states, n_states, n_states)
-
+        expected_counts: array of shape (n_states,) * 6, expected number of transitions over each Markov edge,
+        log_gamma: array of shape (n_sites, n_states, n_states, n_states), one slice log marginals
         """
+        alg = self.hmm_alg
         n_states = self.n_states
-        assert obs_model.n_states == n_states
-        n_sites = obs_vw.shape[0]
+        assert obs_model.n_states == n_states, "observation model number of states must match evolutionary model number of states"
+        log_emissions = obs_model.log_emission(obs_vw)
+        match alg:
+            case 'broadcast':
+                expected_counts, log_gamma, log_p = _forward_backward_broadcast(log_emissions, self.trans_mat, self.start_prob)
+            case 'pomegranate':
+                expected_counts, log_gamma, log_p = _forward_backward_pomegranate(log_emissions, self.trans_mat, self.start_prob)
 
-        # define emission prob (for emission pair)
-        # log emission shape (n_sites, n_states, n_states)
-        log_emission = obs_model.log_emission(obs_vw)
-        # compute forward: shape (n_sites, n_states, n_states, n_states)
-        alpha_probs, self.loglikelihood = self._forward_pass_likelihood(obs_vw, log_emission)
-        # compute backward: shape (n_sites, n_states, n_states, n_states)
-        beta_probs = self.backward_pass(obs_vw, log_emission)
-        # tsm shape: (n_sites - 1,) + (n_states,) * 6
-        # compute two slice: xi
-        log_xi = alpha_probs[(np.arange(n_sites - 1), ...) + (np.newaxis,) * 3] + \
-                 np.log(self.trans_mat)[np.newaxis, ...] + \
-                 log_emission[(np.arange(1, log_emission.shape[0]),) + (np.newaxis,) * 4 + (...,)] + \
-                 beta_probs[(np.arange(1, beta_probs.shape[0]), ...) + (np.newaxis,) * 3]
-        log_xi -= np.expand_dims(sp.logsumexp(log_xi, axis=tuple(range(1, 7))), axis=tuple(range(1, 7)))
+        self.loglikelihood = log_p
 
-        assert np.allclose(sp.logsumexp(log_xi, axis=(1, 2, 3, 4, 5, 6)), np.zeros(n_sites - 1))
-        return log_xi
+        return expected_counts, log_gamma
 
-    def backward_pass(self, obs_vw, log_emissions, normalization=True) -> np.ndarray:
-        n_sites = obs_vw.shape[0]
-        n_states = self.trans_mat.shape[0]
-
-        # initialize beta[M] = 1. (in log form)
-        beta = np.zeros((n_sites, n_states, n_states, n_states))
-        if normalization:
-            beta[-1, ...] = - 3 * np.log(n_states)
-
-        # compute iteratively
-        for m in reversed(range(n_sites - 1)):
-            beta[m, ...] = sp.logsumexp(beta[m + 1, None, None, None, :, :, :] +
-                                  np.log(self.trans_mat) +
-                                  log_emissions[m + 1, None, None, None, None, :, :], axis=(3, 4, 5))
-            # normalization step
-            if normalization:
-                beta[m] -= sp.logsumexp(beta[m])
-            # print(f"beta{m} sum: {sp.logsumexp(beta[m])}")
-
+    def backward_pass(self, log_emissions) -> np.ndarray:
+        alg = self.hmm_alg
+        match alg:
+            case 'broadcast':
+                beta = _backward_pass_broadcast(log_emissions, self.trans_mat)
+            case 'pomegranate':
+                beta = _backward_pass_pomegranate(log_emissions, self.trans_mat)
         return beta
 
-    def _forward_pass_likelihood(self, obs_vw, log_emissions, normalization=True) -> tuple[np.ndarray, float]:
+    def _forward_pass_likelihood(self, log_emissions) -> tuple[np.ndarray, float]:
         """
         Compute the forward pass of the hidden markov model with three latent chains and return the forward probabilities
         as well as the log likelihood of the observations.
@@ -251,34 +253,34 @@ class EvoModel:
         tuple with alpha array of shape (n_sites, n_states, n_states, n_states) with forward probabilities and
         log likelihood of the observations
         """
-        eps = 1e-10  # to avoid log(0)
-        # transmat idx = (i, j, k, x, y, z) = (m-1, m)
-        n_sites = obs_vw.shape[0]
-        n_states = self.trans_mat.shape[0]
-        alpha = np.empty((n_sites, n_states, n_states, n_states))
+        alg = self.hmm_alg
+        n_sites, n_states, _ = log_emissions.shape
+        alpha, log_p = None, None
+        match alg:
+            case 'broadcast':
+                alpha, log_p = _forward_likelihood_broadcast(log_emissions, self.trans_mat, self.start_prob)
+            case 'pomegranate':
+                alpha, log_p = _forward_likelihood_pomegranate(log_emissions, self.trans_mat, self.start_prob)
+            case _:
+                raise ValueError(f"Unknown algorithm {alg} for forward pass likelihood computation.")
 
-        # init alpha[0] = start_prob * emission[0] (in log-form)
-        alpha[0, ...] = np.log(self.start_prob.clip(eps)) + log_emissions[0, None, ...]
-        norm = sp.logsumexp(alpha[0])
-        if normalization:
-            alpha[0] -= norm
+        return alpha, log_p
 
-        log_likelihood = norm
-        for m in range(1, n_sites):
-            log_acc = sp.logsumexp(alpha[m - 1, :, :, :, None, None, None] + np.log(self.trans_mat), axis=(0, 1, 2))
-            alpha[m, ...] = log_acc + log_emissions[m, None, :, :]
-            norm = sp.logsumexp(alpha[m])
-            if normalization:
-                # normalization step
-                alpha[m] -= norm
+    def compute_viterbi_path(self, log_emissions) -> np.ndarray:
+        """
+        Compute the viterbi path of the hidden markov model.
+        """
+        M = log_emissions.shape[0]
+        K = self.n_states
+        theta_ru, theta_uv, theta_uw = self.theta
+        cnp_r = np.ones(M) * 2  # fix root cn = 2
+        raw_pi = np.ones((K, K, K)) # Uniform pi prior, will be fully dictated by log_emissions
+        log_pi = np.log(raw_pi / raw_pi.sum())
+        best_path, max_log_prob = math_utils.viterbi_matrix_K6(
+            log_emissions, cnp_r, log_pi, theta_ru, theta_uv, theta_uw
+        )
+        return np.array(best_path), max_log_prob
 
-            # update log likelihood to save computation
-            log_likelihood += norm
-
-        if normalization:
-            assert np.allclose(sp.logsumexp(alpha, axis=(1, 2, 3)), np.zeros(n_sites)),\
-                f"Forward pass normalization error:{sp.logsumexp(alpha, axis=(1, 2, 3))}"
-        return alpha, log_likelihood
 
     @property
     def start_prob(self):
@@ -294,6 +296,21 @@ class EvoModel:
         array shape (n_states,) * 6
         """
         return self._trans_mat
+
+    def get_one_slice_marginals(self)-> tuple[np.ndarray, np.ndarray]:
+        """
+        Compute the one slice marginals from the one slice log gammas.
+        """
+        one_slice_marginal_v = np.einsum('mijk->mj', np.exp(self.log_gamma))
+        one_slice_marginal_w = np.einsum('mijk->mk', np.exp(self.log_gamma))
+        return one_slice_marginal_v, one_slice_marginal_w
+
+    def counts_from_paths(self, viterbi_path):
+        """
+        Calculates the number of changes and no-changes from the provided Viterbi path.
+        """
+        D, Dp = math_utils.compute_cn_changes(viterbi_path, pairs=[(0, 1), (0, 2), (3, 2)])
+        return D, Dp
 
 
 class CopyTree(EvoModel):
@@ -436,7 +453,7 @@ class JCBModel(EvoModel):
         # update l according to formula
         # if l -> +inf, pDeltaDelta == pDeltaDelta'
         log_arg = 1 - self.n_states / (self.n_states - 1) * d / (dp + d)
-        assert np.all(log_arg > 0)
+        #assert np.all(log_arg > 0)
         # if np.any(log_arg <= 0):
         #     logger.error(f"too many changes detected: D = {d}, D' = {dp}\n"
         #                       f"...saturating l for cells {v},{w}")
@@ -506,7 +523,7 @@ class JCBModel(EvoModel):
         np.ndarray with shape (4, n_sites) with copy number profiles
         """
         tree = dpy.Tree.get(data="((0,1)2)3;", schema='newick', taxon_namespace=dpy.TaxonNamespace(['0', '1']))
-        label_tree(tree)
+        tree_utils.label_tree(tree)
         tree.is_rooted = True
         # generate edge _lengths
         l_true = np.empty(3)
@@ -531,7 +548,6 @@ class JCBModel(EvoModel):
         cn = self.simulate_cn(tree, n_sites)
 
         return cn
-
 
 def _evolve_cn_event_pois(prev_cn: np.ndarray, pdd: float, n_states: int, zero_absorption: bool = False,
                           focal_rate: float = 0., event_length_ratio: float = .2) -> np.ndarray:
@@ -610,3 +626,170 @@ def _evolve_cn_event_chain(prev_cn: np.ndarray, pdd: float, n_states: int) -> np
             node_cn[m] = random.choice([j for j in range(n_states)])
 
     return node_cn
+
+class SimulationEvoModel():
+    """
+    Model for simulating copy number evolution.
+    Allows more control over simulated CN events, e.g., fixed number of events per edge, event lengths, etc.
+    """
+
+    def __init__(self,
+                 clonal_CN_prob: float | dict = 0.05, clonal_CN_length_ratio: float = 0.2,
+                 focal_prob: float | dict = 0.05, focal_length_avg: int = 5,
+                 n_clonal_CN_events: int | dict = None, clonal_CN_length: int |dict = None,
+                 n_focal_events: int | dict = None, focal_CN_length: int | dict = None,
+                 allow_overlapping_CN_events=True, n_homoplasies=None, zero_absorption: bool = True):
+        """
+        Initialize simulation model.
+        All dicts should have keys as edge tuples (u,v) where u is the parent node and v is the child node.
+        Parameters
+        ----------
+        clonal_CN_prob: probability of clonal CN event per site per edge.
+        clonal_CN_length_ratio: ratio of the CNP length used as mean for the clonal CN events.
+        focal_prob: probability of focal CN event per site per edge.
+        focal_length_avg: average length of focal CN events.
+        n_clonal_CN_events: fixed number of clonal CN events per edge. If specified, disgards clonal_CN_prob.
+        clonal_CN_length: fixed length of clonal CN events. If specified, disgards clonal_CN_length_ratio.
+        n_focal_events: fixed number of focal CN events per edge. If specified, disgards focal_prob.
+        focal_CN_length: fixed length of focal CN events. If specified, disgards focal_length_avg.
+        allow_overlapping_CN_events: Only implemented for TRUE now.
+        n_homoplasies: Not implemented yet.
+        zero_absorption: Not implemented yet.
+        """
+        # ------- Simulation parameters -------
+        # Clonal CN event parameters
+        self.clonal_CN_prob = clonal_CN_prob
+        self.clonal_CN_length_ratio = clonal_CN_length_ratio
+        self.n_clonal_CN_events = n_clonal_CN_events
+        self.clonal_CN_length = clonal_CN_length
+        # Focal CN event parameters
+        self.focal_prob = focal_prob
+        self.focal_length_avg = focal_length_avg
+        self.n_focal_events = n_focal_events
+        self.focal_CN_length = focal_CN_length
+        # Type of events parameters
+        self.allow_overlapping_CN_events = allow_overlapping_CN_events # Only implemented for TRUE now
+        self.n_homoplasies = n_homoplasies  # Not implemented yet
+        self.zero_absorption = zero_absorption # Not implemented yet
+
+        # Simulation helpers
+        self.n_sites = None
+        self.chr_idxs = None
+
+        # Simulation outputs
+        self.focal_events_out = {}
+        self.clonal_events_out = {}
+        self.clonal_CN_events_start_pos = {}
+        self.focal_CN_events_start_pos = {}
+        self.clonal_CN_events_end_pos = {}
+        self.focal_CN_events_end_pos = {}
+
+    def simulate_cn(self, tree: dpy.Tree, n_sites, chr_idxs=None)-> np.ndarray:
+        self.n_sites = n_sites
+        self.chr_idxs = chr_idxs
+        nx_tree = tree_utils.convert_dendropy_to_networkx(tree)
+        n_nodes = len(tree.nodes())
+        root_idx = list(filter(lambda p: p[1] == 0, nx_tree.in_degree()))
+
+        # initialize copy number array
+        cn = np.empty((n_nodes, n_sites), dtype=int)
+        cn.fill(2)  # root copy number is 2
+        edges = list(tree.preorder_edge_iter())
+        n_edges = len(edges)
+        # Extend function to draw edges with homoplasies
+        # Extend to WGD events
+
+        for u,v in nx_tree.edges:
+            n = tree.nodes()[v]
+            if v == root_idx:
+                continue
+            else:
+                n.cn = np.empty(n_sites, dtype=int)
+                # Draw number of focal and clonal events
+                n_clonal_events_uv, n_focal_events_uv = self.draw_number_of_CN_events(u, v)
+                # Draw CN events (start, end) sites
+                out_CN_pos = self.draw_CN_events_positions(u, v, n_clonal_events_uv, n_focal_events_uv, n_sites)
+                clonal_start_pos, clonal_end_pos = out_CN_pos['clonal_start_pos'], out_CN_pos['clonal_end_pos']
+                self.clonal_CN_events_start_pos[u,v] = clonal_start_pos
+                self.clonal_CN_events_end_pos[u,v] = clonal_end_pos
+                focal_start_pos, focal_end_pos = out_CN_pos['focal_start_pos'], out_CN_pos['focal_end_pos']
+                self.focal_CN_events_start_pos[u,v] = focal_start_pos
+                self.focal_CN_events_end_pos[u,v] = focal_end_pos
+
+                # Inherit parent CNP
+                n.cn[:] = cn[u, :]
+                # Apply CN events to child CNP
+                delta_CN_clonal_uv = self.draw_clonal_events(clonal_start_pos, clonal_end_pos)
+                delta_CN_focal_uv = self.draw_focal_events(focal_start_pos, focal_end_pos)
+                n.cn += delta_CN_clonal_uv + delta_CN_focal_uv
+                n.cn = np.clip(n.cn, a_min=0, a_max=None)
+                cn[v, :] = n.cn
+        return cn
+
+    def draw_number_of_CN_events(self, u, v):
+        # Draw number of clonal CN events
+        if self.n_clonal_CN_events is None:
+            clonal_rate = self.clonal_CN_prob * self.n_sites
+            n_clonal_events_uv = ss.poisson(clonal_rate)
+        else:
+            if isinstance(self.n_clonal_CN_events, dict):
+                n_clonal_events_uv = self.n_clonal_CN_events[(u, v)]
+            else:
+                n_clonal_events_uv = self.n_clonal_CN_events
+        # Draw number of focal CN events
+        if self.n_focal_events is None:
+            focal_rate = self.focal_prob * self.n_sites
+            n_focal_events_uv = ss.poisson(focal_rate)
+        else:
+            if isinstance(self.n_focal_events, dict):
+                n_focal_events_uv = self.n_focal_events[(u, v)]
+            else:
+                n_focal_events_uv = self.n_focal_events
+        return n_clonal_events_uv, n_focal_events_uv
+
+    def draw_CN_events_positions(self, u, v, n_clonal_events_uv, n_focal_events_uv, n_sites):
+        if self.allow_overlapping_CN_events:
+            clonal_start_pos = np.random.randint(0, n_sites, size=n_clonal_events_uv)
+            focal_start_pos = np.random.randint(0, n_sites, size=n_focal_events_uv)
+            # Draw clonal event lengths
+            if self.clonal_CN_length is None:
+                clonal_lengths = ss.poisson(self.clonal_CN_length_ratio * n_sites).rvs(size=n_clonal_events_uv)
+            else:
+                clonal_lengths = self.clonal_CN_length[u, v] if isinstance(self.clonal_CN_length, dict) else self.clonal_CN_length
+            clonal_end_pos = np.clip(clonal_start_pos + clonal_lengths, a_min=None, a_max=n_sites - 1)
+
+            # Draw focal event lengths
+            if self.focal_CN_length is None:
+                focal_lengths = ss.poisson(self.focal_length_avg).rvs(size=n_focal_events_uv)
+            else:
+                focal_lengths = self.focal_CN_length[u, v] if isinstance(self.focal_CN_length, dict) else self.focal_CN_length
+            focal_end_pos = np.clip(focal_start_pos + focal_lengths, a_min=None, a_max=n_sites - 1)
+            # Ensure no 0-absorption
+            if self.zero_absorption:
+                pass
+        else:
+            # Draw non-overlapping CN events
+            raise NotImplementedError()
+
+        out_dict = {
+            'clonal_start_pos': clonal_start_pos,
+            'clonal_end_pos': clonal_end_pos,
+            'focal_start_pos': focal_start_pos,
+            'focal_end_pos': focal_end_pos
+        }
+        return out_dict
+
+    def draw_clonal_events(self, clonal_start_pos, clonal_end_pos):
+        delta_CN_clonal_uv = np.zeros(self.n_sites, dtype=int)
+        for s, e in zip(clonal_start_pos, clonal_end_pos):
+            delta = 1 if random.random() < 0.5 else -1
+            delta_CN_clonal_uv[s:e] += delta
+        return delta_CN_clonal_uv
+
+    def draw_focal_events(self, focal_start_pos, focal_end_pos):
+        delta_CN_focal_uv = np.zeros(self.n_sites, dtype=int)
+        for s, e in zip(focal_start_pos, focal_end_pos):
+            delta = 1 if random.random() < 0.5 else -1
+            delta_CN_focal_uv[s:e] += delta
+        return delta_CN_focal_uv
+

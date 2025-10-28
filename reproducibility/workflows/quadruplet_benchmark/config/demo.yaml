@@ -1,0 +1,23 @@
+# experiment parameters
+experiment:
+  n_states: 7
+  max_iter: 60
+  num_replicates: 1
+  n_sites_list:
+    - 200
+  sizes_dict:
+    s: 0.01
+    m: 0.02
+    l: 0.08
+  base_variance: 0.0001
+
+# Observation models
+obs_models:
+  - type: "normal"
+    mu_v_prior: 1.0
+    tau_v_prior: 100
+
+# Length-size patterns
+length_sizes_list:
+  - [s]
+  - [m, s, l]

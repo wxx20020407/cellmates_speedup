@@ -34,6 +34,7 @@ cellmates = "cellmates.bin.core:main"
 dev = [
   "pytest>=8.0",
   "scgenome"
+  "pydot",
 ]
 
 [tool.setuptools]

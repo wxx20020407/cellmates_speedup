@@ -14,11 +14,11 @@ from scipy.special import comb
 
 from cellmates.inference.neighbor_joining import build_tree
 from cellmates.models.obs import ObsModel, NormalModel, PoissonModel
-from cellmates.simulation.datagen import rand_dataset, get_ctr_table
+from cellmates.simulation.datagen import rand_dataset
 
 from cellmates.models.evo import EvoModel, CopyTree, JCBModel
 from cellmates.utils.math_utils import l_from_p
-from cellmates.utils.tree_utils import convert_networkx_to_dendropy
+from cellmates.utils.tree_utils import convert_networkx_to_dendropy, get_ctr_table
 
 
 class EM:
@@ -28,10 +28,11 @@ class EM:
     """
     def __init__(self, n_states: int = 7, obs_model: ObsModel | str = 'poisson',
                  evo_model: EvoModel | str = 'jcb', tree_build='ctr',
-                 alpha=1., verbose: int = 0):
+                 alpha=1., verbose: int = 0, diagnostics: bool = False,
+                 E_step_alg: str = 'forward_backward'):
         # model variables
         self.min_iter = 3
-        if isinstance(obs_model, str):
+        if isinstance(evo_model, str):
             self.evo_model: EvoModel = JCBModel(n_states, alpha=alpha) if evo_model == 'jcb' else CopyTree(n_states)
         else:
             self.evo_model: EvoModel = evo_model
@@ -40,6 +41,7 @@ class EM:
         else:
             self.obs_model: ObsModel = obs_model
         self.tree_build = tree_build  # algorithm for tree reconstruction
+        self.E_step_alg = E_step_alg # E-step algorithm to select (forward backward O(MK^6), or Viterbi O(8MK^3)) etc.
         self._n_sites = None
         self._n_cells = None
         self._n_states = n_states
@@ -48,6 +50,16 @@ class EM:
         self._distances = None
         self._n_iterations = None
         self._loglikelihoods = None
+
+        # Diagnostics
+        # FIXME: currently only stores last pair's diagnostics
+        self.diagnostics = diagnostics
+        if self.diagnostics:
+            self.diagnostic_data = {
+                'loglikelihoods': [],
+                'thetas': [],
+                'psis': []
+            }
 
         # set verbose level logger in the style of sklearn
         self.verbose = verbose
@@ -60,7 +72,10 @@ class EM:
             self.logger.setLevel(logging.DEBUG)
 
 
-    def fit(self, X: np.ndarray, max_iter: int = 200, rtol: float = 1e-6, num_processors: int = 1, theta_init=None, **kwargs):
+    def fit(self, X: np.ndarray, max_iter: int = 200, rtol: float = 1e-6, num_processors: int = 1,
+            theta_init=None,
+            psi_init=None,
+            **kwargs):
         """
         Run the EM algorithm for the given observations X.
         Parameters
@@ -105,7 +120,7 @@ class EM:
             shm_obs = shared_memory.SharedMemory(create=True, size=obs.nbytes)
             shared_obs = np.ndarray(obs.shape, dtype=obs.dtype, buffer=shm_obs.buf)
             np.copyto(shared_obs, obs)
-            args = [(s, t, shm_obs.name, theta_init_, alpha, max_iter, rtol, zero_tol, self.obs_model)
+            args = [(s, t, shm_obs.name, theta_init_, psi_init, alpha, max_iter, rtol, zero_tol, self.obs_model)
                     for s, t in itertools.combinations(range(self.n_cells), r=2)]
             with mp.Pool(num_processors) as pool:
                 # main loop
@@ -117,7 +132,7 @@ class EM:
             self.logger.debug(f'using single processor')
             results = []
             for s, t in itertools.combinations(range(self.n_cells), r=2):
-                results.append(self._fit_quadruplet(s, t, obs[:, [s, t]], theta_init_, max_iter, rtol))
+                results.append(self._fit_quadruplet(s, t, obs[:, [s, t]], theta_init_, max_iter, rtol, psi_init))
 
         # collect results
         for (s, t), l_i, loglik, it in results:
@@ -132,7 +147,9 @@ class EM:
         self.logger.info(f'finished in {len(iterations)} iterations')
 
 
-    def _fit_quadruplet(self, v: int, w: int, obs_vw: np.ndarray, theta_init: np.ndarray, max_iter: int, rtol: float):
+    def _fit_quadruplet(self, v: int, w: int, obs_vw: np.ndarray,
+                        theta_init: np.ndarray,
+                        max_iter: int, rtol: float, psi_init: dict = None):
         # define quad logger with cell pair tag adding to the class logger
         logger = self.logger.getChild(f'{v},{w}')
         logger.setLevel(self.logger.level)
@@ -140,28 +157,47 @@ class EM:
         # initialize l = (l_ru, l_uv, l_uw)
         theta_init_ = np.empty(3)  # init desired size
         theta_init_[:] = theta_init  # ...copy instead of referencing and validate input size with assignment
+        self.obs_model.initialize(psi_init)
         # (`theta_init_ = theta_init` is wrong, but also `theta_init_ = theta_init.copy()` is prone to error
         quad_model = self.evo_model.new()
         quad_model.theta = theta_init_
+
         # compute changes is observation and evolution model specific
-        d, dp, loglik = quad_model._expected_changes(obs_vw=obs_vw, obs_model=self.obs_model)
+        # FIXME: self.E_step_alg can be passed to multi_chr_expected_changes to select algorithm
+        d, dp, loglik = quad_model.multi_chr_expected_changes(obs_vw=obs_vw, obs_model=self.obs_model)
         convergence = False
+        if self.diagnostics:
+            self.diagnostic_data = {'loglikelihoods': [loglik], 'thetas': [theta_init_.copy()], 'psis': [self.obs_model.psi_array()]}
+
         it = 0
         logger.debug(f'[{it}/{max_iter}] LL = {loglik} d = {d} dp = {dp}')
         while not convergence and it < max_iter:
 
-            # update theta
+            # ---------- M-step ----------
+            # Evolution model parameter update
             quad_model.update(exp_changes=d, exp_no_changes=dp)
 
+            # Observation model parameter update
+            one_slice_marginals_v, one_slice_marginals_w = quad_model.get_one_slice_marginals()
+            self.obs_model.update(obs_vw, (one_slice_marginals_v, one_slice_marginals_w))
+
+            # ---------- E-step ----------
             # compute D and D'
             d, dp, new_loglik = quad_model.multi_chr_expected_changes(obs_vw=obs_vw, obs_model=self.obs_model)
             logger.debug(f"[{it + 1}/{max_iter}] LL = {new_loglik}, d = {d}, dp = {dp}")
 
+
             if new_loglik < loglik:
-                logger.error(f'log likelihood decreased: {new_loglik} < {loglik}')
+                logger.error(f'log likelihood decreased: {new_loglik} < {loglik} (estimated lengths: {quad_model.theta})')
             elif (new_loglik - loglik) / np.abs(loglik) < rtol and it > self.min_iter:
                 convergence = True
             loglik = new_loglik
+
+            if self.diagnostics:
+                self.diagnostic_data['loglikelihoods'].append(loglik)
+                self.diagnostic_data['thetas'].append(quad_model.theta.copy())
+                self.diagnostic_data['psis'].append(self.obs_model.psi_array())
+
             it += 1
 
         if it == max_iter and not convergence:
@@ -172,7 +208,8 @@ class EM:
         return (v, w), quad_model.theta, loglik, it
 
 
-    def _fit_quadruplet_shared_mem(self, v: int, w: int, shared_obs_mem_name: str, l_init: np.ndarray,
+    def _fit_quadruplet_shared_mem(self, v: int, w: int, shared_obs_mem_name: str,
+                                   l_init: np.ndarray, psi_init: dict,
                                    alpha: float, max_iter: int, rtol: float, zero_tol: float,
                                    obs_model: ObsModel) -> (tuple, np.ndarray, float, int):
         """
@@ -180,7 +217,7 @@ class EM:
         """
         shm = shared_memory.SharedMemory(name=shared_obs_mem_name)
         obs_vw = np.ndarray((self.n_sites, self.n_cells), dtype=np.float64, buffer=shm.buf)[..., [v, w]]
-        return self._fit_quadruplet(v, w, obs_vw, l_init, max_iter, rtol)
+        return self._fit_quadruplet(v, w, obs_vw, l_init, max_iter, rtol, psi_init)
 
     def transform(self):
         # alternative method for the distances getter
@@ -190,12 +227,13 @@ class EM:
         self.fit(X)
         return self._distances
 
-    def compute_pair_likelihood(self, obs_vw, theta: np.ndarray = None):
+    def compute_pair_likelihood(self, obs_vw, theta: np.ndarray = None, psi: dict = None) -> float:
         """
         Compute the log likelihood of the observations given the model parameters.
         """
         # run forward algorithm
-        _, _, loglik, _ = self._fit_quadruplet(0, 1, obs_vw, theta, max_iter=0, rtol=0)
+        psi = self.obs_model.psi if psi is None else psi
+        _, _, loglik, _ = self._fit_quadruplet(0, 1, obs_vw, theta, max_iter=0, rtol=0, psi_init=psi)
         return loglik
 
     @property
@@ -302,9 +340,9 @@ if __name__ == '__main__':
     seed = 42
     logging.basicConfig(level=logging.DEBUG)
     # test EM algorithm
-    n_cells = 4
+    n_cells = 8
     n_states = 7
-    n_sites = 200
+    n_sites = 500
     data = rand_dataset(n_states, n_sites, obs_model='poisson', p_change=0.05, n_cells=n_cells, seed=seed)
     # true ctr_table
     true_ctr_table = get_ctr_table(data['tree'])

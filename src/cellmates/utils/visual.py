@@ -1,8 +1,11 @@
 import matplotlib.pyplot as plt
+import networkx as nx
 from matplotlib.colors import ListedColormap
 
 import seaborn as sns
 import numpy as np
+from networkx.drawing.nx_pydot import graphviz_layout
+
 
 def plot_cn_profile(cnp, ax=None, **kwargs):
     """
@@ -37,6 +40,14 @@ def plot_cell_pairwise_heatmap(matrix, ax=None, label=None, full=False, **kwargs
     full: bool, whether to show the full matrix or only the upper triangle (default: False)
     kwargs: keyword arguments, passed to sns.heatmap
     """
+    if type(matrix) == dict:
+        # convert to full matrix
+        n_cells = max(max(k) for k in matrix.keys()) + 1
+        full_matrix = np.zeros((n_cells, n_cells))
+        for (i, j), v in matrix.items():
+            full_matrix[i, j] = v
+            full_matrix[j, i] = v
+        matrix = full_matrix
     if ax is None:
         fig, ax = plt.subplots()
     # mask the lower triangle
@@ -91,6 +102,33 @@ def plot_integer_matrix(matrix):
 
     # Add colorbar
     plt.colorbar(im, ax=ax)
+
+    return fig, ax
+
+def draw_graph(G: nx.DiGraph, save_path=None, node_color: str | list = '#1f78b4', epsilon=None,
+               node_size=300, figsize=(5, 5), dpi=100, ax=None, edge_label_pos=0.5, num_cells: dict = None, **kwargs) -> dict:
+    with_labels = kwargs.get('with_labels', True)
+    layout = kwargs.get('layout', 'dot')
+    pos = graphviz_layout(G, prog=layout)
+
+    fig, ax = plt.subplots(figsize=figsize, dpi=dpi) if ax is None else (0, ax)
+    # draw without labels if num_cells is given, then draw with labels separately
+    nx.draw(G, pos=pos, with_labels=with_labels if num_cells is None else False,
+            ax=ax,
+            node_size=node_size,
+            node_color=node_color)
+    if num_cells is not None:
+        assert all([n in num_cells for n in G.nodes])
+        labels = {n: f"{n}\n({num_cells[n]})" for n in G.nodes()}
+        nx.draw(G, pos=pos, labels=labels, ax=ax, node_size=node_size, font_size=8, node_color=node_color)
+    if epsilon is not None:
+        if type(epsilon) is np.ndarray:
+            edge_labels = {e: round(epsilon[e].item(), 4) for e in G.edges()}
+        else:
+            edge_labels = {e: round(epsilon[e], 4) for e in G.edges()}
+        nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels, ax=ax, label_pos=edge_label_pos)
+    if save_path is not None:
+        fig.savefig(save_path, format="png")
 
     return fig, ax
 

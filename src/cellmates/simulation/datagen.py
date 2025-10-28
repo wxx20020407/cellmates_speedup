@@ -2,7 +2,6 @@
 Synthetic data generation functions.
 """
 import logging
-from itertools import combinations
 from typing import TypedDict
 
 import numpy as np
@@ -12,10 +11,12 @@ import dendropy as dpy
 import random
 import anndata
 
-from cellmates.models.evo import EvoModel, CopyTree, JCBModel
+from cellmates.models.evo import EvoModel, CopyTree, JCBModel, SimulationEvoModel
 from cellmates.models.obs import ObsModel, NormalModel, PoissonModel
+from cellmates.utils import tree_utils
 from cellmates.utils.math_utils import l_from_p, p_from_l
-from cellmates.utils.tree_utils import random_binary_tree, get_node2node_distance, label_tree
+from cellmates.utils.tree_utils import random_binary_tree, label_tree, get_root_distance, \
+    get_ctr_table
 
 
 class Dataset(TypedDict):
@@ -26,10 +27,12 @@ class Dataset(TypedDict):
     tree: dpy.Tree  # contains edge _lengths
     cn: np.ndarray  # shape (2*n_cells-1, n_sites)
 
+
 def simulate_quadruplet(n_sites,
                         obs_model: ObsModel | str = 'poisson',
-                        evo_model: EvoModel | str = 'jcb',
+                        evo_model: EvoModel | SimulationEvoModel | str = 'jcb',
                         gamma_params: tuple | list[tuple] = (1, 1),
+                        edge_lengths: np.ndarray = None,
                         n_states: int = None, seed: int = None, return_adata=False) -> Dataset | anndata.AnnData:
     """
     Simulate a quadruplet tree with 2 leaves, one internal node and a root.
@@ -71,19 +74,21 @@ def simulate_quadruplet(n_sites,
     gamma_params = np.stack(gamma_params)
 
     # simulate edge_lengths (or epsilon param for 'copytree')
-    edge_lengths = ss.gamma.rvs(gamma_params[:, 0], scale=gamma_params[:, 1])
+    edge_lengths = ss.gamma.rvs(gamma_params[:, 0], scale=gamma_params[:, 1]) if edge_lengths is None else edge_lengths
     if isinstance(evo_model, CopyTree):
         edge_lengths = p_from_l(edge_lengths, n_states=n_states)
-    for edge in tree.preorder_edge_iter():
-        # centroid to root
-        if edge.head_node.label == '2':
-            edge.length = edge_lengths[0]
-        # centroid to v
-        elif edge.head_node.label == '0':
-            edge.length = edge_lengths[1]
-        # centroid to w
-        elif edge.head_node.label == '1':
-            edge.length = edge_lengths[2]
+    if not isinstance(evo_model, SimulationEvoModel):
+        # generated lengths are not used so they shouldn't be set on the tree
+        for edge in tree.preorder_edge_iter():
+            # root to centroid u
+            if edge.head_node.label == '2':
+                edge.length = edge_lengths[0]
+            # centroid to v
+            elif edge.head_node.label == '0':
+                edge.length = edge_lengths[1]
+            # centroid to w
+            elif edge.head_node.label == '1':
+                edge.length = edge_lengths[2]
 
     out_dataset = rand_dataset(n_states, n_sites, evo_model=evo_model, obs_model=obs_model, tree=tree, seed=seed)
     if return_adata:
@@ -97,46 +102,6 @@ def emit_normalized_obs(cn_seq, mu=1.0, scale=1.0):
 
 def emit_raw_obs(cn_seq, lam=100.):
     return ss.poisson.rvs(mu=np.clip(cn_seq, a_min=.01, a_max=None) * lam, size=len(cn_seq))
-
-
-def get_root_distance(centroid):
-    root_distance = 0
-    while centroid.parent_node is not None:
-        root_distance += centroid.edge_length
-        centroid = centroid.parent_node
-    return root_distance
-
-
-def get_ctr_table(tree: dpy.Tree) -> np.ndarray:
-    """
-    Get the centroid table for a given tree.
-    The centroid table is a 3D numpy array of shape (n_cells, n_cells, 3) where n_cells is the number of leaves in the tree.
-    For each pair of cells (r, s) with r < s, the entry ctr_table[r, s] is a vector of 3 values:
-        - ctr_table[r, s, 0]: distance from the centroid of r and s to the root
-        - ctr_table[r, s, 1]: distance from the centroid of r and s to r
-        - ctr_table[r, s, 2]: distance from the centroid of r and s to s
-    The entries for r >= s are set to -1.
-    The tree must be rooted and all leaves must be labeled with unique integers from 0 to n_cells - 1.
-    Parameters
-    ----------
-    tree: dpy.Tree, the input tree with edge _lengths
-
-    Returns
-    -------
-    ctr_table: np.ndarray, the centroid table
-    """
-    n_cells = len(tree.leaf_nodes())
-    assert n_cells == len(tree.taxon_namespace)
-    ctr_table = - np.ones((n_cells, n_cells, 3))
-    for r, s in combinations(range(n_cells), 2):
-        assert r < s, "r must be less than s to ensure upper triangular matrix"
-        # most recent common ancestor
-        centroid = tree.mrca(taxon_labels=[str(r), str(s)])
-        ctr_table[r, s, 0] = get_root_distance(centroid)
-        ctr_table[r, s, 1] = get_node2node_distance(tree, centroid.label, str(r))
-        ctr_table[r, s, 2] = get_node2node_distance(tree, centroid.label, str(s))
-
-    return ctr_table
 
 
 def _get_full_distance_matrix_from_tree(tree_dpy, matrix_idx: int = 0):
@@ -191,8 +156,12 @@ def _from_data_to_adata(data: Dataset) -> anndata.AnnData:
     adata.obsm['ctr-distance-matrix'] = _get_full_distance_matrix_from_tree(data['tree'])
     return adata
 
-def rand_dataset(n_states: int, n_sites: int, evo_model: EvoModel | str = 'jcb', obs_model: ObsModel | str = 'normal',
-                 alpha=1., p_change: float = .2, n_cells: int = None, tree: dpy.Tree = None, seed=None) -> Dataset:
+def rand_dataset(n_states: int, n_sites: int,
+                 evo_model: EvoModel | SimulationEvoModel | str = 'jcb',
+                 obs_model: ObsModel | str = 'normal',
+                 alpha=1., p_change: float = .2,
+                 n_cells: int = None,
+                 tree: dpy.Tree = None, seed=None) -> Dataset:
     # generate random sc binary tree
     if seed is not None:
         np.random.seed(seed)

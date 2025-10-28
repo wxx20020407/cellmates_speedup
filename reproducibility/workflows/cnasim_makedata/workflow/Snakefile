@@ -1,0 +1,71 @@
+# Load config
+configfile: "config/config.yaml"
+
+# Helper: expand dataset names and parameters
+def expand_datasets():
+    datasets = {}
+    for prefix, entry in config.items():
+        if prefix not in 'ABCDEF':
+            continue
+        variables = entry["variable"]
+        values = entry["values"]
+        if isinstance(variables, str):
+            variables = [variables]
+        for i, vals in enumerate(values, 1):
+            if not isinstance(vals, list):
+                vals = [vals]
+            ds_name = f"{prefix}{i}"
+            params = config["defaults"].copy()
+            for var, val in zip(variables, vals):
+                if val is not None:
+                    params[var] = val
+            datasets[ds_name] = params
+    return datasets
+
+NOISE_LEVEL = config["noise_level"] # 0: none, 1: high, 2: low (as in paper)
+SEEDS = list(range(config["seeds"])) # list of seeds for replicates
+DATASETS = expand_datasets()
+DATASET_NAMES = list(map(lambda x: x+'_'+str(NOISE_LEVEL), DATASETS.keys()))
+SOURCE_PATH = "../../../src"
+
+# Example output naming
+rule all:
+    input:
+        expand("results/{dataset}/{seed}/simulation.done", dataset=DATASET_NAMES, seed=SEEDS),
+        expand("results/{dataset}/{seed}/anndata.h5ad", dataset=DATASET_NAMES, seed=SEEDS)
+
+# Main rule
+rule simulate:
+    output:
+        "results/{dataset_class}_{noise_lev}/{seed}/simulation.done"
+    conda: "envs/cnasim.yml"
+    threads: 8
+    params:
+        n_cells=lambda wildcards: DATASETS[wildcards.dataset_class]["n_cells"],
+        n_chromosomes=lambda wildcards: DATASETS[wildcards.dataset_class]["n_chromosomes"],
+        chromosome_length=lambda wildcards: DATASETS[wildcards.dataset_class]["chromosome_length"] * 1_000_000,
+        mean_cnas_per_edge=lambda wildcards: DATASETS[wildcards.dataset_class]["mean_cnas_per_edge"],
+        bin_size=lambda wildcards: DATASETS[wildcards.dataset_class]["bin_size"],
+        n_clones=lambda wildcards: DATASETS[wildcards.dataset_class]["n_clones"],
+        wgd=lambda wildcards: '-w' if DATASETS[wildcards.dataset_class]["wgd"] else '',
+        boundary_noise=lambda wildcards: DATASETS[wildcards.dataset_class]["boundary_noise"],
+        jitter=lambda wildcards: DATASETS[wildcards.dataset_class]["jitter"],
+        use_hg38=lambda wildcards: '--use-hg38-static' if DATASETS[wildcards.dataset_class]["n_chromosomes"] == 22 else '',
+        output_dir=subpath(output[0], parent=True)
+    shell: """
+    cnasim -m 1 --use-uniform-coverage -n {params.n_cells} -c {params.n_clones} -E1 {params.boundary_noise} -E2 {params.jitter} \
+    -p1 {params.mean_cnas_per_edge} -o {params.output_dir} -N {params.n_chromosomes} -L {params.chromosome_length} -B {params.bin_size} \
+    {params.wgd} {params.use_hg38} -P {threads}
+    touch {output}
+    """
+
+rule prepare_anndata:
+    input: "results/{dataset}/{seed}/simulation.done"
+    output: "results/{dataset}/{seed}/anndata.h5ad"
+    params:
+        cnasim_dir=subpath(input[0], parent=True)
+    conda: "envs/base.yml"
+    shell: """
+    echo "Converting CNAsim output to anndata"
+    python {SOURCE_PATH}/cellmates/common_helpers/cnasim_data.py -i {params.cnasim_dir} -o {output}
+    """
