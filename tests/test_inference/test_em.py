@@ -257,12 +257,12 @@ class EMTestCase(unittest.TestCase):
 
         obs_model = PoissonModel(n_states, 100, 100)
         log_emissions = obs_model.log_emission(data['obs'])
-        _, ll_true = evo_model._forward_pass_likelihood(data['obs'], log_emissions)
+        _, ll_true = evo_model._forward_pass_likelihood(log_emissions)
         ll_est = out['loglikelihoods'][0, 1]
 
         evo_model = JCBModel(n_states=n_states)
         evo_model.lengths = comp_lengths
-        _, ll_cn = evo_model._forward_pass_likelihood(data['obs'], log_emissions)
+        _, ll_cn = evo_model._forward_pass_likelihood(log_emissions)
         self.assertGreater(ll_cn, ll_true)
         self.assertGreater(ll_est, ll_true)
 
@@ -279,6 +279,7 @@ class EMTestCase(unittest.TestCase):
         np.random.seed(seed)
         n_states = 5
         n_sites = 500
+        hmm_alg = 'pomegranate'
 
         data = simulate_quadruplet(n_sites, gamma_params=self.DEFAULT_GAMMA_PARAMS, n_states=n_states, seed=seed)
         gt_ctr_table = get_ctr_table(data['tree'])
@@ -296,7 +297,15 @@ class EMTestCase(unittest.TestCase):
         print(f"True edge _lengths: {l_true}")
 
         # run EM
-        out = jcb_em_alg(data['obs'], n_states=n_states, max_iter=30, rtol=1e-5, num_processors=8)
+        obs_model = PoissonModel(n_states, 100)
+        evo_model = JCBModel(n_states=n_states, hmm_alg=hmm_alg)
+        em = EM(n_states=n_states, obs_model=obs_model, evo_model=evo_model)
+        em.fit(data['obs'], max_iter=30, rtol=1e-5, num_processors=8, jc_correction=False, theta_init=None)
+        out = {
+            'l_hat': em.distances,
+            'iterations': em.n_iterations,
+            'loglikelihoods': em.loglikelihoods
+        }
         ctr_table = out['l_hat']
 
         # change tree _lengths to match the estimated ones
@@ -314,12 +323,12 @@ class EMTestCase(unittest.TestCase):
 
         # check likelihood
         ll_est = out['loglikelihoods'][0, 1]
-        evo_model = JCBModel(n_states=n_states)
+        evo_model = JCBModel(n_states=n_states, hmm_alg=hmm_alg)
         evo_model.lengths = l_true
 
         obs_model = PoissonModel(n_states, 100, 100)
         log_emissions = obs_model.log_emission(data['obs'])
-        _, ll_true = evo_model._forward_pass_likelihood(data['obs'], log_emissions)
+        _, ll_true = evo_model._forward_pass_likelihood(log_emissions)
         self.assertGreater(ll_est, ll_true)
 
         # if these tests don't pass, it's likely that they are wrong
@@ -330,6 +339,7 @@ class EMTestCase(unittest.TestCase):
     def test_quadruplet_random_l_normal(self):
         # seed for reproducibility
         seed = 0
+        hmm_alg = 'pomegranate'
         random.seed(seed)
         np.random.seed(seed)
         n_states = 5
@@ -344,10 +354,11 @@ class EMTestCase(unittest.TestCase):
                                            n_clonal_CN_events=n_clonal_events_per_edge,
                                            clonal_CN_length_ratio=clonal_CN_event_ratio,
                                            n_focal_events=n_focal_events_per_edge)
-        evo_model = JCBModel(n_states=n_states, alpha=1)
+        evo_model = JCBModel(n_states=n_states, alpha=1, hmm_alg=hmm_alg)
         obs_model = NormalModel(n_states=n_states, mu_v_prior=1.0, tau_v_prior=100.0)
         data = simulate_quadruplet(n_sites, obs_model=obs_model, evo_model=evo_model_sim, n_states=n_states)
-        gt_ctr_table = get_ctr_table(data['tree'])
+        # Note: since SimulationEvoModel is used, true edge lengths are not known, so only CN changes can be used to assess EM performance
+        # gt_ctr_table = get_ctr_table(data['tree'])  # cannot be used here
         # print cn in order r, u, v, w (check simulate_quadruplet doc for sorting info)
         print(f"CN (r, u, v, w):\n{data['cn'][[3, 2, 0, 1], :20]}")
         # plot
@@ -356,12 +367,7 @@ class EMTestCase(unittest.TestCase):
         sub_folder_name = f'M{n_sites}_K{n_states}_CN_{n_CN_ru}_{n_CN_uv}_{n_CN_uw}_focCN_{n_fCN_ru}_{n_fCN_uv}_{n_fCN_uw}'
         out_dir = create_output_test_folder(sub_folder_name=sub_folder_name)
         fig.savefig(out_dir + '/cn_profile.png')
-
-        l_true = gt_ctr_table[0, 1, :].tolist()
-        print(f"Generated tree")
-        data['tree'].print_plot(plot_metric='length')
-        print(f"Generated edge _lengths: {l_true}")
-        print(f"(from p: {p_from_l(gt_ctr_table[0, 1, :], n_states)}")
+        print(f"Image saved to {out_dir}/cn_profile.png")
 
         # run EM
         em = EM(n_states=n_states, obs_model=obs_model, evo_model=evo_model, diagnostics=True)
@@ -386,12 +392,7 @@ class EMTestCase(unittest.TestCase):
 
         # check likelihood
         ll_est = em.loglikelihoods[(0, 1)]
-        evo_model.lengths = l_true
-        log_emissions = obs_model.log_emission(data['obs'])
-        _, ll_true = evo_model._forward_pass_likelihood(data['obs'], log_emissions)
-        print(f"Generating lengths likelihood: {ll_true}")
         print(f"Estimated lengths likelihood: {ll_est}")
-        self.assertGreater(ll_est, ll_true, msg="EM does not improve likelihood at all")
         # compute cn changes
         comp_eps = compute_cn_changes(data['cn'], [(3, 2), (2, 0), (2, 1)])
         comp_lengths = l_from_p(np.array(comp_eps)/n_sites, n_states)
@@ -485,7 +486,7 @@ class EMTestCase(unittest.TestCase):
         evo_model.lengths = l_true
 
         log_emissions = obs_model.log_emission(data['obs'])
-        _, ll_true = evo_model._forward_pass_likelihood(data['obs'], log_emissions)
+        _, ll_true = evo_model._forward_pass_likelihood(log_emissions)
         print(f"Generating lengths likelihood: {ll_true}")
         print(f"Estimated lengths likelihood: {ll_est}")
         self.assertGreater(ll_est, ll_true, msg="EM does not improve likelihood at all")
@@ -651,7 +652,7 @@ class EMTestCase(unittest.TestCase):
         evo_model.lengths = l_true
 
         log_emissions = obs_model.log_emission(data['obs'])
-        _, ll_true = evo_model._forward_pass_likelihood(data['obs'], log_emissions)
+        _, ll_true = evo_model._forward_pass_likelihood(log_emissions)
         print(f"Generating lengths likelihood: {ll_true}")
         print(f"Estimated lengths likelihood: {ll_est}")
         self.assertGreater(ll_est, ll_true, msg="EM does not improve likelihood at all")
@@ -721,7 +722,7 @@ class EMTestCase(unittest.TestCase):
         evo_model.lengths = l_true
 
         log_emissions = obs_model.log_emission(data['obs'])
-        _, ll_gen = evo_model._forward_pass_likelihood(data['obs'], log_emissions)
+        _, ll_gen = evo_model._forward_pass_likelihood(log_emissions)
         print(f"Generating lengths likelihood: {ll_gen}")
         print(f"Estimated lengths likelihood: {ll_est}")
         self.assertGreater(ll_est, ll_gen, msg="EM does not improve likelihood at all")
@@ -849,65 +850,25 @@ class EMTestCase(unittest.TestCase):
         # print("OBS VW (first 20 sites):")
         # print(obs_vw[:20, :].transpose())
         jcb_model.lengths = np.array([sl, ll, ll])
-        log_xi_early_centroid, _ = jcb_model.two_slice_marginals(obs_vw, obs_model)
+        expected_counts_early_centroid, log_gamma_early = jcb_model.two_slice_marginals(obs_vw, obs_model)
         loglik_early = jcb_model.loglikelihood
 
         # compute two-slice marginals assuming centroid is placed closer to the leaves
         jcb_model.lengths = np.array([ll, sl, sl])
-        log_xi_late_centroid, _ = jcb_model.two_slice_marginals(obs_vw, obs_model)
+        expected_counts_late_centroid, log_gamma_late = jcb_model.two_slice_marginals(obs_vw, obs_model)
         loglik_late = jcb_model.loglikelihood
         self.assertGreater(loglik_late, loglik_early)
 
-        self.assertEqual(log_xi_late_centroid.shape, (n_sites - 1,) + (n_states,) * 6)
-        self.assertTrue(np.allclose(logsumexp(log_xi_late_centroid, axis=(1, 2, 3, 4, 5, 6)), np.zeros(n_sites - 1)))
+        self.assertEqual(expected_counts_late_centroid.shape, (n_states,) * 6)
+        self.assertAlmostEqual(np.sum(expected_counts_late_centroid), n_sites - 1, places=2)
 
+        # NOTE: these tests where built on log_xi, not sure if they still hold on expected_counts
         # transition from 1 to 2 is more likely in the late scenario due to the higher l_ru
-        self.assertGreater(log_xi_late_centroid[t0, 1, 1, 1, 2, 2, 2],
-                           log_xi_early_centroid[t0, 1, 1, 1, 2, 2, 2])
+        self.assertGreater(log_gamma_late[t0, 2, 2, 2],
+                           log_gamma_early[t0, 2, 2, 2])
         # transition from 1 to 2 is more likely than from 2 to 2 even though l_uv is higher due to observation
-        self.assertGreater(log_xi_late_centroid[t0, 1, 1, 1, 2, 2, 2],
-                           log_xi_early_centroid[t0, 2, 1, 1, 2, 2, 2])
-        # transition from 1 to 2 is maximum in the late scenario
-        self.assertEqual(np.unravel_index(np.argmax(log_xi_late_centroid[t0, ...]), log_xi_late_centroid.shape[1:]),
-                         (1, 1, 1, 2, 2, 2))
-        self.assertEqual(np.unravel_index(np.argmax(log_xi_late_centroid[t1, ...]), log_xi_late_centroid.shape[1:]),
-                         (2, 2, 2, 3, 3, 3))
-        # we want the transition from m=2 -> m=3 to happen at idx = 2 of log_xi
-        joint_prob_log_el = -np.inf
-        joint_prob_log_ll = -np.inf
-        joint_prob_log_le = -np.inf
-        joint_prob_log_ee = -np.inf
-        for m in range(n_sites - 1):
-            cm1, cm2 = cn_vw[m, 0], cn_vw[m, 1]
-            cmm1, cmm2 = cn_vw[m + 1, 0], cn_vw[m + 1, 1]
-            # print(f"m={m}, cm1={cm1}, cm2={cm2}, cmm1={cmm1}, cmm2={cmm2}")
-            # early prob in late scenario
-            joint_prob_log_el = np.logaddexp(joint_prob_log_el, log_xi_late_centroid[m, 2, cm2, cmm1, 2, cm1, cm2])
-            # late prob in late scenario (centroid 1 -> 2, 2 -> 3)
-            joint_prob_log_ll = np.logaddexp(joint_prob_log_ll,
-                                             log_xi_late_centroid[m, cm1, cm1, cm2, cmm1, cmm1, cmm2])
-            # late prob in early scenario
-            joint_prob_log_le = np.logaddexp(joint_prob_log_le,
-                                             log_xi_early_centroid[m, cm1, cm1, cm2, cmm1, cmm1, cmm2])
-            # early prob in early scenario (centroid 2 -> 2)
-            joint_prob_log_ee = np.logaddexp(joint_prob_log_ee, log_xi_early_centroid[m, 2, cm2, cmm1, 2, cm1, cm2])
-            # self.assertEqual(np.argmax(log_xi_late_centroid[m, cm1, cm1, cm2, :, cmm1, cmm2]), cmm1, f"m={m}")
-            # print(f"log(xi_[{m}, :, {cm1}, {cm2}, :, {cmm1}, {cmm2}]) = "
-            #       f"{log_xi_late_centroid[m, :, cm1, cm2, :, cmm1, cmm2]}")
-            self.assertEqual(np.argmax(log_xi_late_centroid[m, :, cm1, cm2, cmm1, cmm1, cmm2]), cm1, f"m={m}")
-            # self.assertGreater(log_xi_late_centroid[m, cm1, cm1, cm2, cmm1, cmm1, cmm2],
-            #                    log_xi_early_centroid[m, 2, cm1, cm2, 2, cmm1, cmm2],
-            #                    f"m={m}")
-            # The above assert does not pass, still to be further investigated
-            # NOTE: it should be more likely to have a late centroid in the late scenario than a
-            #   early centroid in the early scenario
-            # Although this doesn't happen in aggregated probabilities (see below)
-
-        # higher prob for a centroid closer to the leaves than centroid closer to the root
-        self.assertGreater(joint_prob_log_ll, joint_prob_log_el)
-        # higher prob for long l -> short l with centroid cn = leaves cn, than short l -> long l and centroid = leaves
-        self.assertGreater(joint_prob_log_ll, joint_prob_log_le)
-        self.assertGreater(joint_prob_log_ll, joint_prob_log_ee)
+        self.assertGreater(log_gamma_late[t0-1, 1, 1, 1],
+                           log_gamma_early[t0-1, 2, 1, 1])
 
     def test_compute_viterbi_path(self):
         n_sites = 100

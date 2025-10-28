@@ -62,8 +62,8 @@ class HMMTestCase(unittest.TestCase):
         evo_model = CopyTree(n_states=n_states)
         evo_model.theta = np.array([1/12, 1/12, 1/12])
 
-        _, ll_fwd = evo_model._forward_pass_likelihood(obs, log_emissions)
-        alpha, _ = evo_model._forward_pass_likelihood(obs, log_emissions)
+        _, ll_fwd = evo_model._forward_pass_likelihood(log_emissions)
+        alpha, _ = evo_model._forward_pass_likelihood(log_emissions)
         beta = evo_model.backward_pass(log_emissions)
         for t in range(n_sites):
             ll = sp.logsumexp(alpha[t] + beta[t])
@@ -89,7 +89,7 @@ class HMMTestCase(unittest.TestCase):
 
         # compute with forward-algorithm with normalized forward variables
         log_emissions = obs_model.log_emission(obs)
-        alpha, ll_fwd = evo_model._forward_pass_likelihood(obs, log_emissions)
+        alpha, ll_fwd = evo_model._forward_pass_likelihood(log_emissions)
         print(f"alpha: {sp.logsumexp(alpha, axis=(1, 2, 3))}")
         print(f"loglik fwd norm: {ll_fwd}")
 
@@ -160,7 +160,35 @@ class HMMTestCase(unittest.TestCase):
         self.assertAlmostEqual(ll_brute_force, ll_fwbw, places=5, msg="likelihood computation with forward backward is"
                                                                       " different than bruteforce, hence `most likely`"
                                                                       " bugged")
+    def test_pomegranate_speed_improvement(self):
+        n_sites = 1000
+        n_states = 6
+        evo_model = JCBModel(n_states=n_states, hmm_alg='pomegranate')
+        evo_model.lengths = np.array([0.05, 0.1, 0.03])
+        obs_model = PoissonModel(n_states=n_states)
 
+        # run two_slice_marginals multiple times and measure time
+        cnp = np.array([
+            [2] * n_sites,
+            [2] * (n_sites // 2) + [3] * (n_sites // 2),
+        ])
+        obs = obs_model.sample(cnp)
+        log_emissions = obs_model.log_emission(obs)
+        import time
+        start_time = time.time()
+        for _ in range(10):
+            marginals = evo_model.two_slice_marginals(obs, obs_model)
+        pomegranate_time = time.time() - start_time
+        print(f"pomegranate time: {pomegranate_time:.4f} seconds")
+        # now test the custom implementation
+        evo_model.hmm_alg = 'broadcast'
+        start_time = time.time()
+        for _ in range(10):
+            marginals = evo_model.two_slice_marginals(obs, obs_model)
+        custom_time = time.time() - start_time
+        print(f"custom time: {custom_time:.4f} seconds")
+        print(f"speedup: {custom_time / pomegranate_time:.2f}x")
+        assert pomegranate_time < custom_time, "pomegranate implementation should be faster than custom implementation"
 
 
 

@@ -1,16 +1,18 @@
 """
 Utils for HMM functions (forward, backward, viterbi, etc.)
 """
+from importlib.metadata import distributions
+
 import numpy as np
-import numba
-import scipy as sp
+import scipy.special as sp
 
 from pomegranate.hmm import DenseHMM
-from pomegranate.distributions import Normal, Poisson
+from pomegranate.distributions import Normal
 from utils.math_utils import l_from_p
 
 
 # wrapper class, parametrized by triplet probs eps_ru, eps_rv, eps_rw
+# UNUSED CURRENTLY
 class TripHMM:
     def __init__(self, n_states, obs_model: str, eps: tuple = None, lengths: tuple | None = None):
         self.n_states = n_states
@@ -81,8 +83,8 @@ def pmg_convert_emissions(log_emissions):
     0th dim is batch size (1)
     """
     n_sites, n_states, _ = log_emissions.shape
-    emissions_2D = log_emissions.reshape((n_sites, n_states ** 3))
-    emissions_3D = emissions_2D[None, :, :]
+    # add batch and median state dims, then reshape to (1, n_sites, n_states**3)
+    emissions_3D = np.repeat(log_emissions[None, :, None, :, :], repeats=n_states, axis=2).reshape((1, n_sites, n_states ** 3))
     return emissions_3D
 
 def _forward_likelihood_pomegranate(log_emissions, trans_mat, start_prob):
@@ -107,10 +109,11 @@ def _forward_likelihood_pomegranate(log_emissions, trans_mat, start_prob):
     log_emissions_3D = pmg_convert_emissions(log_emissions)
     trans_mat_2D = trans_mat.reshape((n_states ** 3, n_states ** 3))
     start_prob_1D = start_prob.flatten()
-    model = DenseHMM(edges=trans_mat_2D, starts=start_prob_1D, ends=np.ones(n_states ** 3) / (n_states ** 3))
+    distributions = [Normal() for _ in range(n_states ** 3)]  # dummy distributions, used only for shape
+    model = DenseHMM(distributions=distributions, edges=trans_mat_2D, starts=start_prob_1D, ends=np.ones(n_states ** 3) / (n_states ** 3))
     f = model.forward(emissions=log_emissions_3D).numpy()
-    alpha = f.reshape((n_sites, n_states, n_states, n_states)).numpy()
-    log_p = sp.logsumexp(f[:, -1], dim=1)
+    alpha = f.reshape((n_sites, n_states, n_states, n_states))
+    log_p = sp.logsumexp(f[:, -1], axis=1)
     return alpha, log_p
 
 def _forward_backward_pomegranate(log_emissions, trans_mat, start_prob):
@@ -123,7 +126,8 @@ def _forward_backward_pomegranate(log_emissions, trans_mat, start_prob):
     log_emissions_3D = pmg_convert_emissions(log_emissions)
     trans_mat_2D = trans_mat.reshape((n_states ** 3, n_states ** 3))
     start_prob_1D = start_prob.flatten()
-    model = DenseHMM(edges=trans_mat_2D, starts=start_prob_1D, ends=np.ones(n_states ** 3) / (n_states ** 3))
+    distributions = [Normal() for _ in range(n_states ** 3)]  # dummy distributions, used only for shape
+    model = DenseHMM(distributions=distributions, edges=trans_mat_2D, starts=start_prob_1D, ends=np.ones(n_states ** 3) / (n_states ** 3))
     expected_counts, marginal, _, _, log_p = model.forward_backward(emissions=log_emissions_3D)
     expected_counts = expected_counts.reshape((n_states,) * 6).numpy()  # from 2D* (1, n_states**3, n_states**3) to 6D (n_states,) * 6
     marginal = marginal.reshape((n_sites, n_states, n_states, n_states)).numpy()  # from 2D* (1, n_sites, n_states**3) to 4D (n_sites, n_states, n_states, n_states)
@@ -176,9 +180,10 @@ def _backward_pass_pomegranate(log_emissions, trans_mat):
     n_sites, n_states, _ = log_emissions.shape
     log_emissions_3D = pmg_convert_emissions(log_emissions)
     trans_mat_2D = trans_mat.reshape((n_states ** 3, n_states ** 3))
-    model = DenseHMM(edges=trans_mat_2D, starts=np.ones(n_states ** 3) / (n_states ** 3), ends=np.ones(n_states ** 3) / (n_states ** 3))
+    distributions = [Normal() for _ in range(n_states ** 3)]
+    model = DenseHMM(distributions=distributions, edges=trans_mat_2D, starts=np.ones(n_states ** 3) / (n_states ** 3), ends=np.ones(n_states ** 3) / (n_states ** 3))
     b = model.backward(emissions=log_emissions_3D).numpy()
-    beta = b.reshape((n_sites, n_states, n_states, n_states)).numpy()
+    beta = b.reshape((n_sites, n_states, n_states, n_states))
     return beta
 
 def _forward_backward_broadcast(log_emissions, trans_mat, start_prob, debug=False):

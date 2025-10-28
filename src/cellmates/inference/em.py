@@ -41,7 +41,7 @@ class EM:
         else:
             self.obs_model: ObsModel = obs_model
         self.tree_build = tree_build  # algorithm for tree reconstruction
-        self.E_step_alg = E_step_alg # E-step algorithm
+        self.E_step_alg = E_step_alg # E-step algorithm to select (forward backward O(MK^6), or Viterbi O(8MK^3)) etc.
         self._n_sites = None
         self._n_cells = None
         self._n_states = n_states
@@ -52,6 +52,7 @@ class EM:
         self._loglikelihoods = None
 
         # Diagnostics
+        # FIXME: currently only stores last pair's diagnostics
         self.diagnostics = diagnostics
         if self.diagnostics:
             self.diagnostic_data = {
@@ -162,6 +163,7 @@ class EM:
         quad_model.theta = theta_init_
 
         # compute changes is observation and evolution model specific
+        # FIXME: self.E_step_alg can be passed to multi_chr_expected_changes to select algorithm
         d, dp, loglik = quad_model.multi_chr_expected_changes(obs_vw=obs_vw, obs_model=self.obs_model)
         convergence = False
         if self.diagnostics:
@@ -186,7 +188,7 @@ class EM:
 
 
             if new_loglik < loglik:
-                logger.error(f'log likelihood decreased: {new_loglik} < {loglik}')
+                logger.error(f'log likelihood decreased: {new_loglik} < {loglik} (estimated lengths: {quad_model.theta})')
             elif (new_loglik - loglik) / np.abs(loglik) < rtol and it > self.min_iter:
                 convergence = True
             loglik = new_loglik

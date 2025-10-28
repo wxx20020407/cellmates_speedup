@@ -12,7 +12,7 @@ from cellmates.models.evo.basefunc import get_zipping_mask, get_zipping_mask0, p
 from cellmates.models.obs import ObsModel, PoissonModel
 from cellmates.utils import tree_utils, math_utils
 from cellmates.utils.hmm import _forward_likelihood_broadcast, _forward_likelihood_pomegranate, \
-    _forward_backward_broadcast, _forward_backward_pomegranate
+    _forward_backward_broadcast, _forward_backward_pomegranate, _backward_pass_broadcast, _backward_pass_pomegranate
 
 
 class EvoModel:
@@ -24,6 +24,7 @@ class EvoModel:
         self.expected_counts = None
         self.log_gamma = None
         self.n_states = n_states
+        self.hmm_alg = kwargs.get('hmm_alg', 'pomegranate')
         # optional parameters
         self.zero_absorption = kwargs.get('zero_absorption', False)
         self.focal_rate = kwargs.get('focal_rate', 0.)
@@ -97,6 +98,7 @@ class EvoModel:
         # prob(Cm = ijk, Cm+1 = i'j'k' | Y)
         if alg == 'viterbi':
             viterbi_path, path_log_lik = self.compute_viterbi_path(obs_model.log_emission(obs_vw))
+            # FIXME: set log_gamma
             # count changes along viterbi path
             d, dp = self.counts_from_paths(viterbi_path)
             return d, dp, path_log_lik
@@ -111,11 +113,11 @@ class EvoModel:
         # count expected changes/no-changes
         for e in range(3):
             if e == 0:
-                # l_ru (sum over m, j, k, j', k')
-                pair_tsm = sp.logsumexp(expected_counts, axis=(2, 3, 5, 6))
+                # l_ru (sum over j, k, j', k')
+                pair_tsm = np.sum(expected_counts, axis=(1, 2, 4, 5))
                 # use comut_mask0
-                d[0] = np.exp(sp.logsumexp(pair_tsm[~comut_mask0]))  # change
-                dp[0] = np.exp(sp.logsumexp(pair_tsm[comut_mask0]))  # no change
+                d[0] = np.sum(pair_tsm[~comut_mask0])  # change
+                dp[0] = np.sum(pair_tsm[comut_mask0])  # no change
                 # add first state
                 pair_osm_1 = sp.logsumexp(log_gamma_1, axis=(1, 2))
                 exp_p2 = np.exp(pair_osm_1[2])  # p(C1u = 2)
@@ -123,16 +125,16 @@ class EvoModel:
                 dp[0] += exp_p2 # no change from r=2 to u=2
             else:
                 if e == 1:
-                    # eps_uv (sum over m, i, i')
-                    pair_tsm = sp.logsumexp(expected_counts, axis=(3, 6))
+                    # eps_uv (sum over i, i')
+                    pair_tsm = np.sum(expected_counts, axis=(2, 5))
                     pair_osm_1 = sp.logsumexp(log_gamma_1, axis=2)
                 else:
-                    # eps_uw (sum over m, j, j')
-                    pair_tsm = sp.logsumexp(expected_counts, axis=(2, 5))
+                    # eps_uw (sum over j, j')
+                    pair_tsm = np.sum(expected_counts, axis=(1, 4))
                     pair_osm_1 = sp.logsumexp(log_gamma_1, axis=1)
 
-                d[e] = np.exp(sp.logsumexp(pair_tsm[~comut_mask]))
-                dp[e] = np.exp(sp.logsumexp(pair_tsm[comut_mask]))
+                d[e] = np.sum(pair_tsm[~comut_mask])
+                dp[e] = np.sum(pair_tsm[comut_mask])
                 # add first state
                 d[e] += np.exp(sp.logsumexp(pair_osm_1[~comut_mask0]))
                 dp[e] += np.exp(sp.logsumexp(pair_osm_1[comut_mask0]))
@@ -200,7 +202,7 @@ class EvoModel:
     #     else:
     #         raise ValueError(f"Unknown evolutionary model {evo_model}")
 
-    def two_slice_marginals(self, obs_vw, obs_model: ObsModel, alg='pomegranate') -> np.ndarray:
+    def two_slice_marginals(self, obs_vw, obs_model: ObsModel) -> np.ndarray:
         """
         Computes the two slice marginals of a hidden markov model with three latent chains.
         Specifically, for each point m of the chain (site), and each pair of triplet states
@@ -218,6 +220,7 @@ class EvoModel:
             log_gamma: array of shape (n_sites, n_states, n_states, n_states), one slice log marginals
 
         """
+        alg = self.hmm_alg
         n_states = self.n_states
         assert obs_model.n_states == n_states, "observation model number of states must match evolutionary model number of states"
         log_emissions = obs_model.log_emission(obs_vw)
@@ -231,15 +234,16 @@ class EvoModel:
 
         return expected_counts, log_gamma
 
-    def backward_pass(self, log_emissions, alg='pomegranate') -> np.ndarray:
+    def backward_pass(self, log_emissions) -> np.ndarray:
+        alg = self.hmm_alg
         match alg:
             case 'broadcast':
-                beta = _backward_likelihood_broadcast(log_emissions, self.trans_mat)
+                beta = _backward_pass_broadcast(log_emissions, self.trans_mat)
             case 'pomegranate':
-                beta = _backward_likelihood_pomegranate(log_emissions, self.trans_mat)
+                beta = _backward_pass_pomegranate(log_emissions, self.trans_mat)
         return beta
 
-    def _forward_pass_likelihood(self, log_emissions, alg='pomegranate') -> tuple[np.ndarray, float]:
+    def _forward_pass_likelihood(self, log_emissions) -> tuple[np.ndarray, float]:
         """
         Compute the forward pass of the hidden markov model with three latent chains and return the forward probabilities
         as well as the log likelihood of the observations.
@@ -254,6 +258,7 @@ class EvoModel:
         tuple with alpha array of shape (n_sites, n_states, n_states, n_states) with forward probabilities and
         log likelihood of the observations
         """
+        alg = self.hmm_alg
         n_sites, n_states, _ = log_emissions.shape
         alpha, log_p = None, None
         match alg:
