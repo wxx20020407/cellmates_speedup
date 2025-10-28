@@ -850,12 +850,12 @@ class EMTestCase(unittest.TestCase):
         # print("OBS VW (first 20 sites):")
         # print(obs_vw[:20, :].transpose())
         jcb_model.lengths = np.array([sl, ll, ll])
-        expected_counts_early_centroid, log_gamma_early = jcb_model.two_slice_marginals(obs_vw, obs_model)
+        expected_counts_early_centroid, log_gamma_early = jcb_model.forward_backward(obs_vw, obs_model)
         loglik_early = jcb_model.loglikelihood
 
         # compute two-slice marginals assuming centroid is placed closer to the leaves
         jcb_model.lengths = np.array([ll, sl, sl])
-        expected_counts_late_centroid, log_gamma_late = jcb_model.two_slice_marginals(obs_vw, obs_model)
+        expected_counts_late_centroid, log_gamma_late = jcb_model.forward_backward(obs_vw, obs_model)
         loglik_late = jcb_model.loglikelihood
         self.assertGreater(loglik_late, loglik_early)
 

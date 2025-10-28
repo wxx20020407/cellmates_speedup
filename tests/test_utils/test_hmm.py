@@ -177,14 +177,14 @@ class HMMTestCase(unittest.TestCase):
         import time
         start_time = time.time()
         for _ in range(10):
-            marginals = evo_model.two_slice_marginals(obs, obs_model)
+            marginals = evo_model.forward_backward(obs, obs_model)
         pomegranate_time = time.time() - start_time
         print(f"pomegranate time: {pomegranate_time:.4f} seconds")
         # now test the custom implementation
         evo_model.hmm_alg = 'broadcast'
         start_time = time.time()
         for _ in range(10):
-            marginals = evo_model.two_slice_marginals(obs, obs_model)
+            marginals = evo_model.forward_backward(obs, obs_model)
         custom_time = time.time() - start_time
         print(f"custom time: {custom_time:.4f} seconds")
         print(f"speedup: {custom_time / pomegranate_time:.2f}x")

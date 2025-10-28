@@ -102,7 +102,7 @@ class EvoModel:
             # count changes along viterbi path
             d, dp = self.counts_from_paths(viterbi_path)
             return d, dp, path_log_lik
-        expected_counts, log_gamma = self.two_slice_marginals(obs_vw, obs_model=obs_model)
+        expected_counts, log_gamma = self.forward_backward(obs_vw, obs_model=obs_model)
         loglik = self.loglikelihood  # computed in the two slice marginals (forward pass)
         self.expected_counts = expected_counts
         self.log_gamma = log_gamma
@@ -202,23 +202,18 @@ class EvoModel:
     #     else:
     #         raise ValueError(f"Unknown evolutionary model {evo_model}")
 
-    def two_slice_marginals(self, obs_vw, obs_model: ObsModel) -> np.ndarray:
+    def forward_backward(self, obs_vw, obs_model: ObsModel) -> np.ndarray:
         """
-        Computes the two slice marginals of a hidden markov model with three latent chains.
-        Specifically, for each point m of the chain (site), and each pair of triplet states
-        (i,j,k)[m] -> (i'j'k')[m+1], it computes the
-            $$ \log P(X_m = (i,j,k), X_{m+1} = (i',j',k') | Y, \theta) $$
-        Also computes the log likelihood of the observations in the forward pass (saved in self.loglikelihood attribute).
+        Perform the forward-backward algorithm to compute the expected number of transitions
+        and the one-slice log marginals. It also saves the loglikelihood of the observations.
         Parameters
         ----------
         obs_vw array of shape (n_sites, 2)
         obs_model instance of ObsModel
-
         Returns
         -------
-            expected_counts: array of shape (n_states,) * 6, expected number of transitions over each Markov edge,
-            log_gamma: array of shape (n_sites, n_states, n_states, n_states), one slice log marginals
-
+        expected_counts: array of shape (n_states,) * 6, expected number of transitions over each Markov edge,
+        log_gamma: array of shape (n_sites, n_states, n_states, n_states), one slice log marginals
         """
         alg = self.hmm_alg
         n_states = self.n_states
