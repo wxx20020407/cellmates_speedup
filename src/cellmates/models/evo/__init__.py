@@ -3,7 +3,6 @@ import random
 
 import dendropy as dpy
 import networkx as nx
-import numba
 import numpy as np
 from scipy import special as sp, stats as sp_stats, stats as ss
 
@@ -11,7 +10,7 @@ from cellmates.models.evo.basefunc import get_zipping_mask, get_zipping_mask0, p
     p_delta_start_prob, h_eps, h_eps0
 
 from cellmates.models.obs import ObsModel, PoissonModel
-from cellmates.utils import tree_utils
+from cellmates.utils import tree_utils, math_utils
 
 
 class EvoModel:
@@ -74,7 +73,8 @@ class EvoModel:
         # node_cn[:] = _evolve_cn_event_chain(prev_cn, pdd, self.n_states)  # old method
         return node_cn
 
-    def _expected_changes(self, obs_vw, obs_model: ObsModel = None) -> tuple[np.ndarray, np.ndarray, float]:
+    def _expected_changes(self, obs_vw, obs_model: ObsModel = None,
+                          alg='forward-backward') -> tuple[np.ndarray, np.ndarray, float]:
         """
         Compute the expected number of changes which over the copy number conditional distribution for the three branches:
          (r, u), (u, v), (u, w).
@@ -93,6 +93,11 @@ class EvoModel:
         dp = np.empty(3) # expected no changes
         # compute two slice marginals
         # prob(Cm = ijk, Cm+1 = i'j'k' | Y)
+        if alg == 'viterbi':
+            viterbi_path, path_log_lik = self.compute_viterbi_path(obs_model.log_emission(obs_vw))
+            # count changes along viterbi path
+            d, dp = self.counts_from_paths(viterbi_path)
+            return d, dp, path_log_lik
         log_xi, log_gamma = self.two_slice_marginals(obs_vw, obs_model=obs_model)
         loglik = self.loglikelihood  # computed in the two slice marginals (forward pass)
         self.log_xi = log_xi
@@ -132,7 +137,8 @@ class EvoModel:
 
         return d, dp, loglik
 
-    def multi_chr_expected_changes(self, obs_vw, obs_model: ObsModel = None) -> tuple[np.ndarray, np.ndarray, float]:
+    def multi_chr_expected_changes(self, obs_vw, obs_model: ObsModel = None,
+                                   alg='forward-backward') -> tuple[np.ndarray, np.ndarray, float]:
         """
         Compute the expected number of changes which over the copy number conditional distribution for the three branches:
          (r, u), (u, v), (u, w). This function handles multiple chromosomes by splitting the observations
@@ -160,7 +166,7 @@ class EvoModel:
         chr_start = 0
         for chr_end in self.chromosome_ends + [obs_vw.shape[0]]:
             chr_obs = obs_vw[chr_start:chr_end]
-            chr_d, chr_dp, chr_loglik = self._expected_changes(chr_obs, obs_model=obs_model)
+            chr_d, chr_dp, chr_loglik = self._expected_changes(chr_obs, obs_model=obs_model, alg=alg)
             d += chr_d
             dp += chr_dp
             loglik += chr_loglik
@@ -191,203 +197,6 @@ class EvoModel:
     #         return JCBModel(n_states=n_states)
     #     else:
     #         raise ValueError(f"Unknown evolutionary model {evo_model}")
-    def two_slice_marginals_jit(self, obs_vw, obs_model: ObsModel, **kwargs) -> np.ndarray:
-        """
-        Improvement over two_slice_marginals with better memory management and operations.
-        """
-
-        # lookup functions
-        @numba.njit(parallel=False, fastmath=True)
-        def x0(i, j, log_cp):
-            if i != j:
-                return log_cp[0]
-            else:
-                return log_cp[1]
-
-        @numba.njit(parallel=False, fastmath=True)
-        def x(jj, j, i, ii, log_cp):
-            if ii - i + j < 0 or ii - i + j > n_states - 1:
-                return 1 / n_states
-            else:
-                change = ii - i != jj - j
-                return log_cp[0] if change else log_cp[1]
-
-        @numba.njit(parallel=False, fastmath=True)
-        def _forward_pass_likelihood(obs_vw, log_emissions_v, log_emissions_w, normalization: None | int = 0) -> tuple[np.ndarray, float]:
-            change_probs = self.compute_change_probs()
-            log_change_probs = np.log(change_probs)
-            # transmat idx = (i, j, k, x, y, z) = (m-1, m)
-            n_sites = obs_vw.shape[0]
-            n_states = self.trans_mat.shape[0]
-
-            alpha = np.empty((n_sites, n_states, n_states, n_states), dtype=np.float32)
-            # init alpha[0] = start_prob * emission[0] (in log-form)
-            log_lik_acc = 0.
-            for m in range(n_sites):
-                for iuvw in range(n_states ** 3):
-                    iu = iuvw // (n_states ** 2)
-                    iv = (iuvw // n_states) % n_states
-                    iw = iuvw % n_states
-                    acc_m = log_emissions_v[m, iv] + log_emissions_w[m, iw]
-                    if m == 0:
-                        acc_m += x0(iu, 2, log_change_probs[0])  # start prob r=2
-                        alpha[m, iu, iv, iw] = acc_m
-                    else:
-                        acc_ju = -np.inf
-                        for ju in range(n_states):
-                            acc_jv = -np.inf
-                            for jv in range(n_states):
-                                acc_jw = -np.inf
-                                for jw in range(n_states):
-                                    acc_jw = np.logaddexp(
-                                        alpha[m - 1, ju, jv, jw] + x(jw, iw, ju, iu, log_change_probs[2]),
-                                        acc_jw
-                                    )
-                                acc_jv = np.logaddexp(
-                                    x(jv, iv, ju, iu, log_change_probs[1]) + acc_jw,
-                                    acc_jv
-                                )
-                            acc_ju = np.logaddexp(
-                                x0(ju, iu, log_change_probs[0]) + acc_jv,
-                                acc_ju
-                            )
-                        alpha[m, iu, iv, iw] = acc_m + acc_ju
-                # normalization step
-                if normalization is not None and m % normalization == 0 and m > 0:
-                    # numba friendly logsumexp
-                    max_alpha = -np.inf
-                    for iuvw in range(n_states ** 3):
-                        iu = iuvw // (n_states ** 2)
-                        iv = (iuvw // n_states) % n_states
-                        iw = iuvw % n_states
-                        if alpha[m, iu, iv, iw] > max_alpha:
-                            max_alpha = alpha[m, iu, iv, iw]
-                    sum_exp = 0.
-                    for iuvw in range(n_states ** 3):
-                        iu = iuvw // (n_states ** 2)
-                        iv = (iuvw // n_states) % n_states
-                        iw = iuvw % n_states
-                        sum_exp += np.exp(alpha[m, iu, iv, iw] - max_alpha)
-                    norm = max_alpha + np.log(sum_exp)
-                    # normalization step
-                    for iuvw in range(n_states ** 3):
-                        iu = iuvw // (n_states ** 2)
-                        iv = (iuvw // n_states) % n_states
-                        iw = iuvw % n_states
-                        alpha[m, iu, iv, iw] -= norm
-                    log_lik_acc += norm
-            log_likelihood = log_lik_acc
-
-            return alpha, log_likelihood
-
-        @numba.njit(parallel=False, fastmath=True)
-        def _jit_backward_pass(n_sites, n_states, log_emissions_v, log_emissions_w, change_probs, normalization: None | int = 0) -> np.ndarray:
-            log_change_probs = np.log(change_probs)
-            beta = np.zeros((n_sites, n_states, n_states, n_states), dtype=np.float32)
-            beta[-1, ...] = - 3 * np.log(n_states)
-            for m in range(n_sites - 2, -1, -1):
-                for iuvw in range(n_states ** 3):
-                    iu = iuvw // (n_states ** 2)
-                    iv = (iuvw // n_states) % n_states
-                    iw = iuvw % n_states
-                    acc_jv = -np.inf
-                    for jv in range(n_states):
-                        # yv
-                        acc_jw = -np.inf
-                        for jw in range(n_states):
-                            # yw
-                            acc_ju = -np.inf
-                            for ju in range(n_states):
-                                acc_ju = np.logaddexp(
-                                    x0(ju, iu, log_change_probs[0]) + x(jv, iv, ju, iu, log_change_probs[1]) + x(jw, iw, ju, iu, log_change_probs[2]) +  beta[m + 1, ju, jv, jw],
-                                    acc_ju
-                                )
-                            acc_jw = np.logaddexp(log_emissions_w[m + 1, jw] + acc_ju, acc_jw)
-                        acc_jv = np.logaddexp(log_emissions_v[m + 1, jv] + acc_jw, acc_jv)
-                    beta[m, iu, iv, iw] = acc_jv
-                # normalization step
-                if normalization is not None and m % normalization == 0 and m > 0:
-                    # numba friendly logsumexp
-                    max_beta = -np.inf
-                    for iuvw in range(n_states ** 3):
-                        iu = iuvw // (n_states ** 2)
-                        iv = (iuvw // n_states) % n_states
-                        iw = iuvw % n_states
-                        if beta[m, iu, iv, iw] > max_beta:
-                            max_beta = beta[m, iu, iv, iw]
-                    sum_exp = 0.
-                    for iuvw in range(n_states ** 3):
-                        iu = iuvw // (n_states ** 2)
-                        iv = (iuvw // n_states) % n_states
-                        iw = iuvw % n_states
-                        sum_exp += np.exp(beta[m, iu, iv, iw] - max_beta)
-                    norm = max_beta + np.log(sum_exp)
-                    # normalization step
-                    for iuvw in range(n_states ** 3):
-                        iu = iuvw // (n_states ** 2)
-                        iv = (iuvw // n_states) % n_states
-                        iw = iuvw % n_states
-                        beta[m, iu, iv, iw] -= norm
-
-            return beta
-
-        def _backward_pass(obs_vw, log_emissions_v, log_emissions_w, normalization: None | int = 0) -> np.ndarray:
-            n_sites = obs_vw.shape[0]
-            n_states = self.trans_mat.shape[0]
-            # precompute eps values
-            change_probs = self.compute_change_probs()  # shape (3, 2) change_probs[e, 0] = p(change), change_probs[e, 1] = p(no change), e=0:ru, e=1:uv, e=2:uw
-            beta = _jit_backward_pass(n_sites, n_states, log_emissions_v, log_emissions_w, change_probs, normalization)
-            return beta
-
-        def _compute_xi(alpha_probs, beta_probs, log_emissions_v, log_emissions_w, log_trans_mat, n_sites, n_states) -> np.ndarray:
-            log_xi = np.empty((n_sites - 1, n_states, n_states, n_states, n_states, n_states, n_states), dtype=np.float32)
-            # group summations properly to avoid unnecessary computations
-            for m in range(n_sites - 1):
-                norm = -np.inf
-                for i in range(n_states):
-                    for j in range(n_states):
-                        for k in range(n_states):
-                            log_acc = alpha_probs[m, i, j, k] + log_trans_mat[i, j, k, :, :, :]
-                            log_acc += log_emissions_v[m + 1, :, :]  # broadcasting over y,z
-                            log_acc += log_emissions_w[m + 1, :, :]  # broadcasting over y,z
-                            log_acc += beta_probs[m + 1, :, :, :]  # broadcasting over x,y,z
-                            log_xi[m, i, j, k, :, :, :] = log_acc
-                            norm = np.logaddexp(norm, sp.logsumexp(log_acc))
-                # normalize xi
-                log_xi[m, ...] -= norm
-            return log_xi
-
-        n_states = self.n_states
-        assert obs_model.n_states == n_states
-        n_sites = obs_vw.shape[0]
-
-        # params for speed up
-        normalization = kwargs.get('normalization', 10)
-
-        # precompute log start prob and log trans
-        eps = 1e-10  # to avoid log(0)
-        log_start_prob = np.log(self.start_prob.clip(eps))
-        log_trans_mat = np.log(self.trans_mat)
-
-        # define emission prob (for emission pair)
-        # log emission shape (n_sites, n_states, n_states)
-        log_emissions_v, log_emissions_w = obs_model.log_emission_split(obs_vw)
-        # compute forward: shape (n_sites, n_states, n_states, n_states)
-        alpha_probs, self.loglikelihood = _forward_pass_likelihood(obs_vw, log_emissions_v, log_emissions_w, normalization=normalization)
-        # compute backward: shape (n_sites, n_states, n_states, n_states)
-        beta_probs = _backward_pass(obs_vw, log_emissions_v, log_emissions_w, normalization=normalization)
-        # tsm shape: (n_sites - 1,) + (n_states,) * 6
-        # compute two slice: xi
-        log_xi = _compute_xi(alpha_probs, beta_probs, log_emissions_v, log_emissions_w, log_trans_mat, n_sites, n_states)
-        log_gamma = sp.logsumexp(log_xi, axis=(4, 5, 6)) # Check axis for gamma
-        # last site needs to be added separately
-        log_alpha_final = alpha_probs[-1, ...]
-        log_evidence = sp.logsumexp(log_alpha_final)
-        log_gamma_final = log_alpha_final - log_evidence
-        log_gamma_final_expanded = log_gamma_final[np.newaxis, ...]
-        log_gamma = np.concatenate([log_gamma, log_gamma_final_expanded], axis=0)
-        return log_xi, log_gamma
-
 
     def two_slice_marginals(self, obs_vw, obs_model: ObsModel) -> np.ndarray:
         """
@@ -411,22 +220,17 @@ class EvoModel:
         assert obs_model.n_states == n_states
         n_sites = obs_vw.shape[0]
 
-        # precompute log start prob and log trans
-        eps = 1e-10  # to avoid log(0)
-        log_start_prob = np.log(self.start_prob.clip(eps))
-        log_trans_mat = np.log(self.trans_mat)
-
         # define emission prob (for emission pair)
         # log emission shape (n_sites, n_states, n_states)
-        log_emission = obs_model.log_emission(obs_vw).astype(np.float32)
+        log_emission = obs_model.log_emission(obs_vw)
         # compute forward: shape (n_sites, n_states, n_states, n_states)
-        alpha_probs, self.loglikelihood = self._forward_pass_likelihood(obs_vw, log_emission, log_trans_mat, log_start_prob)
+        alpha_probs, self.loglikelihood = self._forward_pass_likelihood(obs_vw, log_emission)
         # compute backward: shape (n_sites, n_states, n_states, n_states)
-        beta_probs = self.backward_pass(obs_vw, log_emission, log_trans_mat)
+        beta_probs = self.backward_pass(obs_vw, log_emission)
         # tsm shape: (n_sites - 1,) + (n_states,) * 6
         # compute two slice: xi
         log_xi = alpha_probs[(np.arange(n_sites - 1), ...) + (np.newaxis,) * 3] + \
-                 log_trans_mat[np.newaxis, ...] + \
+                 np.log(self.trans_mat)[np.newaxis, ...] + \
                  log_emission[(np.arange(1, log_emission.shape[0]),) + (np.newaxis,) * 4 + (...,)] + \
                  beta_probs[(np.arange(1, beta_probs.shape[0]), ...) + (np.newaxis,) * 3]
         log_xi -= np.expand_dims(sp.logsumexp(log_xi, axis=tuple(range(1, 7))), axis=tuple(range(1, 7)))
@@ -443,11 +247,9 @@ class EvoModel:
             assert np.allclose(sp.logsumexp(log_gamma, axis=(1, 2, 3)), np.zeros(n_sites))
         return log_xi, log_gamma
 
-    def backward_pass(self, obs_vw, log_emissions, log_trans_mat=None, normalization=True) -> np.ndarray:
+    def backward_pass(self, obs_vw, log_emissions, normalization=True) -> np.ndarray:
         n_sites = obs_vw.shape[0]
         n_states = self.trans_mat.shape[0]
-        if log_trans_mat is None:
-            log_trans_mat = np.log(self.trans_mat)
 
         # initialize beta[M] = 1. (in log form)
         beta = np.zeros((n_sites, n_states, n_states, n_states))
@@ -457,7 +259,8 @@ class EvoModel:
         # compute iteratively
         for m in reversed(range(n_sites - 1)):
             beta[m, ...] = sp.logsumexp(beta[m + 1, None, None, None, :, :, :] +
-                                  log_trans_mat + log_emissions[m + 1, None, None, None, None, :, :], axis=(3, 4, 5))
+                                  np.log(self.trans_mat) +
+                                  log_emissions[m + 1, None, None, None, None, :, :], axis=(3, 4, 5))
             # normalization step
             if normalization:
                 beta[m] -= sp.logsumexp(beta[m])
@@ -465,7 +268,7 @@ class EvoModel:
 
         return beta
 
-    def _forward_pass_likelihood(self, obs_vw, log_emissions, log_trans_mat=None, log_start_prob=None, normalization=True) -> tuple[np.ndarray, float]:
+    def _forward_pass_likelihood(self, obs_vw, log_emissions, normalization=True) -> tuple[np.ndarray, float]:
         """
         Compute the forward pass of the hidden markov model with three latent chains and return the forward probabilities
         as well as the log likelihood of the observations.
@@ -480,25 +283,21 @@ class EvoModel:
         tuple with alpha array of shape (n_sites, n_states, n_states, n_states) with forward probabilities and
         log likelihood of the observations
         """
+        eps = 1e-10  # to avoid log(0)
         # transmat idx = (i, j, k, x, y, z) = (m-1, m)
         n_sites = obs_vw.shape[0]
         n_states = self.trans_mat.shape[0]
-        if log_trans_mat is None:
-            log_trans_mat = np.log(self.trans_mat)
-        if log_start_prob is None:
-            eps = 1e-10  # to avoid log(0)
-            log_start_prob = np.log(self.start_prob.clip(eps))
+        alpha = np.empty((n_sites, n_states, n_states, n_states))
 
-        alpha = np.empty((n_sites, n_states, n_states, n_states), dtype=np.float32)
         # init alpha[0] = start_prob * emission[0] (in log-form)
-        alpha[0, ...] = log_start_prob + log_emissions[0, None, ...]
+        alpha[0, ...] = np.log(self.start_prob.clip(eps)) + log_emissions[0, None, ...]
         norm = sp.logsumexp(alpha[0])
         if normalization:
             alpha[0] -= norm
 
         log_likelihood = norm
         for m in range(1, n_sites):
-            log_acc = sp.logsumexp(alpha[m - 1, :, :, :, None, None, None] + log_trans_mat, axis=(0, 1, 2))
+            log_acc = sp.logsumexp(alpha[m - 1, :, :, :, None, None, None] + np.log(self.trans_mat), axis=(0, 1, 2))
             alpha[m, ...] = log_acc + log_emissions[m, None, :, :]
             norm = sp.logsumexp(alpha[m])
             if normalization:
@@ -509,9 +308,25 @@ class EvoModel:
             log_likelihood += norm
 
         if normalization:
-            assert np.allclose(sp.logsumexp(alpha, axis=(1, 2, 3)), np.zeros(n_sites), atol=1e-4),\
+            assert np.allclose(sp.logsumexp(alpha, axis=(1, 2, 3)), np.zeros(n_sites)),\
                 f"Forward pass normalization error:{sp.logsumexp(alpha, axis=(1, 2, 3))}"
         return alpha, log_likelihood
+
+    def compute_viterbi_path(self, log_emissions) -> np.ndarray:
+        """
+        Compute the viterbi path of the hidden markov model.
+        """
+        M = log_emissions.shape[0]
+        K = self.n_states
+        theta_ru, theta_uv, theta_uw = self.theta
+        cnp_r = np.ones(M) * 2  # fix root cn = 2
+        raw_pi = np.ones((K, K, K)) # Uniform pi prior, will be fully dictated by log_emissions
+        log_pi = np.log(raw_pi / raw_pi.sum())
+        best_path, max_log_prob = math_utils.viterbi_matrix_K6(
+            log_emissions, cnp_r, log_pi, theta_ru, theta_uv, theta_uw
+        )
+        return np.array(best_path), max_log_prob
+
 
     @property
     def start_prob(self):
@@ -536,8 +351,12 @@ class EvoModel:
         one_slice_marginal_w = np.einsum('mijk->mk', np.exp(self.log_gamma))
         return one_slice_marginal_v, one_slice_marginal_w
 
-    def compute_change_probs(self):
-        return None
+    def counts_from_paths(self, viterbi_path):
+        """
+        Calculates the number of changes and no-changes from the provided Viterbi path.
+        """
+        D, Dp = math_utils.compute_cn_changes(viterbi_path, pairs=[(0, 1), (0, 2), (3, 2)])
+        return D, Dp
 
 
 class CopyTree(EvoModel):
@@ -627,7 +446,7 @@ class CopyTree(EvoModel):
         n_states = self.n_states
         eps_trip = self.eps
 
-        trans_mat = np.empty((n_states,) * 6, dtype=np.float32)
+        trans_mat = np.empty((n_states,) * 6)
         # transition from r -> u (fix r = 2)
         a_ru = h_eps(n_states, eps=eps_trip[0])[:, :, 2, 2]
         a_uv = h_eps(n_states, eps=eps_trip[1])
@@ -641,22 +460,13 @@ class CopyTree(EvoModel):
         # this can easily be done with einsum
 
         n_states = self.n_states
-        trip_start = np.empty((n_states,) * 3, dtype=np.float32)
+        trip_start = np.empty((n_states,) * 3)
         a_ru = h_eps0(n_states, self.eps[0])[:, 2]
         a_uv = h_eps0(n_states, self.eps[1])
         a_uw = h_eps0(n_states, self.eps[2])
         # results is state i, j, k
         trip_start[...] = np.einsum('i, ij, ik -> ijk', a_ru, a_uv, a_uw)
         return trip_start
-
-    def compute_change_probs(self):
-        change_probs = np.empty((3, 2))
-        # p(change), p(no change) / no change depends on n_states
-        # for e in range(3):
-        # FIXME: implement change probabilities for CopyTree
-        raise NotImplementedError("Change probabilities not implemented for CopyTree model")
-        return change_probs
-
 
 
 class JCBModel(EvoModel):
@@ -785,18 +595,6 @@ class JCBModel(EvoModel):
 
         return cn
 
-    def compute_change_probs(self):
-        change_probs = np.empty((3, 2))
-        for e in range(3):
-            l = self.lengths[e]
-            alpha = self.alpha
-            p_no_change = 1 - (self.n_states - 1) / self.n_states * (1 - np.exp(- self.n_states * alpha * l))
-            p_change = 1 - p_no_change
-            change_probs[e, 0] = p_change
-            change_probs[e, 1] = p_no_change
-        return change_probs
-
-
 def _evolve_cn_event_pois(prev_cn: np.ndarray, pdd: float, n_states: int, zero_absorption: bool = False,
                           focal_rate: float = 0., event_length_ratio: float = .2) -> np.ndarray:
     """
@@ -904,18 +702,21 @@ class SimulationEvoModel():
         n_homoplasies: Not implemented yet.
         zero_absorption: Not implemented yet.
         """
-        # Simulation parameters
+        # ------- Simulation parameters -------
+        # Clonal CN event parameters
         self.clonal_CN_prob = clonal_CN_prob
         self.clonal_CN_length_ratio = clonal_CN_length_ratio
         self.n_clonal_CN_events = n_clonal_CN_events
         self.clonal_CN_length = clonal_CN_length
+        # Focal CN event parameters
         self.focal_prob = focal_prob
         self.focal_length_avg = focal_length_avg
         self.n_focal_events = n_focal_events
         self.focal_CN_length = focal_CN_length
-        self.allow_overlapping_CN_events = allow_overlapping_CN_events
-        self.n_homoplasies = n_homoplasies
-        self.zero_absorption = zero_absorption
+        # Type of events parameters
+        self.allow_overlapping_CN_events = allow_overlapping_CN_events # Only implemented for TRUE now
+        self.n_homoplasies = n_homoplasies  # Not implemented yet
+        self.zero_absorption = zero_absorption # Not implemented yet
 
         # Simulation helpers
         self.n_sites = None
@@ -974,7 +775,7 @@ class SimulationEvoModel():
     def draw_number_of_CN_events(self, u, v):
         # Draw number of clonal CN events
         if self.n_clonal_CN_events is None:
-            clonal_rate = self.clonal_CN_rate * self.n_sites
+            clonal_rate = self.clonal_CN_prob * self.n_sites
             n_clonal_events_uv = ss.poisson(clonal_rate)
         else:
             if isinstance(self.n_clonal_CN_events, dict):
@@ -983,7 +784,7 @@ class SimulationEvoModel():
                 n_clonal_events_uv = self.n_clonal_CN_events
         # Draw number of focal CN events
         if self.n_focal_events is None:
-            focal_rate = self.focal_rate * self.n_sites
+            focal_rate = self.focal_prob * self.n_sites
             n_focal_events_uv = ss.poisson(focal_rate)
         else:
             if isinstance(self.n_focal_events, dict):

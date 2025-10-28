@@ -28,7 +28,8 @@ class EM:
     """
     def __init__(self, n_states: int = 7, obs_model: ObsModel | str = 'poisson',
                  evo_model: EvoModel | str = 'jcb', tree_build='ctr',
-                 alpha=1., verbose: int = 0):
+                 alpha=1., verbose: int = 0, diagnostics: bool = False,
+                 E_step_alg: str = 'forward_backward'):
         # model variables
         self.min_iter = 3
         if isinstance(evo_model, str):
@@ -40,6 +41,7 @@ class EM:
         else:
             self.obs_model: ObsModel = obs_model
         self.tree_build = tree_build  # algorithm for tree reconstruction
+        self.E_step_alg = E_step_alg # E-step algorithm
         self._n_sites = None
         self._n_cells = None
         self._n_states = n_states
@@ -48,6 +50,15 @@ class EM:
         self._distances = None
         self._n_iterations = None
         self._loglikelihoods = None
+
+        # Diagnostics
+        self.diagnostics = diagnostics
+        if self.diagnostics:
+            self.diagnostic_data = {
+                'loglikelihoods': [],
+                'thetas': [],
+                'psis': []
+            }
 
         # set verbose level logger in the style of sklearn
         self.verbose = verbose
@@ -149,9 +160,13 @@ class EM:
         # (`theta_init_ = theta_init` is wrong, but also `theta_init_ = theta_init.copy()` is prone to error
         quad_model = self.evo_model.new()
         quad_model.theta = theta_init_
+
         # compute changes is observation and evolution model specific
         d, dp, loglik = quad_model.multi_chr_expected_changes(obs_vw=obs_vw, obs_model=self.obs_model)
         convergence = False
+        if self.diagnostics:
+            self.diagnostic_data = {'loglikelihoods': [loglik], 'thetas': [theta_init_.copy()], 'psis': [self.obs_model.psi_array()]}
+
         it = 0
         logger.debug(f'[{it}/{max_iter}] LL = {loglik} d = {d} dp = {dp}')
         while not convergence and it < max_iter:
@@ -175,6 +190,12 @@ class EM:
             elif (new_loglik - loglik) / np.abs(loglik) < rtol and it > self.min_iter:
                 convergence = True
             loglik = new_loglik
+
+            if self.diagnostics:
+                self.diagnostic_data['loglikelihoods'].append(loglik)
+                self.diagnostic_data['thetas'].append(quad_model.theta.copy())
+                self.diagnostic_data['psis'].append(self.obs_model.psi_array())
+
             it += 1
 
         if it == max_iter and not convergence:
