@@ -13,6 +13,7 @@ E2_LIST = config["jitter"]
 N_REPLICATES = config["n_replicates"]
 NORMAL_FRACTION = config["normal_fraction"]
 N_STATES = config["n_states"]
+MAX_ITER = config["max_iter"]
 BIN_LENGTH = 1000000  # 1Mb bins
 CN_LENGTH_MEAN = 10000000  # 10Mb average CNA length
 SOURCE_PATH = "../../../src"
@@ -82,8 +83,9 @@ rule run_cellmates:
         directory=subpath(output.cm_dist, parent=True)
     conda: "cellmates"
     threads: 4
+    benchmark: os.path.join(RESULTS_DIR, "data", "R{replicate}_N{n_cells}_M{n_bins}_K{n_clones}_L{lamda}_E1{e1}_E2{e2}_C{n_chrom}", "benchmark_run_cellmates.tsv")
     shell: """
-    cellmates -i {input} -o {params.directory} -v 2 --n-states {N_STATES} --num-processors {threads}
+    cellmates -i {input} -o {params.directory} -v 2 --n-states {N_STATES} --num-processors {threads} --max-iter {MAX_ITER}
     """
 
 rule evaluate:
