@@ -136,7 +136,18 @@ class ObsModel(ABC):
     #     else:
     #         raise ValueError(f"Unknown observation model {obs_model}")
     #
-
+    def new(self):
+        """
+        Create a new instance of the same observation model with the same parameters.
+        Returns
+        -------
+        ObsModel
+        """
+        cls = self.__class__
+        new_instance = cls(self.n_states, train=self.train)
+        new_instance.psi = self.psi.copy()
+        new_instance.psi_init = self.psi_init.copy()
+        return new_instance
 
 
 class NormalModel(ObsModel):

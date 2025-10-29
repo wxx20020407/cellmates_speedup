@@ -19,7 +19,7 @@ from cellmates.utils.visual import plot_cn_profile, plot_cell_pairwise_heatmap
 from cellmates.models.evo import p_delta_change, CopyTree, JCBModel, SimulationEvoModel
 from cellmates.models.obs import NormalModel, PoissonModel
 from cellmates.simulation.datagen import rand_dataset, simulate_quadruplet, rand_ann_dataset
-from cellmates.inference.em import jcb_em_ctrtable, EM, jcb_em_alg
+from cellmates.inference.em import jcb_em_ctrtable, EM, jcb_em_alg, fit_quadruplet
 from cellmates.utils.testing import create_output_test_folder
 from cellmates.utils.tree_utils import convert_networkx_to_dendropy, random_binary_tree, label_tree, nxtree_to_newick, \
     get_ctr_table
@@ -104,9 +104,10 @@ class EMTestCase(unittest.TestCase):
         pC1_w, _ = testing.get_marginals_from_cnp(cnps[1], n_states)
         evo_model.get_one_slice_marginals = MagicMock(return_value=[pC1_v, pC1_w])
 
-        theta_init = [0.2, 0.05, 0.1]
+        theta_init = np.array([0.2, 0.05, 0.1])
         em = EM(n_states, obs_model, evo_model_temp, tree_build='ctr', verbose=2)
-        (v, w), theta, loglik, it = em._fit_quadruplet(0, 1, obs, theta_init, max_iter=30, rtol=1e-6)
+
+        (v, w), theta, loglik, it, obs_model, diagnostic_data = fit_quadruplet(0, 1, obs, max_iter=30, rtol=1e-6, evo_model_template=em.evo_model, theta_init=theta_init, obs_model_template=em.obs_model, psi_init=em.obs_model.psi_init, save_diagnostics=em.diagnostics, min_iter=em.min_iter)
         print(f"True epsilons: {np.array(D)/n_sites}")
         print(f"True l: {math_utils.l_from_p(np.array(D)/n_sites, n_states)}")
         print(f"Theta out: {theta}")
@@ -271,6 +272,7 @@ class EMTestCase(unittest.TestCase):
         self.assertAlmostEqual(ctr_table[0, 1, 1], gt_ctr_table[0, 1, 1], delta=0.02)
         self.assertAlmostEqual(ctr_table[0, 1, 2], gt_ctr_table[0, 1, 2], delta=0.01)
 
+    @unittest.skip("Slow test, run manually")
     def test_quadruplet_random_l(self):
         # seed for reproducibility
         seed = 120

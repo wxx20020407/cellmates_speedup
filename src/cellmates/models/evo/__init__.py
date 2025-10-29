@@ -425,8 +425,11 @@ class CopyTree(EvoModel):
 
 class JCBModel(EvoModel):
 
-    def __init__(self, n_states, alpha: float = 1., **kwargs):
+    def __init__(self, n_states, alpha: float = 1., jc_correction: bool = False,  **kwargs):
         self.alpha = alpha
+        if jc_correction:
+            # adjust alpha for Jukes-Cantor correction
+            self.alpha = alpha / (n_states - 1)
         self._lengths = None
         super().__init__(n_states=n_states, **kwargs)
 
@@ -453,10 +456,6 @@ class JCBModel(EvoModel):
         # update l according to formula
         # if l -> +inf, pDeltaDelta == pDeltaDelta'
         log_arg = 1 - self.n_states / (self.n_states - 1) * d / (dp + d)
-        #assert np.all(log_arg > 0)
-        # if np.any(log_arg <= 0):
-        #     logger.error(f"too many changes detected: D = {d}, D' = {dp}\n"
-        #                       f"...saturating l for cells {v},{w}")
         l_i = - 1 / (self.alpha * self.n_states) * np.log(np.clip(log_arg, a_min=zero_tol, a_max=None))
         self.lengths = l_i
 

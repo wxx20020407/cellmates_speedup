@@ -14,7 +14,7 @@ from dendropy.calculate import treecompare
 
 from cellmates.common_helpers import cnasim_data
 from cellmates.inference import neighbor_joining
-from cellmates.inference.em import EM
+from cellmates.inference.em import EM, fit_quadruplet
 from cellmates.models.obs import NormalModel
 from cellmates.utils import tree_utils, testing, visual, math_utils
 
@@ -91,7 +91,7 @@ class CellmatesTestCase(unittest.TestCase):
             pC1_w = testing.get_marginals_from_cnp(cnps[w], n_states)[0]
             evo_model.get_one_slice_marginals = MagicMock(return_value=(pC1_v, pC1_w))
             evo_model._expected_changes = MagicMock(return_value=(D[v,w], Dp[v,w], -1.0))
-            res_vw = em_alg._fit_quadruplet(v, w, x, theta_init=theta_init, psi_init=psi_init, max_iter=max_iter, rtol=rtol)
+            res_vw = fit_quadruplet(v, w, x, theta_init=theta_init, psi_init=psi_init, max_iter=max_iter, rtol=rtol, evo_model_template=evo_model, obs_model_template=em_alg.obs_model)
             results.append(res_vw)
 
         distances = -np.ones((n_cells, n_cells, 3))
@@ -320,8 +320,10 @@ class CellmatesTestCase(unittest.TestCase):
             pC1_w = testing.get_marginals_from_cnp(cnp_concat[w], n_states)[0]
             evo_model.get_one_slice_marginals = MagicMock(return_value=(pC1_v, pC1_w))
             evo_model._expected_changes = MagicMock(return_value=(D[v,w], Dp[v,w], -1.0))
-            out_quad = em_alg._fit_quadruplet(v, w, cnp_concat, theta_init=theta_init, psi_init=psi_init,
-                                  max_iter=max_iter, rtol=tol)
+            out_quad = fit_quadruplet(v, w, cnp_concat,
+                                      theta_init=theta_init,
+                                      psi_init=psi_init, max_iter=max_iter, rtol=tol,
+                                      evo_model_template=evo_model, obs_model_template=em_alg.obs_model)
             (v, w), theta_vw, loglik, it = out_quad
             distances[v, w, :] = theta_vw
 
