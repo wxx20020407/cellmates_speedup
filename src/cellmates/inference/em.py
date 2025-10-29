@@ -188,7 +188,7 @@ class EM:
 
 
             if new_loglik < loglik:
-                logger.error(f'log likelihood decreased: {new_loglik} < {loglik} (estimated lengths: {quad_model.theta})')
+                logger.error(f'log likelihood decreased: {new_loglik} < {loglik}')
             elif (new_loglik - loglik) / np.abs(loglik) < rtol and it > self.min_iter:
                 convergence = True
             loglik = new_loglik

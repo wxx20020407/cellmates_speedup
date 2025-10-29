@@ -8,7 +8,7 @@ import scipy.special as sp
 
 from pomegranate.hmm import DenseHMM
 from pomegranate.distributions import Normal
-from utils.math_utils import l_from_p
+from cellmates.utils.math_utils import l_from_p
 
 
 # wrapper class, parametrized by triplet probs eps_ru, eps_rv, eps_rw
