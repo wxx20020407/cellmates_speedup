@@ -438,11 +438,6 @@ class EMTestCase(unittest.TestCase):
         D, Dp = testing.get_expected_changes(cnps, tree_nx, cell_pairs)
         l_exp, pairwise_l_exp = testing.get_expected_distances(D, Dp, n_states, cell_pairs)
 
-        gt_ctr_table = get_ctr_table(data['tree'])
-        # print cn in order r, u, v, w (check simulate_quadruplet doc for sorting info)
-        print(f"\nCN (first 20 sites) (r, u, v, w):\n{data['cn'][[3, 2, 0, 1], :20]}")
-        print(f"\nObs (first 20 sites) (r, u, v, w):\n{data['obs'].T[:, :20]}")
-
         # save data
         out_dir = create_output_test_folder(
             sub_folder_name=f'M{n_sites}_K{n_states}_Clonal{n_clonal_events_per_edge}_Focal{n_focal_events_per_edge}')
@@ -450,20 +445,13 @@ class EMTestCase(unittest.TestCase):
         plot_cn_profile(data['cn'], ax=ax)
         fig.savefig(out_dir + '/cn_profile.png')
 
-        # print tree with _lengths
-        l_true = gt_ctr_table[0, 1, :].tolist()
-        print(f"Generated tree")
-        data['tree'].print_plot(plot_metric='length')
-        print(f"Generated edge _lengths: {l_true}")
-        print(f"(from p: {p_from_l(gt_ctr_table[0, 1, :], n_states)}")
-
         psi_init = {'mu_v': obs_model.mu_v_prior,
                     'tau_v': obs_model.tau_v_prior,
                     'mu_w': obs_model.mu_w_prior,
                     'tau_w': obs_model.tau_w_prior}
         # run EM
         em = EM(n_states=n_states, obs_model=obs_model, evo_model=evo_model)
-        em.fit(data['obs'], theta_init=l_true, psi_init=psi_init)
+        em.fit(data['obs'], theta_init=l_exp, psi_init=psi_init)
         ctr_table = em.distances
         # change tree _lengths to match the estimated ones
         for edge in data['tree'].preorder_edge_iter():

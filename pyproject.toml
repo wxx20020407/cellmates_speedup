@@ -33,7 +33,7 @@ cellmates = "cellmates.bin.core:main"
 [project.optional-dependencies]
 dev = [
   "pytest>=8.0",
-  "scgenome"
+  "scgenome",
   "pydot",
 ]
 
