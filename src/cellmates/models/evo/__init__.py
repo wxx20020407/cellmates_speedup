@@ -76,8 +76,8 @@ class EvoModel:
         # node_cn[:] = _evolve_cn_event_chain(prev_cn, pdd, self.n_states)  # old method
         return node_cn
 
-    def _expected_changes(self, obs_vw, obs_model: ObsModel = None,
-                          alg='forward-backward') -> tuple[np.ndarray, np.ndarray, float]:
+    def _expected_changes(self, obs_vw, obs_model: ObsModel,
+                          alg='forward-backward') -> tuple[np.ndarray, np.ndarray, float, np.ndarray, np.ndarray]:
         """
         Compute the expected number of changes which over the copy number conditional distribution for the three branches:
          (r, u), (u, v), (u, w).
@@ -87,10 +87,7 @@ class EvoModel:
         $$
         where $p(C|Y,l)$ is determined by the specific model from which this function is called.
         """
-        if obs_model is None:
-            obs_model = PoissonModel(self.n_states, 100., 100.)
-        else:
-            assert obs_model.n_states == self.n_states
+        assert obs_model.n_states == self.n_states
 
         d = np.empty(3)  # expected changes
         dp = np.empty(3) # expected no changes
@@ -101,11 +98,8 @@ class EvoModel:
             # FIXME: set log_gamma
             # count changes along viterbi path
             d, dp = self.counts_from_paths(viterbi_path)
-            return d, dp, path_log_lik
-        expected_counts, log_gamma = self.forward_backward(obs_vw, obs_model=obs_model)
-        loglik = self.loglikelihood  # computed in the two slice marginals (forward pass)
-        self.expected_counts = expected_counts
-        self.log_gamma = log_gamma
+            return d, dp, path_log_lik, None, None
+        expected_counts, log_gamma, loglik = self.forward_backward(obs_vw, obs_model=obs_model)
         log_gamma_1 = log_gamma[0]  # first site marginal prob C1 = ijk
 
         comut_mask0 = get_zipping_mask0(self.n_states).transpose()
@@ -139,15 +133,16 @@ class EvoModel:
                 d[e] += np.exp(sp.logsumexp(pair_osm_1[~comut_mask0]))
                 dp[e] += np.exp(sp.logsumexp(pair_osm_1[comut_mask0]))
 
-        return d, dp, loglik
+        return d, dp, loglik, expected_counts, log_gamma
 
-    def multi_chr_expected_changes(self, obs_vw, obs_model: ObsModel = None,
+    def multi_chr_expected_changes(self, obs_vw, obs_model: ObsModel,
                                    alg='forward-backward') -> tuple[np.ndarray, np.ndarray, float]:
         """
         Compute the expected number of changes which over the copy number conditional distribution for the three branches:
          (r, u), (u, v), (u, w). This function handles multiple chromosomes by splitting the observations
         at the chromosome ends and summing the expected changes over the chromosomes.
         If no chromosome ends are provided, it behaves like _expected_changes.
+        Saves the expected counts and log gammas for the entire observation set.
         Parameters
         ----------
         obs_vw: array of shape (n_sites, 2) with observations for pair of leaves
@@ -157,10 +152,8 @@ class EvoModel:
         tuple with expected changes, expected no changes and log likelihood
         """
 
-        if obs_model is None:
-            obs_model = PoissonModel(self.n_states, 100., 100.)
-        else:
-            assert obs_model.n_states == self.n_states
+        assert obs_model.n_states == self.n_states
+        n_states = obs_model.n_states
         # check chromosome ends against obs_vw shape
         if self.chromosome_ends:
             assert self.chromosome_ends[-1] < obs_vw.shape[0], "chromosome ends exceed number of observations"
@@ -168,13 +161,21 @@ class EvoModel:
         dp = np.zeros(3) # expected no changes
         loglik = 0.
         chr_start = 0
+        # initialize expected counts and log_gamma
+        log_gamma = np.zeros((obs_vw.shape[0], n_states, n_states, n_states))
+        expected_counts = np.zeros((n_states,) * 6)
         for chr_end in self.chromosome_ends + [obs_vw.shape[0]]:
             chr_obs = obs_vw[chr_start:chr_end]
-            chr_d, chr_dp, chr_loglik = self._expected_changes(chr_obs, obs_model=obs_model, alg=alg)
+            chr_d, chr_dp, chr_loglik, chr_exp_counts, chr_log_gamma = self._expected_changes(chr_obs, obs_model=obs_model, alg=alg)
             d += chr_d
             dp += chr_dp
             loglik += chr_loglik
+            expected_counts[...] = expected_counts + chr_exp_counts
+            log_gamma[chr_start:chr_end, ...] = chr_log_gamma
+            # next chromosome
             chr_start = chr_end
+        self.expected_counts = expected_counts
+        self.log_gamma = log_gamma
         self.loglikelihood = loglik
         return d, dp, loglik
 
@@ -202,10 +203,10 @@ class EvoModel:
     #     else:
     #         raise ValueError(f"Unknown evolutionary model {evo_model}")
 
-    def forward_backward(self, obs_vw, obs_model: ObsModel) -> np.ndarray:
+    def forward_backward(self, obs_vw, obs_model: ObsModel) -> tuple[np.ndarray, np.ndarray, float]:
         """
         Perform the forward-backward algorithm to compute the expected number of transitions
-        and the one-slice log marginals. It also saves the loglikelihood of the observations.
+        and the one-slice log marginals.
         Parameters
         ----------
         obs_vw array of shape (n_sites, 2)
@@ -214,20 +215,20 @@ class EvoModel:
         -------
         expected_counts: array of shape (n_states,) * 6, expected number of transitions over each Markov edge,
         log_gamma: array of shape (n_sites, n_states, n_states, n_states), one slice log marginals
+        loglik: float, log likelihood of the observations
         """
         alg = self.hmm_alg
         n_states = self.n_states
         assert obs_model.n_states == n_states, "observation model number of states must match evolutionary model number of states"
         log_emissions = obs_model.log_emission(obs_vw)
+        expected_counts, log_gamma, log_p = None, None, None
         match alg:
             case 'broadcast':
-                expected_counts, log_gamma, log_p = _forward_backward_broadcast(log_emissions, self.trans_mat, self.start_prob)
+                expected_counts, log_gamma, log_p = _forward_backward_broadcast(log_emissions, self.trans_mat, self.start_prob, debug=self.debug)
             case 'pomegranate':
-                expected_counts, log_gamma, log_p = _forward_backward_pomegranate(log_emissions, self.trans_mat, self.start_prob)
+                expected_counts, log_gamma, log_p = _forward_backward_pomegranate(log_emissions, self.trans_mat, self.start_prob, debug=self.debug)
 
-        self.loglikelihood = log_p
-
-        return expected_counts, log_gamma
+        return expected_counts, log_gamma, log_p
 
     def backward_pass(self, log_emissions) -> np.ndarray:
         alg = self.hmm_alg
@@ -238,7 +239,7 @@ class EvoModel:
                 beta = _backward_pass_pomegranate(log_emissions, self.trans_mat)
         return beta
 
-    def _forward_pass_likelihood(self, log_emissions) -> tuple[np.ndarray, float]:
+    def forward_pass(self, log_emissions) -> tuple[np.ndarray, float]:
         """
         Compute the forward pass of the hidden markov model with three latent chains and return the forward probabilities
         as well as the log likelihood of the observations.

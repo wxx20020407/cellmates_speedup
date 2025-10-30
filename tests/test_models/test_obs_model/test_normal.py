@@ -42,34 +42,9 @@ class NormalModelTestCase(unittest.TestCase):
         loglik_other = np.sum(log_p, axis=0)
         self.assertTrue(np.all(loglik_gt > loglik_other))
 
-    def test_fast_log_emission(self):
-        n_states = 8
-        n_sites = 200
-        model = NormalModel(n_states=n_states, lambda_v_prior=100)
-        cn_vw = np.array([
-            [2] * n_sites,
-            [2] * n_sites
-        ], dtype=int)
-        r_vw = model.sample(cn_vw)
-        self.assertEqual(r_vw.shape, (n_sites, 2))
-        # time
-        start = time.time()
-        _ = model.log_emission(r_vw)  # should have shape (n_sites, n_states, n_states)
-        poiss_t = time.time() - start
-
-        self.assertEqual(r_vw.shape, (n_sites, 2))
-        # time
-        start = time.time()
-        _ = model.log_emission_legacy(r_vw)  # should have shape (n_sites, n_states, n_states)
-        norm_t = time.time() - start
-
-        print(f"For-loops time: {poiss_t}, vectorized time: {norm_t}")
-        self.assertTrue(poiss_t < norm_t)
-
     def test_update_given_c(self):
         """
         Tests that the NormalModel parameters are updated correctly given true copy number profiles.
-        TODO: 2025-10-22: FAILS due to tau is 2*true value for some reason. Update equations have been double-checked.
         """
         n_sites = 100
         K = 7
@@ -125,7 +100,8 @@ class NormalModelTestCase(unittest.TestCase):
         assert (np.argmax(pC1_w, axis=1) == cnps[1]).all()
         evo_model_temp.new = MagicMock(return_value=evo_model)
         evo_model.get_one_slice_marginals = MagicMock(return_value=[pC1_v, pC1_w])
-        evo_model._expected_changes = MagicMock(return_value=[D[(0,1)], Dp[(0,1)], -1.0])
+        # last three values are placeholders for loglikelihood, expected counts and log_gamma
+        evo_model._expected_changes = MagicMock(return_value=[D[(0,1)], Dp[(0,1)], -1.0, -1., -1.])
 
         theta_init = np.array([0.2, 0.2, 0.2])
         psi_init = {'mu_v': mu_v_true*4, 'tau_v': tau_v_true*2, 'mu_w': mu_w_true*2, 'tau_w': tau_w_true*2}
@@ -137,7 +113,7 @@ class NormalModelTestCase(unittest.TestCase):
         print(f"\n Initial psi: {psi_init}, \n Updated psi: {updated_psi}")
         self.assertAlmostEqual(updated_psi['mu_v'], mu_v_true, delta=0.1)
         self.assertAlmostEqual(updated_psi['mu_w'], mu_w_true, delta=0.1)
-        #self.assertAlmostEqual(updated_psi['tau_v'], tau_v_true, delta=10.0) # Returns tau >> 2*expected_tau
-        #self.assertAlmostEqual(updated_psi['tau_w'], tau_w_true, delta=10.0) # Returns tau >> 2*expected_tau
+        self.assertAlmostEqual(updated_psi['tau_v'], tau_v_true, delta=1.0)
+        self.assertAlmostEqual(updated_psi['tau_w'], tau_w_true, delta=1.0)
 
 

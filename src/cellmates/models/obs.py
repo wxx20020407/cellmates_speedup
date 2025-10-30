@@ -136,6 +136,7 @@ class ObsModel(ABC):
     #     else:
     #         raise ValueError(f"Unknown observation model {obs_model}")
     #
+    @abstractmethod
     def new(self):
         """
         Create a new instance of the same observation model with the same parameters.
@@ -143,11 +144,7 @@ class ObsModel(ABC):
         -------
         ObsModel
         """
-        cls = self.__class__
-        new_instance = cls(self.n_states, train=self.train)
-        new_instance.psi = self.psi.copy()
-        new_instance.psi_init = self.psi_init.copy()
-        return new_instance
+        pass
 
 
 class NormalModel(ObsModel):
@@ -159,7 +156,7 @@ class NormalModel(ObsModel):
     def __init__(self, n_states: int,
                  mu_v_prior=1., mu_w_prior=None,
                  tau_v_prior=50., tau_w_prior=None,
-                 M=200, train=False, **kwargs):
+                 M=None, train=False, **kwargs):
         super().__init__(n_states, train, **kwargs)
         self.M = M
         # Model Parameters
@@ -174,7 +171,12 @@ class NormalModel(ObsModel):
         self.tau_w_prior = tau_w_prior if tau_w_prior is not None else tau_v_prior
         self.update_params(self.mu_v_prior, self.tau_v_prior, self.mu_w_prior, self.tau_w_prior)
 
-    def initialize(self, psi_init):
+    def new(self):
+        return NormalModel(self.n_states, mu_v_prior=self.mu_v_prior, mu_w_prior=self.mu_w_prior,
+                           tau_v_prior=self.tau_v_prior, tau_w_prior=self.tau_w_prior,
+                           M=self.M, train=self.train)
+
+    def initialize(self, psi_init = None):
         if psi_init is not None:
             self.mu_v, self.tau_v = psi_init['mu_v'], psi_init['tau_v']
             self.mu_w, self.tau_w = psi_init['mu_w'], psi_init['tau_w']
@@ -219,19 +221,6 @@ class NormalModel(ObsModel):
         # fix negative values
         normalized_reads = np.clip(normalized_reads, a_min=0, a_max=None)
         return normalized_reads.transpose()
-
-    def log_emission_legacy(self, obs_vw, **kwargs):
-        # Old implementation of log_emission method with for loops.
-        normal_mean_eps = 1e-10  # not the epsilon parameter of main model
-        n_sites = obs_vw.shape[0]
-        log_emissions = np.empty((n_sites, self.n_states, self.n_states))
-        lam = np.array([self.mu_v_prior, self.mu_w_prior])
-        for m, i, j in itertools.product(range(n_sites), range(self.n_states), range(self.n_states)):
-            # log p(y_m^v | . ) + log p(y_m^w | . )
-            log_emissions[m, i, j] = ss.norm.logpdf(obs_vw[m], np.clip(lam * np.array([i, j]),
-                                                                          a_min=normal_mean_eps, a_max=None)).sum()
-
-        return log_emissions
 
     def log_emission(self, obs_vw, **kwargs):
 
@@ -337,7 +326,7 @@ class NormalModel(ObsModel):
     def tau_update(self, gamma, obs, cn_states, mu):
         obs_mu_c_diff = obs[:, None] - mu * cn_states[None, :]
         obs_mu_c_diff_squared = obs_mu_c_diff**2
-        tau_num = 2 * np.einsum('mj ->', gamma)
+        tau_num = np.einsum('mj ->', gamma)
         tau_den = np.einsum('mj, mj ->', gamma, obs_mu_c_diff_squared)
         tau = tau_num / tau_den
         return tau
@@ -378,6 +367,10 @@ class PoissonModel(ObsModel):
         self.true_lambda_w = None
         self.M = None
         self.update_params(self.lambda_v_prior, self.lambda_w_prior)
+
+    def new(self):
+        return PoissonModel(self.n_states, lambda_v_prior=self.lambda_v_prior,
+                            lambda_w_prior=self.lambda_w_prior, train=self.train)
 
     def sample(self, cnp: np.ndarray, lambda_: np.ndarray | float = None, **kwargs):
         """
@@ -502,7 +495,7 @@ class PoissonModel(ObsModel):
         self.lambda_w = lambda_w
         self.psi = {'lambda_v': self.lambda_v, 'lambda_w': self.lambda_w}
 
-    def initialize(self, psi_init):
+    def initialize(self, psi_init = None):
         if psi_init is not None:
             self.lambda_v = psi_init['lambda_v']
             self.lambda_w = psi_init['lambda_w']

@@ -1,5 +1,4 @@
 import unittest
-import pytest
 
 import numpy as np
 
@@ -8,7 +7,7 @@ from cellmates.models.obs import UrnModel
 
 class UrnModelTestCase(unittest.TestCase):
     # TODO: Find good asserts
-    @pytest.mark.skip(reason="Old test, needs to be updated")
+    @unittest.skip(reason="Old test, needs to be updated")
     def test_data_simulation_one_cell_uniform_c(self):
         """
         Simulate data and expect x_n to be largest at site with largest gc for large diff of gc_min and gc_max.

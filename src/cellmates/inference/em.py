@@ -74,8 +74,7 @@ class EM:
 
     def fit(self, X: np.ndarray, max_iter: int = 200, rtol: float = 1e-6, num_processors: int = 1,
             theta_init=None,
-            psi_init=None,
-            **kwargs):
+            psi_init=None):
         """
         Run the EM algorithm for the given observations X.
         Parameters
@@ -147,8 +146,14 @@ class EM:
         Compute the log likelihood of the observations given the model parameters.
         """
         # run forward algorithm
-        psi = self.obs_model.psi if psi is None else psi
-        _, _, loglik, _, _, _ = fit_quadruplet(0, 1, obs_vw, max_iter=0, rtol=0, evo_model_template=em.evo_model, theta_init=theta, obs_model_template=em.obs_model, psi_init=psi)
+        obs_model_tmp = self.obs_model.new()
+        evo_model_tmp = self.evo_model.new()
+        if psi is not None:
+            obs_model_tmp.initialize(psi)
+        if theta is not None:
+            evo_model_tmp.theta = theta
+        log_emissions = obs_model_tmp.log_emission(obs_vw)
+        _, loglik = evo_model_tmp.forward_pass(log_emissions)
         return loglik
 
     @property
@@ -226,8 +231,9 @@ Implementation of JCB EM algorithm in write-up
     'loglikelihoods' dict with keys (v, w) and values log likelihood of the observations
     """
     logging.warning('outdated function, use the new class EM instead')
-    em = EM(n_states=n_states, obs_model='poisson', evo_model='jcb', alpha=alpha)
-    em.fit(obs, max_iter=max_iter, rtol=rtol, num_processors=num_processors, jc_correction=jc_correction, theta_init=l_init)
+    evo_model = JCBModel(n_states=n_states, alpha=alpha, jc_correction=jc_correction)
+    em = EM(n_states=n_states, obs_model='poisson', evo_model=evo_model, alpha=alpha)
+    em.fit(obs, max_iter=max_iter, rtol=rtol, num_processors=num_processors, theta_init=l_init)
     return {
         'l_hat': em.distances,
         'iterations': em.n_iterations,
@@ -242,8 +248,9 @@ def em_alg(obs: np.ndarray, n_states: int = 7, eps_init=None, max_iter: int = 20
     logging.warning('outdated function, use the new class EM instead')
     if eps_init is None:
         eps_init = np.array([0.01] * 3)
-    em = EM(n_states=n_states, obs_model='poisson', evo_model='copytree')
-    em.fit(obs, max_iter=max_iter, rtol=rtol, num_processors=num_processors, l_init=eps_init)
+    evo_model = CopyTree(n_states=n_states)
+    em = EM(n_states=n_states, obs_model='poisson', evo_model=evo_model)
+    em.fit(obs, max_iter=max_iter, rtol=rtol, num_processors=num_processors, theta_init=eps_init)
     return {
         'l_hat': em.distances,
         'iterations': em.n_iterations,
@@ -255,7 +262,7 @@ def fit_quadruplet(v: int, w: int, obs_vw: np.ndarray,
                    evo_model_template: EvoModel,
                    theta_init: np.ndarray,
                    obs_model_template: ObsModel,
-                   psi_init: dict,
+                   psi_init: dict = None,
                    save_diagnostics: bool = False,
                    min_iter: int = 0):
     """
@@ -270,26 +277,19 @@ def fit_quadruplet(v: int, w: int, obs_vw: np.ndarray,
     obs_model = obs_model_template.new()
     obs_model.initialize(psi_init)
     # (`theta_init_ = theta_init` is wrong, but also `theta_init_ = theta_init.copy()` is prone to error
-    quad_model = evo_model_template.new()
+    quad_model: EvoModel = evo_model_template.new()
     quad_model.theta = theta_init_
 
     # compute changes is observation and evolution model specific
     # FIXME: self.E_step_alg can be passed to multi_chr_expected_changes to select algorithm
-    d, dp, loglik = quad_model.multi_chr_expected_changes(obs_vw=obs_vw, obs_model=obs_model)
-    convergence = False
     diagnostic_data = None
+    d, dp, loglik = None, None, -np.inf
     if save_diagnostics:
         diagnostic_data = {'loglikelihoods': [loglik], 'thetas': [theta_init_.copy()], 'psis': [obs_model.psi_array()]}
 
     it = 0
+    convergence = False
     while not convergence and it < max_iter:
-
-        # ---------- M-step ----------
-        # Evolution model parameter update
-        quad_model.update(exp_changes=d, exp_no_changes=dp)
-        # Observation model parameter update
-        one_slice_marginals_v, one_slice_marginals_w = quad_model.get_one_slice_marginals()
-        obs_model.update(obs_vw, (one_slice_marginals_v, one_slice_marginals_w))
 
         # ---------- E-step ----------
         # compute D and D'
@@ -302,6 +302,15 @@ def fit_quadruplet(v: int, w: int, obs_vw: np.ndarray,
         elif (new_loglik - loglik) / np.abs(loglik) < rtol and it > min_iter:
             convergence = True
         loglik = new_loglik
+
+
+        # ---------- M-step ----------
+        # Evolution model parameter update
+        quad_model.update(exp_changes=d, exp_no_changes=dp)
+
+        # Observation model parameter update
+        one_slice_marginals_v, one_slice_marginals_w = quad_model.get_one_slice_marginals()
+        obs_model.update(obs_vw, (one_slice_marginals_v, one_slice_marginals_w))
 
         if save_diagnostics:
             diagnostic_data['loglikelihoods'].append(loglik)
