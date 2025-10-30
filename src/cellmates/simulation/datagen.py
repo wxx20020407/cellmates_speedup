@@ -74,12 +74,11 @@ def simulate_quadruplet(n_sites,
     gamma_params = np.stack(gamma_params)
 
     # simulate edge_lengths (or epsilon param for 'copytree')
+    edge_lengths = ss.gamma.rvs(gamma_params[:, 0], scale=gamma_params[:, 1]) if edge_lengths is None else edge_lengths
     if isinstance(evo_model, SimulationEvoModel):
         edge_lengths = np.ones(3)
     elif isinstance(evo_model, CopyTree):
         edge_lengths = p_from_l(edge_lengths, n_states=n_states)
-    else:
-        edge_lengths = ss.gamma.rvs(gamma_params[:, 0], scale=gamma_params[:, 1]) if edge_lengths is None else edge_lengths
 
     for edge in tree.preorder_edge_iter():
         # root to centroid u
