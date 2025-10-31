@@ -648,10 +648,10 @@ class SimulationEvoModel():
         clonal_CN_length_ratio: ratio of the CNP length used as mean for the clonal CN events.
         focal_prob: probability of focal CN event per site per edge.
         focal_length_avg: average length of focal CN events.
-        n_clonal_CN_events: fixed number of clonal CN events per edge. If specified, disgards clonal_CN_prob.
-        clonal_CN_length: fixed length of clonal CN events. If specified, disgards clonal_CN_length_ratio.
-        n_focal_events: fixed number of focal CN events per edge. If specified, disgards focal_prob.
-        focal_CN_length: fixed length of focal CN events. If specified, disgards focal_length_avg.
+        n_clonal_CN_events: fixed number of clonal CN events per edge. If specified, disregards clonal_CN_prob.
+        clonal_CN_length: fixed length of clonal CN events. If specified, disregards clonal_CN_length_ratio.
+        n_focal_events: fixed number of focal CN events per edge. If specified, disregards focal_prob.
+        focal_CN_length: fixed length of focal CN events. If specified, disregards focal_length_avg.
         allow_overlapping_CN_events: Only implemented for TRUE now.
         n_homoplasies: Not implemented yet.
         zero_absorption: Not implemented yet.
