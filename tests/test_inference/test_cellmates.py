@@ -212,6 +212,9 @@ class CellmatesTestCase(unittest.TestCase):
         datasets = ["A1_0"]#, "D2_0", "D3_0", "D4_0", "D5_0", "D6_0", "D7_0", "D8_0"]
         dataseeds = [0]#, 1, 2]
         path_to_data = "../../data/CNAsim/results"
+        if not os.path.exists(path_to_data):
+            self.skipTest(f"CNASim data not found at {path_to_data}, skipping test.")
+
         n_datasets = len(datasets)
         n_seeds = len(dataseeds)
         rf_dist_matrix = np.zeros((n_datasets, n_seeds, 3))
