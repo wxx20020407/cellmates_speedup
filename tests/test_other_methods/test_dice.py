@@ -1,8 +1,6 @@
-import copy
 import logging
 import unittest
 import os
-from copy import deepcopy
 
 import anndata as ad
 import numpy as np
