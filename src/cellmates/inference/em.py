@@ -72,7 +72,7 @@ class EM:
             self.logger.setLevel(logging.DEBUG)
 
 
-    def fit(self, X: np.ndarray, max_iter: int = 200, rtol: float = 1e-6, num_processors: int = 1,
+    def fit(self, X: np.ndarray, max_iter: int = 200, rtol: float = 1e-4, num_processors: int = 1,
             theta_init=None,
             psi_init=None):
         """
@@ -202,7 +202,7 @@ class EM:
             raise AttributeError("Loglikelihoods not set. Run `fit` or `fit_transform` first.")
         return self._loglikelihoods
 
-def jcb_em_ctrtable(obs: np.ndarray, n_states: int = 7, alpha=1., l_init=None, max_iter: int = 200, rtol: float = 1e-6,
+def jcb_em_ctrtable(obs: np.ndarray, n_states: int = 7, alpha=1., l_init=None, max_iter: int = 200, rtol: float = 1e-4,
                     jc_correction: bool = False, num_processors: int = 1) -> np.ndarray:
     """
     Run the JCB EM algorithm to estimate the centroid-to-root distances for each pair of cells. Wrapper function
@@ -210,7 +210,7 @@ def jcb_em_ctrtable(obs: np.ndarray, n_states: int = 7, alpha=1., l_init=None, m
     """
     return jcb_em_alg(obs, n_states, alpha, l_init, max_iter, rtol, jc_correction, num_processors)['l_hat']
 
-def jcb_em_alg(obs: np.ndarray, n_states: int = 7, alpha=1., l_init=None, max_iter: int = 200, rtol: float = 1e-6,
+def jcb_em_alg(obs: np.ndarray, n_states: int = 7, alpha=1., l_init=None, max_iter: int = 200, rtol: float = 1e-4,
                jc_correction: bool = False, num_processors: int = 1, lam=100) -> dict[str, np.ndarray | dict[tuple[int, int], int | float]]:
     """
 Implementation of JCB EM algorithm in write-up
@@ -240,7 +240,7 @@ Implementation of JCB EM algorithm in write-up
         'loglikelihoods': em.loglikelihoods
     }
 
-def em_alg(obs: np.ndarray, n_states: int = 7, eps_init=None, max_iter: int = 200, rtol: float = 1e-6,
+def em_alg(obs: np.ndarray, n_states: int = 7, eps_init=None, max_iter: int = 200, rtol: float = 1e-4,
            num_processors: int = 1) -> dict[str, np.ndarray | dict[tuple[int, int], int | float]]:
     """
     CopyTree
@@ -270,6 +270,7 @@ def fit_quadruplet(v: int, w: int, obs_vw: np.ndarray,
     It may be used in parallel, so all models are passed as templates and initialized inside the function and the EM
     object is not used here.
     """
+    eps_zero = 1e-12
     logger = logging.getLogger(__name__).getChild(f'fit_quadruplet_{v}_{w}')
     # initialize l = (l_ru, l_uv, l_uw)
     theta_init_ = np.empty(3)  # init desired size
@@ -283,7 +284,7 @@ def fit_quadruplet(v: int, w: int, obs_vw: np.ndarray,
     # compute changes is observation and evolution model specific
     # FIXME: self.E_step_alg can be passed to multi_chr_expected_changes to select algorithm
     diagnostic_data = None
-    d, dp, loglik = None, None, -np.inf
+    d, dp, loglik = None, None, None
     if save_diagnostics:
         diagnostic_data = {'loglikelihoods': [loglik], 'thetas': [theta_init_.copy()], 'psis': [obs_model.psi_array()]}
 
@@ -297,10 +298,11 @@ def fit_quadruplet(v: int, w: int, obs_vw: np.ndarray,
         logger.debug(f"[{it + 1}/{max_iter}] LL = {new_loglik}, d = {d}, dp = {dp}")
 
         # check convergence
-        if new_loglik < loglik:
-            logger.error(f'log likelihood decreased: {new_loglik} < {loglik}')
-        elif (new_loglik - loglik) / np.abs(loglik) < rtol and it > min_iter:
-            convergence = True
+        if loglik is not None:
+            if new_loglik < loglik:
+                logger.error(f'log likelihood decreased: {new_loglik} < {loglik}')
+            elif (new_loglik - loglik) / (np.abs(loglik) + eps_zero) < rtol and it > min_iter:
+                convergence = True
         loglik = new_loglik
 
 

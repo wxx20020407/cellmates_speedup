@@ -68,11 +68,10 @@ def main():
             # benchmark time for forward-backward and new (faster) implementation
             for _ in range(reps):
                 old_time = time.time()
-                log_xi, log_gamma = jcb_model.two_slice_marginals(dat['obs'], obs_model)
+                log_xi, log_gamma, logp = jcb_model.forward_backward(dat['obs'], obs_model)
                 old_time = time.time() - old_time
-                old_likelihoods.append(jcb_model.loglikelihood)
+                old_likelihoods.append(logp)
                 old_times.append(old_time)
-            new_time = time.time()
             # for _ in range(reps):
             #     log_xi, log_gamma = jcb_model.two_slice_marginals_fast(dat['obs'], obs_model, normalization=20)
             # new_time = time.time() - new_time
