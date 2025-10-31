@@ -9,25 +9,24 @@ import numpy as np
 
 def run_dice(dataset_path, out_path=None, method='star', tree_rec='balME'):
     """
-
+    Runs DICE on the .tsv-file specified by dataset_path.
+    Requires DICE to be installed in the active virtual environment.
     Parameters
     ----------
-    dataset_path
-    method
+    dataset_path: path to DICE input tsv file
+    method: star or bar / b
     tree_rec: balME, olsME, NJ or uNJ
 
     Returns
     -------
 
     """
-    # Load dataset
-
-
     # Prepare command to run DICE
     dice_command = f'dice -i {dataset_path}'
     dice_command += f' -o {out_path}' if out_path else ''
     dice_command += ' -b' if (method == 'bar' or method == 'b') else ''
     dice_command += f' -m {tree_rec}'
+    # Run DICE
     logging.info(f'Running dice: {dice_command}')
     subprocess.run(dice_command, shell=True)
 
