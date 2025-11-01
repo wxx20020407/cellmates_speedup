@@ -46,7 +46,7 @@ class NormalModelTestCase(unittest.TestCase):
         """
         Tests that the NormalModel parameters are updated correctly given true copy number profiles.
         """
-        n_sites = 100
+        n_sites = 1000
         K = 7
         mu_v_true = mu_w_true = 1.0
         tau_v_true = tau_w_true = 50.0
