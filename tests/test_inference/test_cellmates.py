@@ -69,31 +69,21 @@ class CellmatesTestCase(unittest.TestCase):
 
         # --------- Setup Models and Mock Expected changes D, D' ---------
         obs_model = obs_model_sim
-        evo_model_temp = JCBModel(n_states=n_states)
+        psi_init = {'mu_v': 1.0, 'tau_v': 50.0, 'mu_w': 1.0, 'tau_w': 50.0}
+        #evo_model_temp = JCBModel(n_states=n_states)
         evo_model = JCBModel(n_states=n_states)
         cell_pairs = list(itertools.combinations(range(n_cells), r=2))
         D, Dp = testing.get_expected_changes(cnps, tree_nx, cell_pairs)
         exp_distances, exp_pairwise_distances = testing.get_expected_distances(D, Dp, n_states, cell_pairs)
 
-        fig, ax = plt.subplots()
-        visual.plot_cell_pairwise_heatmap(exp_pairwise_distances, label=np.arange(0, n_cells), ax=ax)
-        fig.savefig(out_dir + '/exp_pairwise_distances.png')
+        if out_dir is not None:
+            fig, ax = plt.subplots()
+            visual.plot_cell_pairwise_heatmap(exp_pairwise_distances, label=np.arange(0, n_cells), ax=ax)
+            fig.savefig(out_dir + '/exp_pairwise_distances.png')
 
-        evo_model_temp.new = MagicMock(return_value=evo_model)  # bypass new model creation to enable mocking
-        psi_init = {'mu_v': 1.0, 'tau_v': 50.0, 'mu_w': 1.0, 'tau_w': 50.0}
-
-        # --------- Run Cellmates EM inference ---------
-        em_alg = EM(n_states, evo_model=evo_model_temp, obs_model=obs_model)
-        results = []
-        for i, (v,w) in enumerate(cell_pairs):
-            theta_init = np.array([0.25, 0.25, 0.25])
-            pC1_v = testing.get_marginals_from_cnp(cnps[v], n_states)[0]
-            pC1_w = testing.get_marginals_from_cnp(cnps[w], n_states)[0]
-            evo_model.get_one_slice_marginals = MagicMock(return_value=(pC1_v, pC1_w))
-            evo_model._expected_changes = MagicMock(return_value=(D[v,w], Dp[v,w], -1.0))
-            res_vw = em_alg._fit_quadruplet(v, w, x, theta_init=theta_init, psi_init=psi_init, max_iter=max_iter, rtol=rtol)
-            results.append(res_vw)
-
+        results, D, Dp = testing.run_ideal_cellmates_em_from_cnps(x, cnps, tree_nx, cell_pairs, n_states,
+                                                                  evo_model, obs_model, psi_init)
+#
         distances = -np.ones((n_cells, n_cells, 3))
         iterations = -np.ones((n_cells, n_cells))
         loglikelihoods = -np.ones((n_cells, n_cells))
@@ -160,7 +150,7 @@ class CellmatesTestCase(unittest.TestCase):
 
         # Simulation parameters
         n_sites = 200
-        n_cells = 4
+        n_cells = 20
         n_states = 5
         n_clonal_events_per_edge = 3
         n_focal_events_per_edge = 0
