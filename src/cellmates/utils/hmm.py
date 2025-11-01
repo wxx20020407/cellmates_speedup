@@ -113,10 +113,10 @@ def _forward_likelihood_pomegranate(log_emissions, trans_mat, start_prob):
     model = DenseHMM(distributions=distributions, edges=trans_mat_2D, starts=start_prob_1D, ends=np.ones(n_states ** 3) / (n_states ** 3))
     f = model.forward(emissions=log_emissions_3D).numpy()
     alpha = f.reshape((n_sites, n_states, n_states, n_states))
-    log_p = sp.logsumexp(f[:, -1], axis=1)
+    log_p = sp.logsumexp(alpha[-1], axis=(0, 1, 2))
     return alpha, log_p
 
-def _forward_backward_pomegranate(log_emissions, trans_mat, start_prob):
+def _forward_backward_pomegranate(log_emissions, trans_mat, start_prob, debug=False):
     """
     Compute expected counts, marginal probabilities, and log likelihood using pomegranate HMM
     Parameters
@@ -131,9 +131,15 @@ def _forward_backward_pomegranate(log_emissions, trans_mat, start_prob):
     expected_counts, marginal, _, _, log_p = model.forward_backward(emissions=log_emissions_3D)
     expected_counts = expected_counts.reshape((n_states,) * 6).numpy()  # from 2D* (1, n_states**3, n_states**3) to 6D (n_states,) * 6
     marginal = marginal.reshape((n_sites, n_states, n_states, n_states)).numpy()  # from 2D* (1, n_sites, n_states**3) to 4D (n_sites, n_states, n_states, n_states)
+    if debug:
+        # check expected counts sum to n_sites - 1
+        assert np.isclose(expected_counts.sum(), n_sites - 1), f"Expected counts sum {expected_counts.sum()} != n_sites - 1 {n_sites - 1}"
+        # check marginal sums to 1 at each site
+        marginal_sums = sp.logsumexp(marginal, axis=(1, 2, 3))
+        assert np.allclose(marginal_sums, np.zeros(n_sites)), f"Marginal sums not close to 1: {marginal_sums}"
     return expected_counts, marginal, log_p.item()
 
-def _forward_likelihood_broadcast(log_emissions, trans_mat, start_prob):
+def _forward_likelihood_broadcast(log_emissions, trans_mat, start_prob, normalize=True):
     eps = 1e-10  # to avoid log(0)
     # transmat idx = (i, j, k, x, y, z) = (m-1, m)
     n_sites, n_states, _ = log_emissions.shape
@@ -143,7 +149,7 @@ def _forward_likelihood_broadcast(log_emissions, trans_mat, start_prob):
     alpha[0, ...] = np.log(start_prob.clip(eps)) + log_emissions[0, None, ...]
     log_trans_mat = np.log(trans_mat)
     norm = sp.logsumexp(alpha[0])
-    alpha[0] -= norm
+    alpha[0] -= norm if normalize else 0.0
 
     log_likelihood = norm
     for m in range(1, n_sites):
@@ -151,20 +157,21 @@ def _forward_likelihood_broadcast(log_emissions, trans_mat, start_prob):
         alpha[m, ...] = log_acc + log_emissions[m, None, :, :]
         norm = sp.logsumexp(alpha[m])
         # normalization step
-        alpha[m] -= norm
-
+        if normalize:
+            alpha[m] -= norm
         # update log likelihood to save computation
         log_likelihood += norm
 
     return alpha, log_likelihood
 
-def _backward_pass_broadcast(log_emissions, trans_mat):
+def _backward_pass_broadcast(log_emissions, trans_mat, normalize=True):
     n_sites, n_states, _ = log_emissions.shape
 
     log_trans_mat = np.log(trans_mat)
     # initialize beta[M] = 1. (in log form)
     beta = np.zeros((n_sites, n_states, n_states, n_states))
-    beta[-1, ...] = - 3 * np.log(n_states)
+    if normalize:
+        beta[-1, ...] = - 3 * np.log(n_states)
 
     # compute iteratively
     for m in reversed(range(n_sites - 1)):
@@ -172,8 +179,8 @@ def _backward_pass_broadcast(log_emissions, trans_mat):
                                     log_trans_mat +
                                     log_emissions[m + 1, None, None, None, None, :, :], axis=(3, 4, 5))
         # normalization step
-        beta[m] -= sp.logsumexp(beta[m])
-        # print(f"beta{m} sum: {sp.logsumexp(beta[m])}")
+        if normalize:
+            beta[m] -= sp.logsumexp(beta[m])
     return beta
 
 def _backward_pass_pomegranate(log_emissions, trans_mat):
@@ -192,25 +199,21 @@ def _forward_backward_broadcast(log_emissions, trans_mat, start_prob, debug=Fals
     n_sites, n_states, _ = log_emissions.shape
     # compute forward: shape (n_sites, n_states, n_states, n_states)
     alpha, log_p = _forward_likelihood_broadcast(log_emissions, trans_mat, start_prob)
+    log_p = sp.logsumexp(alpha[-1], axis=(0, 1, 2))  # final log likelihood
     # compute backward: shape (n_sites, n_states, n_states, n_states)
     beta = _backward_pass_broadcast(log_emissions, trans_mat)
     # tsm shape: (n_sites - 1,) + (n_states,) * 6
     log_trans_mat = np.log(trans_mat)
     # compute two slice: xi
-    log_xi = alpha[(np.arange(n_sites - 1), ...) + (np.newaxis,) * 3] + \
-             log_trans_mat[np.newaxis, ...] + \
-             log_emissions[(np.arange(1, log_emissions.shape[0]),) + (np.newaxis,) * 4 + (...,)] + \
-             beta[(np.arange(1, beta.shape[0]), ...) + (np.newaxis,) * 3]
-    expected_counts = sp.logsumexp(log_xi, axis=0) - log_p
-    # log_xi = log_xi - sp.logsumexp(log_xi, axis=(1, 2, 3, 4, 5, 6), keepdims=True) # check if faster
-    log_gamma = sp.logsumexp(log_xi, axis=(4, 5, 6)) # Check axis for gamma
-    # last site needs to be added separately
-    log_alpha_final = alpha[-1, ...]
-    log_evidence = sp.logsumexp(log_alpha_final)
-    log_gamma_final = log_alpha_final - log_evidence
-    log_gamma_final_expanded = log_gamma_final[np.newaxis, ...]
-    log_gamma = np.concatenate([log_gamma, log_gamma_final_expanded], axis=0)
+    alpha_ = alpha[:-1, :, :, :, np.newaxis, np.newaxis, np.newaxis]  # (n_sites - 1, n_states, n_states, n_states, 1, 1, 1)
+    beta_ = beta[1:, np.newaxis, np.newaxis, np.newaxis, :, :, :] + log_emissions[1:, np.newaxis, np.newaxis, np.newaxis, np.newaxis, :, :]
+    log_xi = alpha_ + beta_ + log_trans_mat[np.newaxis, ...]
+    log_xi = log_xi - sp.logsumexp(log_xi, axis=(1, 2, 3, 4, 5, 6), keepdims=True)  # normalize
+    expected_counts = np.exp(sp.logsumexp(log_xi, axis=0))
+    # compute gamma
+    log_gamma = alpha + beta
+    log_gamma = log_gamma - sp.logsumexp(log_gamma, axis=(1, 2, 3), keepdims=True)  # normalize
     if debug:
-        assert np.allclose(sp.logsumexp(log_xi, axis=(1, 2, 3, 4, 5, 6)), np.zeros(n_sites - 1))
-        assert np.allclose(sp.logsumexp(log_gamma, axis=(1, 2, 3)), np.zeros(n_sites))
+        assert np.isclose(np.sum(expected_counts), n_sites - 1), f"Expected counts sum {np.sum(expected_counts)} != n_sites - 1 ({n_sites - 1})"
+        assert np.allclose(sp.logsumexp(log_gamma, axis=(1, 2, 3)), np.zeros(n_sites)), f"Gamma sums not close to 1: {sp.logsumexp(log_gamma, axis=(1, 2, 3))}"
     return expected_counts, log_gamma, log_p

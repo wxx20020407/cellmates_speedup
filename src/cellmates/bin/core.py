@@ -1,6 +1,7 @@
 import argparse
 import os
 import logging
+import time
 
 import anndata
 import numpy as np
@@ -10,6 +11,7 @@ from cellmates.inference.neighbor_joining import build_tree
 from cellmates.models.evo import JCBModel
 from cellmates.models.obs import NormalModel
 from cellmates.utils.tree_utils import write_newick
+from cellmates.common_helpers.cnasim_data import correct_readcounts
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -49,29 +51,48 @@ def main():
     parser.add_argument('--max-iter', '-m', type=int, default=30, help="Maximum number of EM iterations")
     parser.add_argument('--verbose', '-v', type=int, default=0, help="Verbosity level (0: silent, 1: progress, 2+: debug)")
     parser.add_argument('--num-processors', '-p', type=int, default=1, help="Number of processors to use in parallel")
+    parser.add_argument('--alpha', type=float, default=1.0, help="Rate parameter alpha in the Jukes-Cantor model")
+    parser.add_argument('--jc-correction', action='store_true', help="Use Jukes-Cantor correction for distance estimation")
     args = parser.parse_args()
 
     # set paths
     adata_path = args.input
+    # load data
     logger.info(f"Reading AnnData file {adata_path}")
+    adata = anndata.read_h5ad(adata_path)
+    if 'copy' not in adata.layers:
+        if 'cnasim-params' in adata.uns:
+            logger.info(f"Found CNAsim parameters in AnnData uns: {adata.uns['cnasim-params']}")
+            logger.info(f"Adding `copy` layer...")
+            correct_readcounts(adata)
+        else:
+            logger.error("No 'copy' layer found in AnnData and no CNAsim parameters in uns to correct readcounts.")
+            raise ValueError("Input AnnData must contain a 'copy' layer or CNAsim parameters for correction.")
+    logger.info(f"Dataset contains {adata.n_obs} cells and {adata.n_vars} bins")
+    logger.info(f"Using {args.num_processors} processors for parallel computation")
+    # prepare output paths
     out_path = args.output if args.output else '.'  # default to current directory if not provided
     if out_path:
         os.makedirs(out_path, exist_ok=True)
         logger.info(f"Created output directory: {out_path}")
-    dist_path = out_path + '/distance_matrix.npy'  # numpy format
-    tree_path = out_path + '/tree.nwk'
-    cell_names_path = out_path + '/cell_names.txt'
+    dist_path = os.path.join(out_path, 'distance_matrix.npy')  # numpy format
+    tree_path = os.path.join(out_path, 'tree.nwk')
+    cell_names_path = os.path.join(out_path, 'cell_names.txt')
 
-    # load data
-    adata = anndata.read_h5ad(adata_path)
+    # extract observations
     obs, chromosome_ends, cell_names = obs_from_adata(adata)
     logger.debug(f"Excluded {adata.n_obs - obs.shape[1]} normal cells from distance estimation")
     # run inference
-    evo_model = JCBModel(n_states=args.n_states, chromosome_ends=chromosome_ends)
+    time_inference = time.time()
+    evo_model = JCBModel(n_states=args.n_states, chromosome_ends=chromosome_ends, jc_correction=args.jc_correction, alpha=args.alpha)
     obs_model = NormalModel(n_states=args.n_states, mu_v_prior=1., tau_v_prior=100.)
     em = EM(n_states=args.n_states, evo_model=evo_model, obs_model=obs_model, verbose=args.verbose)
+    # TODO: try with train=True and save obs_model to see which parameters were learned
+    logger.info(f"Starting EM inference with max_iter={args.max_iter}")
     em.fit(obs, max_iter=args.max_iter, num_processors=args.num_processors)
     nx_tree = build_tree(em.distances, edge_attr='branch_length')
+    time_inference_end = time.time()
+    logger.info(f"Inference completed in {time_inference_end - time_inference:.2f} seconds")
     # save results
     np.save(dist_path, em.distances)  # save distance matrix
     nwk_str = write_newick(nx_tree, cell_names=cell_names, out_path=tree_path, edge_attr='branch_length') # save newick tree

@@ -4,11 +4,13 @@ import unittest
 import numpy as np
 import numpy.testing as npt
 from scipy import special as sp
+from torch.nn.init import normal
 
 from cellmates.inference.em import EM
 from cellmates.models.evo import JCBModel, CopyTree
 from cellmates.models.evo.basefunc import p_delta
 from cellmates.models.obs import PoissonModel, NormalModel
+from cellmates.utils.hmm import _forward_likelihood_broadcast, _backward_pass_broadcast
 from cellmates.utils.math_utils import compute_cn_changes
 
 
@@ -62,9 +64,10 @@ class HMMTestCase(unittest.TestCase):
         evo_model = CopyTree(n_states=n_states)
         evo_model.theta = np.array([1/12, 1/12, 1/12])
 
-        _, ll_fwd = evo_model._forward_pass_likelihood(log_emissions)
-        alpha, _ = evo_model._forward_pass_likelihood(log_emissions)
-        beta = evo_model.backward_pass(log_emissions)
+        _, ll_fwd = evo_model.forward_pass(log_emissions)
+        # numpy broadcast implementation can be used to compute alpha and beta without normalization
+        alpha, _ = _forward_likelihood_broadcast(log_emissions, trans_mat=evo_model.trans_mat, start_prob=evo_model.start_prob, normalize=False)
+        beta = _backward_pass_broadcast(log_emissions, trans_mat=evo_model.trans_mat, normalize=False)
         for t in range(n_sites):
             ll = sp.logsumexp(alpha[t] + beta[t])
             # print(f"t={t}, ll: {ll}, ll_fwd: {ll_fwd}")
@@ -89,7 +92,7 @@ class HMMTestCase(unittest.TestCase):
 
         # compute with forward-algorithm with normalized forward variables
         log_emissions = obs_model.log_emission(obs)
-        alpha, ll_fwd = evo_model._forward_pass_likelihood(log_emissions)
+        alpha, ll_fwd = evo_model.forward_pass(log_emissions)
         print(f"alpha: {sp.logsumexp(alpha, axis=(1, 2, 3))}")
         print(f"loglik fwd norm: {ll_fwd}")
 

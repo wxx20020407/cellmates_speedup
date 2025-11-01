@@ -2,10 +2,7 @@ import copy
 import itertools
 import os
 import random
-from typing import Any
 from unittest.mock import MagicMock
-
-import pytest
 
 import numpy as np
 from matplotlib import pyplot as plt
