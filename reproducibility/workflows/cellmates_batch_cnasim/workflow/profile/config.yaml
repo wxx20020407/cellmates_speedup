@@ -1,0 +1,17 @@
+executor: slurm
+jobs: 8
+cores: 128
+
+set-threads:
+  run_cellmates: 16
+
+set-resources:
+  run_cellmates:
+    runtime: 1000
+    mem_mb: 16000
+
+default-resources:
+  mem_mb_per_cpu: 8000
+  runtime: 100
+  slurm_account: "naiss2024-22-1623"
+
