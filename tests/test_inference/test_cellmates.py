@@ -145,10 +145,10 @@ class CellmatesTestCase(unittest.TestCase):
 
         # Simulation parameters
         n_sites = 200
-        n_cells = 20
+        n_cells = 10
         n_states = 5
-        n_clonal_events_per_edge = 3
-        n_focal_events_per_edge = 0
+        n_clonal_events_per_edge = 1
+        n_focal_events_per_edge = 3
         clonal_CN_length = 20
         obs_model_sim = 'normal'
         sim_evo_model = SimulationEvoModel(n_clonal_CN_events=n_clonal_events_per_edge,
