@@ -1,3 +1,4 @@
+import itertools
 import logging
 import unittest
 import os
@@ -6,9 +7,12 @@ import anndata as ad
 import numpy as np
 from Bio import Phylo
 import dendropy as dpy
+from dendropy.calculate import treecompare
 from matplotlib import pyplot as plt
 
-from cellmates.models.evo import SimulationEvoModel
+from cellmates.inference import neighbor_joining
+from cellmates.models.evo import SimulationEvoModel, JCBModel
+from cellmates.models.obs import NormalModel
 from cellmates.other_methods import dice_api
 from cellmates.simulation import datagen
 from cellmates.utils import testing, visual, tree_utils
@@ -105,12 +109,45 @@ class DiceAPITestCase(unittest.TestCase):
         dice_tree_nx = tree_utils.relabel_name_to_int(dice_tree_nx, cell_names)
         dice_tree_dpy2 = tree_utils.convert_networkx_to_dendropy(dice_tree_nx, taxon_namespace=taxon_namespace)
 
-        rf_dist_dice_vs_true = tree_utils.normalized_rf_distance(true_tree, dice_tree_dpy2)
 
+
+        # Compare with ideal Cellmates inference
+        # Setup Cellmates model
+        true_tree_nx = tree_utils.convert_dendropy_to_networkx(true_tree)
+        evo_model = JCBModel(n_states=K)
+        obs_model = NormalModel(n_states=K)
+        cnps_cellmates = np.concatenate((cnps_hap_a, cnps_hap_b), axis=1)  # shape (n_cells, 2*n_bins)
+        cell_pairs = list(itertools.combinations(range(N), r=2))
+        psi_init = {'mu_v': 1.0, 'tau_v': 50.0, 'mu_w': 1.0, 'tau_w': 50.0}
+        results, D, Dp = testing.run_ideal_cellmates_em_from_cnps(cnps_cellmates,
+                                                                  cnps_cellmates,
+                                                                  true_tree_nx, cell_pairs, K,
+                                                                  evo_model, obs_model, psi_init)
+
+        distances = -np.ones((N, N, 3))
+        iterations = -np.ones((N, N))
+        loglikelihoods = -np.ones((N, N))
+        # collect results
+        for (u, v), l_i, loglik, it in results:
+            distances[u, v, :] = l_i
+            iterations[(u, v)] = it
+            loglikelihoods[(u, v)] = loglik
+
+        # Build tree from inferred distances
+        CM_tree_nx = neighbor_joining.build_tree(distances)
+        CM_tree_dp = tree_utils.convert_networkx_to_dendropy(CM_tree_nx, taxon_namespace=true_tree.taxon_namespace)
+
+        # Compare trees
+        norm_rf_dist_dice = tree_utils.normalized_rf_distance(true_tree, dice_tree_dpy2)
+        norm_rf_dist_CM = tree_utils.normalized_rf_distance(true_tree, CM_tree_dp)
+        rf_dist_CM = treecompare.symmetric_difference(true_tree, CM_tree_dp)
+        rf_dist_DICE = treecompare.symmetric_difference(true_tree, dice_tree_dpy2)
+        print(f"Normalized RF distance DICE: {norm_rf_dist_dice}")
+        print(f"Normalized RF distance CM: {norm_rf_dist_CM}")
+        print(f"RF dist CM: \n {rf_dist_CM}")
+        print(f"RF dist DICE: \n {rf_dist_DICE}")
         true_tree.print_plot()
-        dice_tree_dpy2.print_plot()
-
-        print(f"Normalized RF distance DICE vs true tree: {rf_dist_dice_vs_true}")
+        #dice_tree_dpy2.print_plot()
 
 
 
