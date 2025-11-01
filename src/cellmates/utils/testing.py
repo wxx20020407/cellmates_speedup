@@ -135,7 +135,6 @@ def run_ideal_cellmates_em_from_cnps(x, cnps, tree_nx, cell_pairs, n_states,
     evo_model_temp.new = MagicMock(return_value=evo_model)  # bypass new model creation to enable mocking
 
     # Run Mocked EM algorithm on each cell pair
-    em_alg = EM(n_states, evo_model=evo_model_temp, obs_model=obs_model)
     results = []
     for i, (v,w) in enumerate(cell_pairs):
         theta_init = np.array([0.25, 0.25, 0.25])

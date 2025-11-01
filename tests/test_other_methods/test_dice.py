@@ -128,7 +128,7 @@ class DiceAPITestCase(unittest.TestCase):
         iterations = -np.ones((N, N))
         loglikelihoods = -np.ones((N, N))
         # collect results
-        for (u, v), l_i, loglik, it in results:
+        for (u, v), l_i, loglik, it, _, _ in results:
             distances[u, v, :] = l_i
             iterations[(u, v)] = it
             loglikelihoods[(u, v)] = loglik
@@ -146,7 +146,7 @@ class DiceAPITestCase(unittest.TestCase):
         print(f"Normalized RF distance CM: {norm_rf_dist_CM}")
         print(f"RF dist CM: \n {rf_dist_CM}")
         print(f"RF dist DICE: \n {rf_dist_DICE}")
-        true_tree.print_plot()
+        #true_tree.print_plot()
         #dice_tree_dpy2.print_plot()
 
 
