@@ -67,22 +67,21 @@ class CellmatesTestCase(unittest.TestCase):
         visual.plot_cn_profile(cnps, cell_labels=np.arange(0, n_cells), ax=ax)
         fig.savefig(out_dir + '/cn_profile.png')
 
-        # --------- Setup Models and Mock Expected changes D, D' ---------
+        # --------- Setup Models and Mocks ---------
         obs_model = obs_model_sim
         psi_init = {'mu_v': 1.0, 'tau_v': 50.0, 'mu_w': 1.0, 'tau_w': 50.0}
-        #evo_model_temp = JCBModel(n_states=n_states)
         evo_model = JCBModel(n_states=n_states)
         cell_pairs = list(itertools.combinations(range(n_cells), r=2))
-        D, Dp = testing.get_expected_changes(cnps, tree_nx, cell_pairs)
+
+        # --------- Run Ideal Cellmates EM inference with Mocks ---------
+        results, D, Dp = testing.run_ideal_cellmates_em_from_cnps(x, cnps, tree_nx, cell_pairs, n_states,
+                                                                  evo_model, obs_model, psi_init)
         exp_distances, exp_pairwise_distances = testing.get_expected_distances(D, Dp, n_states, cell_pairs)
 
         if out_dir is not None:
             fig, ax = plt.subplots()
             visual.plot_cell_pairwise_heatmap(exp_pairwise_distances, label=np.arange(0, n_cells), ax=ax)
             fig.savefig(out_dir + '/exp_pairwise_distances.png')
-
-        results, D, Dp = testing.run_ideal_cellmates_em_from_cnps(x, cnps, tree_nx, cell_pairs, n_states,
-                                                                  evo_model, obs_model, psi_init)
 #
         distances = -np.ones((n_cells, n_cells, 3))
         iterations = -np.ones((n_cells, n_cells))
