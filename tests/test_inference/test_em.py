@@ -373,7 +373,7 @@ class EMTestCase(unittest.TestCase):
         # run EM
         em = EM(n_states=n_states, obs_model=obs_model, evo_model=evo_model, diagnostics=True)
         em.fit(data['obs'], theta_init=None)
-        diagnostics_data = em.diagnostic_data
+        diagnostics_data = em.diagnostic_data[0,1]
         testing.plot_diagnostics(diagnostics_data, out_dir)
         ctr_table = em.distances
         # change tree _lengths to match the estimated ones
@@ -560,7 +560,7 @@ class EMTestCase(unittest.TestCase):
         ctr_table = em.distances
 
         # Save results
-        diagnostics_data = em.diagnostic_data
+        diagnostics_data = em.diagnostic_data[0, 1]
         testing.plot_diagnostics(diagnostics_data, out_dir)
 
         # Assert

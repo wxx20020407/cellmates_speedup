@@ -203,7 +203,7 @@ def correct_readcounts(adata, min_normal_cells=1, inplace=True) -> np.ndarray:
 
     if 'normal' not in adata.obs or adata.obs['normal'].sum() < min_normal_cells:
         # use cnasim params to compute mean read counts per bin per copy
-        baseline = adata.uns['cnasim-params']['bin_length'] * adata.uns['cnasim-params']['coverage'] / adata.uns['cnasim-params']['read_length']
+        baseline = adata.uns['cnasim-params']['bin_length'] * adata.uns['cnasim-params']['coverage'] / (adata.uns['cnasim-params']['read_length'] * 2 * normal_cn)
     else:
         baseline = adata[adata.obs['normal']].X.mean(axis=0) / normal_cn # counts per copy
 

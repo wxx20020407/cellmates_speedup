@@ -56,13 +56,14 @@ rule run_cellmates:
     output:
         cm_dist=os.path.join(data_dir, "{dataset}", "{seed}", "cm_out", "distance_matrix.npy"),
         cm_tree=os.path.join(data_dir, "{dataset}", "{seed}", "cm_out", "tree.nwk"),
-        cm_cells=os.path.join(data_dir, "{dataset}", "{seed}", "cm_out", "cell_names.txt")
+        cm_cells=os.path.join(data_dir, "{dataset}", "{seed}", "cm_out", "cell_names.txt"),
+        cm_diagnostics=os.path.join(data_dir, "{dataset}", "{seed}", "cm_out", "em_diagnostics.pkl")
     params:
         directory=os.path.join(data_dir, "{dataset}", "{seed}", "cm_out")
     conda: "cellmates"
     threads: 16
     shell: """
-    cellmates -i {input} -o {params.directory} -v 2 --n-states {N_STATES} --num-processors {threads}
+    cellmates -i {input} -o {params.directory} -v 2 --n-states {N_STATES} --num-processors {threads} --tau 50 --learn-obs-params --save-diagnostics
     """
 
 rule evaluate:

@@ -2,6 +2,7 @@ import argparse
 import os
 import logging
 import time
+import pickle
 
 import anndata
 import numpy as np
@@ -53,6 +54,11 @@ def main():
     parser.add_argument('--num-processors', '-p', type=int, default=1, help="Number of processors to use in parallel")
     parser.add_argument('--alpha', type=float, default=1.0, help="Rate parameter alpha in the Jukes-Cantor model")
     parser.add_argument('--jc-correction', action='store_true', help="Use Jukes-Cantor correction for distance estimation")
+    parser.add_argument('--rtol', '-t', type=float, default=1e-5, help="Relative tolerance for EM convergence")
+    parser.add_argument('--learn-obs-params', action='store_true', help="Whether to learn observation model parameters during EM")
+    # init params
+    parser.add_argument('--tau', type=float, default=50.0, help="Prior precision for observation model")
+    parser.add_argument('--save-diagnostics', action='store_true', help="Whether to save diagnostics tracking parameters over EM iterations. Will save to output directory.")
     args = parser.parse_args()
 
     # set paths
@@ -60,14 +66,14 @@ def main():
     # load data
     logger.info(f"Reading AnnData file {adata_path}")
     adata = anndata.read_h5ad(adata_path)
-    if 'copy' not in adata.layers:
-        if 'cnasim-params' in adata.uns:
-            logger.info(f"Found CNAsim parameters in AnnData uns: {adata.uns['cnasim-params']}")
-            logger.info(f"Adding `copy` layer...")
-            correct_readcounts(adata)
-        else:
-            logger.error("No 'copy' layer found in AnnData and no CNAsim parameters in uns to correct readcounts.")
-            raise ValueError("Input AnnData must contain a 'copy' layer or CNAsim parameters for correction.")
+    if 'cnasim-params' in adata.uns:
+        logger.info(f"Found CNAsim parameters in AnnData uns.")
+        logger.info(f"Adding `copy` layer...")
+        correct_readcounts(adata)
+        logger.info(f"`copy` layer added to AnnData. (avg value: {np.mean(adata.layers['copy'])})")
+    elif 'copy' not in adata.layers:
+        logger.error("No 'copy' layer found in AnnData and no CNAsim parameters in uns to correct readcounts.")
+        raise ValueError("Input AnnData must contain a 'copy' layer or CNAsim parameters for correction.")
     logger.info(f"Dataset contains {adata.n_obs} cells and {adata.n_vars} bins")
     logger.info(f"Using {args.num_processors} processors for parallel computation")
     # prepare output paths
@@ -85,11 +91,14 @@ def main():
     # run inference
     time_inference = time.time()
     evo_model = JCBModel(n_states=args.n_states, chromosome_ends=chromosome_ends, jc_correction=args.jc_correction, alpha=args.alpha)
-    obs_model = NormalModel(n_states=args.n_states, mu_v_prior=1., tau_v_prior=100.)
-    em = EM(n_states=args.n_states, evo_model=evo_model, obs_model=obs_model, verbose=args.verbose)
-    # TODO: try with train=True and save obs_model to see which parameters were learned
+    obs_model = NormalModel(n_states=args.n_states, mu_v_prior=1., tau_v_prior=args.tau, train=args.learn_obs_params)
+    em = EM(n_states=args.n_states, evo_model=evo_model, obs_model=obs_model, verbose=args.verbose, diagnostics=args.save_diagnostics)
     logger.info(f"Starting EM inference with max_iter={args.max_iter}")
-    em.fit(obs, max_iter=args.max_iter, num_processors=args.num_processors)
+    em.fit(obs, max_iter=args.max_iter, rtol=args.rtol, num_processors=args.num_processors)
+    if args.save_diagnostics:
+        with open(os.path.join(out_path, 'em_diagnostics.pkl'), 'wb') as f:
+            pickle.dump(em.diagnostic_data, f)
+        logger.info(f"Saved EM diagnostics to {os.path.join(out_path, 'em_diagnostics.pkl')}")
     nx_tree = build_tree(em.distances, edge_attr='branch_length')
     time_inference_end = time.time()
     logger.info(f"Inference completed in {time_inference_end - time_inference:.2f} seconds")

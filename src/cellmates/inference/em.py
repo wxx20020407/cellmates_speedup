@@ -52,14 +52,8 @@ class EM:
         self._loglikelihoods = None
 
         # Diagnostics
-        # FIXME: currently only stores last pair's diagnostics
         self.diagnostics = diagnostics
-        if self.diagnostics:
-            self.diagnostic_data = {
-                'loglikelihoods': [],
-                'thetas': [],
-                'psis': []
-            }
+        self.diagnostic_data = None if not diagnostics else {}
 
         # set verbose level logger in the style of sklearn
         self.verbose = verbose
@@ -89,6 +83,9 @@ class EM:
         self.n_sites = X.shape[0]
         self.n_cells = X.shape[1]
         obs = X
+        # reset diagnostics
+        if self.diagnostics:
+            self.diagnostic_data = {}
 
         # init to an average of 5 changes over the whole length if not provided
         p_init_default = 5 / self.n_sites
@@ -125,7 +122,7 @@ class EM:
             if self.obs_model.train:
                 obs_models[(s, t)] = obs_model
             if self.diagnostics:
-                self.diagnostic_data = diagnostics
+                self.diagnostic_data[(s, t)] = diagnostics
 
         # save result for later use
         self._distances = l_hat
@@ -290,6 +287,8 @@ def fit_quadruplet(v: int, w: int, obs_vw: np.ndarray,
 
     it = 0
     convergence = False
+    likelihood_drop_counter = 0
+    likelihood_max = -np.inf
     while not convergence and it < max_iter:
 
         # ---------- E-step ----------
@@ -299,10 +298,13 @@ def fit_quadruplet(v: int, w: int, obs_vw: np.ndarray,
 
         # check convergence
         if loglik is not None:
+            likelihood_max = max(likelihood_max, new_loglik)
             if new_loglik < loglik:
-                logger.error(f'log likelihood decreased: {new_loglik} < {loglik}')
+                likelihood_drop_counter += 1
+                # logger.error(f'log likelihood decreased: {new_loglik} < {loglik}')
             elif (new_loglik - loglik) / (np.abs(loglik) + eps_zero) < rtol and it > min_iter:
                 convergence = True
+
         loglik = new_loglik
 
 
@@ -325,6 +327,9 @@ def fit_quadruplet(v: int, w: int, obs_vw: np.ndarray,
         logger.warning(f'did not converge after {max_iter} iterations')
     else:
         logger.debug(f'converged after {it} iterations')
+    if rel_drop:= (likelihood_max - loglik) / (np.abs(likelihood_max) + eps_zero) > 1e-3:
+        logger.warning(f'final loglikelihood: {loglik} < max loglikelihood: {likelihood_max} (rel drop {rel_drop})')
+        logger.warning(f'likelihood decreased {likelihood_drop_counter} times')
 
     return (v, w), quad_model.theta, loglik, it, obs_model, diagnostic_data
 

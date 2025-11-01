@@ -78,15 +78,17 @@ if __name__=="__main__":
     # mock snakemake object for local testing
     # class MockSnakeMake:
     #     input = {
-    #         'truth_ad': '../../results/data/R1_N10_M100_K2_L2_E10.04_E20.1_C2/input.h5ad',
-    #         'cm_dist': '../../results/data/R1_N10_M100_K2_L2_E10.04_E20.1_C2/cm_out/distance_matrix.npy',
-    #         'cm_tree': '../../results/data/R1_N10_M100_K2_L2_E10.04_E20.1_C2/cm_out/tree.nwk'
+    #         'truth_ad': '/home/vittorio.zampinetti/Cellmates/reproducibility/workflows/cnasim_makedata/results/A1_0/0/anndata.h5ad',
+    #         'cm_dist': '/home/vittorio.zampinetti/Cellmates/reproducibility/workflows/cnasim_makedata/results/A1_0/0/cm_out/distance_matrix.npy',
+    #         'cm_tree': '/home/vittorio.zampinetti/Cellmates/reproducibility/workflows/cnasim_makedata/results/A1_0/0/cm_out/tree.nwk',
+    #         'cm_cells': '/home/vittorio.zampinetti/Cellmates/reproducibility/workflows/cnasim_makedata/results/A1_0/0/cm_out/cell_names.txt'
     #     }
     #     params = {
     #         'n_states': 7,
-    #         'seed': 1
+    #         'seed': 0,
+    #         'dataset': 'A1_0'
     #     }
-    #     output = ['../../results/data/R1_N10_M100_K2_L2_E10.04_E20.1_C2/eval_tmp.csv']
+    #     output = ['/home/vittorio.zampinetti/Cellmates/reproducibility/workflows/cnasim_makedata/results/A1_0/0/eval_tmp.csv']
     #
     # snakemake = MockSnakeMake()
 
