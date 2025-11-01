@@ -33,7 +33,7 @@ class CellmatesTestCase(unittest.TestCase):
         np.random.seed(seed=self.seed)
         dendropy.utility.GLOBAL_RNG.seed(self.seed)
 
-    @unittest.skip("Long test, run manually")
+    #@unittest.skip("Long test, run manually")
     def test_cellmates_given_c(self):
         # Inference parameters
         max_iter = 20
@@ -64,7 +64,7 @@ class CellmatesTestCase(unittest.TestCase):
         fig.savefig(out_dir + '/cn_profile.png')
 
         # --------- Setup Models and Mocks ---------
-        obs_model = obs_model_sim
+        obs_model = NormalModel(n_states=n_states)
         psi_init = {'mu_v': 1.0, 'tau_v': 50.0, 'mu_w': 1.0, 'tau_w': 50.0}
         evo_model = JCBModel(n_states=n_states)
         cell_pairs = list(itertools.combinations(range(n_cells), r=2))
@@ -78,7 +78,7 @@ class CellmatesTestCase(unittest.TestCase):
             fig, ax = plt.subplots()
             visual.plot_cell_pairwise_heatmap(exp_pairwise_distances, label=np.arange(0, n_cells), ax=ax)
             fig.savefig(out_dir + '/exp_pairwise_distances.png')
-#
+
         distances = -np.ones((n_cells, n_cells, 3))
         iterations = -np.ones((n_cells, n_cells))
         loglikelihoods = -np.ones((n_cells, n_cells))
