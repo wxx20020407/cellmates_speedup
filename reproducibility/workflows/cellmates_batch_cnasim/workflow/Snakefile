@@ -61,6 +61,7 @@ rule run_cellmates:
     params:
         directory=os.path.join(data_dir, "{dataset}", "{seed}", "cm_out")
     conda: "cellmates"
+    benchmark: os.path.join(data_dir, "{dataset}", "{seed}", "cm_out", "benchmark_run_cellmates.tsv")
     threads: 16
     shell: """
     cellmates -i {input} -o {params.directory} -v 2 --n-states {N_STATES} --num-processors {threads} --tau 50 --learn-obs-params --save-diagnostics
