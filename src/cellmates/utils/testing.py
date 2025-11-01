@@ -11,6 +11,7 @@ import dendropy as dpy
 
 from cellmates import ROOT_DIR
 from cellmates.inference.em import EM
+import cellmates.inference.em as em_module
 from cellmates.utils import tree_utils, math_utils, visual
 
 
@@ -141,8 +142,12 @@ def run_ideal_cellmates_em_from_cnps(x, cnps, tree_nx, cell_pairs, n_states,
         pC1_v = get_marginals_from_cnp(cnps[v], n_states)[0]
         pC1_w = get_marginals_from_cnp(cnps[w], n_states)[0]
         evo_model.get_one_slice_marginals = MagicMock(return_value=(pC1_v, pC1_w))
-        evo_model._expected_changes = MagicMock(return_value=(D[v,w], Dp[v,w], -1.0))
-        res_vw = em_alg._fit_quadruplet(v, w, x, theta_init=theta_init, psi_init=psi_init, max_iter=max_iter, rtol=rtol)
+        evo_model.multi_chr_expected_changes = MagicMock(return_value=(D[v,w], Dp[v,w], -1.0))
+        res_vw = em_module.fit_quadruplet(v, w, x,
+                                          theta_init=theta_init, psi_init=psi_init,
+                                          evo_model_template=evo_model_temp,
+                                          obs_model_template=obs_model,
+                                          max_iter=max_iter, rtol=rtol)
         results.append(res_vw)
 
     return results, D, Dp
