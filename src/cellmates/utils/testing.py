@@ -1,6 +1,8 @@
+import copy
 import itertools
 import os
 import random
+from unittest.mock import MagicMock
 
 import numpy as np
 from matplotlib import pyplot as plt
@@ -8,7 +10,9 @@ from numpy import ndarray, dtype, float64
 import dendropy as dpy
 
 from cellmates import ROOT_DIR
-from cellmates.utils import tree_utils, math_utils
+from cellmates.inference.em import EM
+import cellmates.inference.em as em_module
+from cellmates.utils import tree_utils, math_utils, visual
 
 
 def create_output_test_folder(sub_folder_name=None) -> str:
@@ -106,6 +110,46 @@ def get_marginals_from_cnp(cnp: ndarray, n_states: int, noise=0.0,
         one_slice_marginals = (1 - noise) * one_slice_marginals + noise / n_states
         two_slice_marginals = (1 - noise) * two_slice_marginals + noise / (n_states ** 2)
     return one_slice_marginals, two_slice_marginals
+
+def run_ideal_cellmates_em_from_cnps(x, cnps, tree_nx, cell_pairs, n_states,
+                                    evo_model, obs_model, psi_init,
+                                    max_iter=20, rtol=1e-3) -> list:
+    """
+    Run the ideal Cellmates EM algorithm on the given copy number profiles and tree.
+    Parameters
+    ----------
+    x: ndarray, observed data of shape (n_cells, n_bins, n_features)
+    cnps: ndarray, copy number profiles of shape (n_cells, n_bins)
+    tree_nx: networkx.DiGraph, tree structure
+    cell_pairs: list of tuples, cell pairs to run EM on
+    n_states: int, number of copy number states
+    evo_model: EvolutionaryModel, evolutionary model to use
+    Returns
+    -------
+    results: list of EM results for each cell pair
+    """
+    D, Dp = get_expected_changes(cnps, tree_nx, cell_pairs)
+
+    # Set up Mocking for EM algorithm
+    evo_model_temp = copy.deepcopy(evo_model)
+    evo_model_temp.new = MagicMock(return_value=evo_model)  # bypass new model creation to enable mocking
+
+    # Run Mocked EM algorithm on each cell pair
+    results = []
+    for i, (v,w) in enumerate(cell_pairs):
+        theta_init = np.array([0.25, 0.25, 0.25])
+        pC1_v = get_marginals_from_cnp(cnps[v], n_states)[0]
+        pC1_w = get_marginals_from_cnp(cnps[w], n_states)[0]
+        evo_model.get_one_slice_marginals = MagicMock(return_value=(pC1_v, pC1_w))
+        evo_model.multi_chr_expected_changes = MagicMock(return_value=(D[v,w], Dp[v,w], -1.0))
+        res_vw = em_module.fit_quadruplet(v, w, x,
+                                          theta_init=theta_init, psi_init=psi_init,
+                                          evo_model_template=evo_model_temp,
+                                          obs_model_template=obs_model,
+                                          max_iter=max_iter, rtol=rtol)
+        results.append(res_vw)
+
+    return results, D, Dp
 
 
 def set_seed(seed):
