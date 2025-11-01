@@ -247,3 +247,19 @@ def add_root(dice_tree_nx, healthy_cell_name):
     dice_tree_nx.add_edge(str(max_idx), ancestor_healthy[0])
     dice_tree_nx.add_edge(str(max_idx), healthy_cell_name)
     return dice_tree_nx
+
+
+def is_dice_installed():
+    """Checks if DICE is installed in the active virtual environment."""
+    try:
+        result = subprocess.run(['dice', '--version'], capture_output=True, text=True)
+        if result.returncode == 0:
+            logging.info(f"DICE is installed: {result.stdout.strip()}")
+            return True
+        else:
+            logging.warning("DICE command returned a non-zero exit code.")
+
+    except Exception as e:
+        logging.error(f"Error checking DICE installation: {e}")
+    logging.warning("DICE is not installed in the active virtual environment.")
+    return False
