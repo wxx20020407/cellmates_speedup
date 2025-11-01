@@ -12,6 +12,7 @@ from cellmates.models.evo import SimulationEvoModel
 from cellmates.other_methods import dice_api
 from cellmates.simulation import datagen
 from cellmates.utils import testing, visual, tree_utils
+from cellmates.utils.tree_utils import label_tree
 
 
 class DiceAPITestCase(unittest.TestCase):
@@ -52,9 +53,9 @@ class DiceAPITestCase(unittest.TestCase):
         Simulates data using the SimulationEvoModel, converts it to DICE format, and runs DICE.
         Then loads the DICE output and checks if it is as expected.
         """
-        N, M, K = 5, 500, 7  # number of cells, bins, states
+        N, M, K = 25, 500, 7  # number of cells, bins, states
         M_tot = 2*M # total bins for both haplotypes
-        n_clonal_events_per_edge = 0
+        n_clonal_events_per_edge = 3
         n_focal_events_per_edge = 3
         clonal_CN_length_ratio = 0.1
         evo_model_sim = SimulationEvoModel(n_clonal_CN_events=n_clonal_events_per_edge,
@@ -94,13 +95,20 @@ class DiceAPITestCase(unittest.TestCase):
         dice_nwk_file_path = dice_out_dir + '/standard_root_balME_tree.nwk'
         newick_str = open(dice_nwk_file_path).read().strip()
         dice_tree_bio = Phylo.read(dice_nwk_file_path, 'newick')
-        dice_tree_dpy = dpy.Tree.get(data=newick_str, schema='newick', taxon_namespace=taxon_namespace)
 
-        rf_dist_dice_vs_true = tree_utils.normalized_rf_distance(true_tree, dice_tree_dpy)
+        dice_tree_dpy: dpy.Tree = dpy.Tree.get(data=newick_str, schema='newick', taxon_namespace=taxon_namespace)
+        label_tree(dice_tree_dpy)
+
+        dice_tree_nx = tree_utils.convert_dendropy_to_networkx(dice_tree_dpy)
+        # Root at healthy cell
+        dice_api.add_root(dice_tree_nx, healthy_cell_name='cell_0')
+        dice_tree_nx = tree_utils.relabel_name_to_int(dice_tree_nx, cell_names)
+        dice_tree_dpy2 = tree_utils.convert_networkx_to_dendropy(dice_tree_nx, taxon_namespace=taxon_namespace)
+
+        rf_dist_dice_vs_true = tree_utils.normalized_rf_distance(true_tree, dice_tree_dpy2)
 
         true_tree.print_plot()
-        dice_tree_dpy.print_plot()
-
+        dice_tree_dpy2.print_plot()
 
         print(f"Normalized RF distance DICE vs true tree: {rf_dist_dice_vs_true}")
 

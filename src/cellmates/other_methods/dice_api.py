@@ -4,6 +4,7 @@ import subprocess
 from typing import Dict, List, Optional
 
 import anndata
+import networkx as nx
 import numpy as np
 
 
@@ -236,3 +237,13 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"Error during conversion: {e}")
 
+
+def add_root(dice_tree_nx, healthy_cell_name):
+    """Adds a root node to the unrooted DICE-inferred tree networkx object
+     by rooting it between the healthy cell and its ancestor as described in the paper."""
+    max_idx = dice_tree_nx.number_of_nodes()
+    ancestor_healthy = list(dice_tree_nx.predecessors(healthy_cell_name))
+    dice_tree_nx.remove_edge(ancestor_healthy[0], healthy_cell_name)
+    dice_tree_nx.add_edge(str(max_idx), ancestor_healthy[0])
+    dice_tree_nx.add_edge(str(max_idx), healthy_cell_name)
+    return dice_tree_nx
