@@ -57,6 +57,7 @@ class DiceAPITestCase(unittest.TestCase):
         Simulates data using the SimulationEvoModel, converts it to DICE format, and runs DICE.
         Then loads the DICE output and checks if it is as expected.
         """
+        testing.set_seed(0)
         N, M, K = 25, 500, 7  # number of cells, bins, states
         M_tot = 2*M # total bins for both haplotypes
         n_clonal_events_per_edge = 3
@@ -90,7 +91,7 @@ class DiceAPITestCase(unittest.TestCase):
         out_dir_rel_test_dir = out_dir.partition('/test_dice')[2]
         dice_out_dir = self.test_out_dir_rel_path + out_dir_rel_test_dir
         dice_input_path = dice_out_dir + '/simulated_data_states.tsv'
-        dice_api.run_dice(dice_input_path, dice_out_dir)
+        dice_api.run_dice(dice_input_path, dice_out_dir, method='star', tree_rec='balME')
 
         # Load and check DICE output
         # Load DICE tree
