@@ -323,29 +323,6 @@ def normalized_rf_distance(tree1: dpy.Tree, tree2: dpy.Tree) -> float:
     max_rf = 2 * (n_leaves - 2)
     return rf / max_rf
 
-if __name__ == '__main__':
-    # try tree conversion
-    nwk = "((0:0.1,1:0.2):0.3,(2:0.4,3:0.5):0.6);"
-    print(nwk)
-    dpy_tree: dpy.Tree = dpy.Tree.get(data=nwk, schema='newick')
-    dpy_tree.is_rooted = True
-    label_tree(dpy_tree)
-    full_nwk = dpy_tree.as_string(schema='newick')
-    print(full_nwk)
-
-    # read networkx
-    # FIXME: nodes are none
-    nx_tree = newick_to_nx(full_nwk)
-    print(nx_tree.edges(data=True))
-    nx_tree_newick = nxtree_to_newick(nx_tree, weight='weight')
-    print(nx_tree_newick)
-
-    # convert to Phylo tree
-    phylo_tree = Phylo.read(StringIO(nx_tree_newick), 'newick', rooted=True)
-
-    # write newick string
-    print(phylo_tree.format('newick'))
-
 
 def get_lowest_common_ancestor(tree_nx, node1, node2):
     """
