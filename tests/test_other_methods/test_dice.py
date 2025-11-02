@@ -81,6 +81,12 @@ class DiceAPITestCase(unittest.TestCase):
         visual.plot_cn_profile(cnps_hap_b, cell_labels=np.arange(0, N), ax=ax[1], title="Hap B")
         fig.savefig(out_dir + '/cn_profile.png')
 
+        # Save true tree figure and Newick
+        visual.plot_tree_phylo(true_tree, out_dir=out_dir, filename='true_tree', show=False)
+        true_tree_nwk_file_path = out_dir + '/true_tree.nwk'
+        with open(true_tree_nwk_file_path, 'w') as f:
+            f.write(true_tree.as_string(schema='newick'))
+
         # Save simulated data tsv-file to temporary directory
         dataset_path = out_dir + '/simulated_data'
         chr_ends_idx = [M//2, M-1]
@@ -109,8 +115,6 @@ class DiceAPITestCase(unittest.TestCase):
         dice_api.add_root(dice_tree_nx, healthy_cell_name='cell_0')
         dice_tree_nx = tree_utils.relabel_name_to_int(dice_tree_nx, cell_names)
         dice_tree_dpy2 = tree_utils.convert_networkx_to_dendropy(dice_tree_nx, taxon_namespace=taxon_namespace)
-
-
 
         # Compare with ideal Cellmates inference
         # Setup Cellmates model
@@ -147,8 +151,65 @@ class DiceAPITestCase(unittest.TestCase):
         print(f"Normalized RF distance CM: {norm_rf_dist_CM}")
         print(f"RF dist CM: \n {rf_dist_CM}")
         print(f"RF dist DICE: \n {rf_dist_DICE}")
+
         #true_tree.print_plot()
         #dice_tree_dpy2.print_plot()
+
+    def test_simulate_data_and_convert_to_dice_tsv_and_medicc2_tsv(self):
+        """
+        Simulates data using the SimulationEvoModel, converts it to DICE format, and also to MEDICC2 format.
+        """
+        testing.set_seed(0)
+        N, M, K = 10, 100, 5  # number of cells, bins, states
+        n_clonal_events_per_edge = 2
+        n_focal_events_per_edge = 2
+        clonal_CN_length_ratio = 0.1
+        evo_model_sim = SimulationEvoModel(n_clonal_CN_events=n_clonal_events_per_edge,
+                                            n_focal_events=n_focal_events_per_edge,
+                                            clonal_CN_length_ratio=clonal_CN_length_ratio)
+        out_sim_hap_a = datagen.rand_dataset(K, M, evo_model_sim, obs_model='normal', n_cells=N)
+        true_tree = out_sim_hap_a['tree']
+        out_sim_hap_b = datagen.rand_dataset(K, M, evo_model_sim, obs_model='normal', n_cells=N, tree=true_tree)
+        cnps_hap_a = out_sim_hap_a['cn']
+        cnps_hap_b = out_sim_hap_b['cn']
+        cnps = np.stack((cnps_hap_a, cnps_hap_b), axis=-1)  # shape (2*n_cells-1, n_bins, 2)
+        cnps_obs = cnps[:N, :, :] # take only leaf nodes (n_cells, n_bins, 2)
+
+        # Save simulated data tsv-file to temporary directory
+        out_dir = testing.create_output_test_folder(sub_folder_name=f"N_{N}_M{M}_K{K}_CN{n_clonal_events_per_edge}_fCN{n_focal_events_per_edge}_to_dice_and_medicc2")
+        chr_ends_idx = [M//2, M-1]
+        bin_length = 1000
+
+        # Convert to DICE format
+        dice_tsv_path = out_dir + '/dice_input.tsv'
+        dice_api.convert_to_dice_tsv(cnps_obs, chr_ends_idx, bin_length, dice_tsv_path)
+
+        # Convert to MEDICC2 format
+        medicc2_output_path = out_dir
+        dice_api.convert_dice_tsv_to_medicc2(dice_tsv_path, medicc2_output_path, totalCN=False)
+
+    def test_convert_dice_tsv_to_medicc2(self):
+        """
+        Tests the conversion of a DICE TSV file to MEDICC2 format.
+        """
+        # Create a small DICE-format TSV file
+        dice_tsv_path = self.test_data_dir_rel_path + '/N25_M500_K7_CN3_fCN3_simulated_data_states.tsv'
+        medicc2_output_path = self.test_data_dir_rel_path
+
+        dice_api.convert_dice_tsv_to_medicc2(dice_tsv_path, medicc2_output_path, totalCN=False)
+
+    def test_medicc2_rf_dist(self):
+        "Temporary test to check MEDICC2 output tree RF distance. To be removed later."
+        true_tree_nw_file_path = '../testdata/dice/N25_M500_K7_CN3_fCN3_true_tree.nwk'
+        true_tree_dp = dpy.Tree.get(data=open(true_tree_nw_file_path).read().strip(),
+                                        schema='newick')
+        medicc2_nwk_file_path = '../testdata/medicc2/medicc_input_final_tree.new'
+        medicc2_tree_dpy: dpy.Tree = dpy.Tree.get(data=open(medicc2_nwk_file_path).read().strip(),
+                                                  schema='newick', taxon_namespace=true_tree_dp.taxon_namespace)
+        norm_rf_dist_medicc2 = tree_utils.normalized_rf_distance(true_tree_dp, medicc2_tree_dpy)
+        rf_dist_medicc2 = treecompare.symmetric_difference(true_tree_dp, medicc2_tree_dpy)
+        print(f"Normalized RF distance MEDICC2: {norm_rf_dist_medicc2}")
+        print(f"RF dist MEDICC2: \n {rf_dist_medicc2}")
 
 
 
