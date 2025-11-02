@@ -703,27 +703,29 @@ class SimulationEvoModel():
             n = tree.nodes()[v]
             if v == root_idx:
                 continue
-            else:
-                n.cn = np.empty(n_sites, dtype=int)
-                # Draw number of focal and clonal events
-                n_clonal_events_uv, n_focal_events_uv = self.draw_number_of_CN_events(u, v)
-                # Draw CN events (start, end) sites
-                out_CN_pos = self.draw_CN_events_positions(u, v, n_clonal_events_uv, n_focal_events_uv, n_sites)
-                clonal_start_pos, clonal_end_pos = out_CN_pos['clonal_start_pos'], out_CN_pos['clonal_end_pos']
-                self.clonal_CN_events_start_pos[u,v] = clonal_start_pos
-                self.clonal_CN_events_end_pos[u,v] = clonal_end_pos
-                focal_start_pos, focal_end_pos = out_CN_pos['focal_start_pos'], out_CN_pos['focal_end_pos']
-                self.focal_CN_events_start_pos[u,v] = focal_start_pos
-                self.focal_CN_events_end_pos[u,v] = focal_end_pos
 
-                # Inherit parent CNP
-                n.cn[:] = cn[u, :]
-                # Apply CN events to child CNP
-                delta_CN_clonal_uv = self.draw_clonal_events(clonal_start_pos, clonal_end_pos)
-                delta_CN_focal_uv = self.draw_focal_events(focal_start_pos, focal_end_pos)
-                n.cn += delta_CN_clonal_uv + delta_CN_focal_uv
-                n.cn = np.clip(n.cn, a_min=0, a_max=None)
-                cn[v, :] = n.cn
+            n.cn = np.empty(n_sites, dtype=int)
+            # Draw number of focal and clonal events
+            n_clonal_events_uv, n_focal_events_uv = self.draw_number_of_CN_events(u, v)
+            # Draw CN events (start, end) sites
+            out_CN_pos = self.draw_CN_events_positions(u, v, n_clonal_events_uv, n_focal_events_uv, n_sites)
+            clonal_start_pos, clonal_end_pos = out_CN_pos['clonal_start_pos'], out_CN_pos['clonal_end_pos']
+            self.clonal_CN_events_start_pos[u,v] = clonal_start_pos
+            self.clonal_CN_events_end_pos[u,v] = clonal_end_pos
+            focal_start_pos, focal_end_pos = out_CN_pos['focal_start_pos'], out_CN_pos['focal_end_pos']
+            self.focal_CN_events_start_pos[u,v] = focal_start_pos
+            self.focal_CN_events_end_pos[u,v] = focal_end_pos
+
+            # Inherit parent CNP
+            n.cn[:] = cn[u, :]
+            # Get delta CN from all CN events over edge
+            delta_CN_clonal_uv = self.draw_clonal_events(clonal_start_pos, clonal_end_pos)
+            delta_CN_focal_uv = self.draw_focal_events(focal_start_pos, focal_end_pos)
+            # Apply CN changes to non-absorbing CN bins
+            non_absorbing_bins = n.cn != 0
+            n.cn[non_absorbing_bins] += delta_CN_clonal_uv[non_absorbing_bins] + delta_CN_focal_uv[non_absorbing_bins]
+            n.cn = np.clip(n.cn, a_min=0, a_max=None)
+            cn[v, :] = n.cn
         return cn
 
     def draw_number_of_CN_events(self, u, v):
