@@ -1,5 +1,6 @@
 import csv
 import logging
+import os
 import subprocess
 from typing import Dict, List, Optional
 
@@ -174,6 +175,48 @@ def convert_to_dice_tsv(
                 tsv_writer.writerow(row)
 
     print(f"Successfully wrote DICE input file to: {output_filepath}")
+
+def convert_dice_tsv_to_medicc2(dataset_path, out_path, totalCN=False):
+    """
+    Function to convert DICE input tsv file to MEDICC2 input tsv file.
+    Adapted from DICE codebase: https://github.com/samsonweiner/DICE/blob/main/scripts/utilities.py
+    Parameters
+    ----------
+    prefix
+    totalCN
+
+    Returns
+    -------
+    """
+    out_path = out_path + '/medicc_input.tsv'
+
+    data = {}
+    if totalCN:
+        headers = ['sample_id', 'chrom', 'start', 'end', 'cn_a']
+    else:
+        headers = ['sample_id', 'chrom', 'start', 'end', 'cn_a', 'cn_b']
+    f = open(dataset_path)
+    lines = f.readlines()
+    f.close()
+    for line in lines[1:]:
+        cell, chrom, start, end, CN = line[:-1].split('\t')
+        chrom = chrom[chrom.index('r') + 1:]
+        if totalCN:
+            row = [cell, 'chrom' + chrom, start, end, CN]
+        else:
+            cn_a, cn_b = CN[:CN.index(',')], CN[CN.index(',') + 1:]
+            row = [cell, 'chrom' + chrom, start, end, cn_a, cn_b]
+        if cell not in data:
+            data[cell] = [row]
+        else:
+            data[cell].append(row)
+
+    f = open(out_path, 'w+')
+    f.write('\t'.join(headers) + '\n')
+    for cell, lines in data.items():
+        for line in lines:
+            f.write('\t'.join(line) + '\n')
+    f.close()
 
 
 # --- Example Usage ---
