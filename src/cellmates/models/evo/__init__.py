@@ -638,7 +638,9 @@ class SimulationEvoModel():
                  focal_prob: float | dict = 0.05, focal_length_avg: int = 5,
                  n_clonal_CN_events: int | dict = None, clonal_CN_length: int |dict = None,
                  n_focal_events: int | dict = None, focal_CN_length: int | dict = None,
-                 allow_overlapping_CN_events=True, n_homoplasies=None, zero_absorption: bool = True):
+                 allow_overlapping_CN_events=True,
+                 n_homoplasies=None, zero_absorption: bool = True,
+                 root_cn: int = 2):
         """
         Initialize simulation model.
         All dicts should have keys as edge tuples (u,v) where u is the parent node and v is the child node.
@@ -670,7 +672,10 @@ class SimulationEvoModel():
         # Type of events parameters
         self.allow_overlapping_CN_events = allow_overlapping_CN_events # Only implemented for TRUE now
         self.n_homoplasies = n_homoplasies  # Not implemented yet
-        self.zero_absorption = zero_absorption # Not implemented yet
+        self.zero_absorption = zero_absorption
+
+        # Healthy cells related parameters
+        self.root_cn = root_cn
 
         # Simulation helpers
         self.n_sites = None
@@ -693,7 +698,7 @@ class SimulationEvoModel():
 
         # initialize copy number array
         cn = np.empty((n_nodes, n_sites), dtype=int)
-        cn.fill(2)  # root copy number is 2
+        cn.fill(self.root_cn)
         edges = list(tree.preorder_edge_iter())
         n_edges = len(edges)
         # Extend function to draw edges with homoplasies
@@ -722,8 +727,11 @@ class SimulationEvoModel():
             delta_CN_clonal_uv = self.draw_clonal_events(clonal_start_pos, clonal_end_pos)
             delta_CN_focal_uv = self.draw_focal_events(focal_start_pos, focal_end_pos)
             # Apply CN changes to non-absorbing CN bins
-            non_absorbing_bins = n.cn != 0
-            n.cn[non_absorbing_bins] += delta_CN_clonal_uv[non_absorbing_bins] + delta_CN_focal_uv[non_absorbing_bins]
+            if self.zero_absorption:
+                non_absorbing_bins = n.cn != 0
+                n.cn[non_absorbing_bins] += delta_CN_clonal_uv[non_absorbing_bins] + delta_CN_focal_uv[non_absorbing_bins]
+            else:
+                n.cn += delta_CN_clonal_uv + delta_CN_focal_uv
             n.cn = np.clip(n.cn, a_min=0, a_max=None)
             cn[v, :] = n.cn
         return cn
@@ -784,14 +792,14 @@ class SimulationEvoModel():
     def draw_clonal_events(self, clonal_start_pos, clonal_end_pos):
         delta_CN_clonal_uv = np.zeros(self.n_sites, dtype=int)
         for s, e in zip(clonal_start_pos, clonal_end_pos):
-            delta = 1 if random.random() < 0.5 else -1
+            delta = 1 if random.random() < 0.95 else -1
             delta_CN_clonal_uv[s:e] += delta
         return delta_CN_clonal_uv
 
     def draw_focal_events(self, focal_start_pos, focal_end_pos):
         delta_CN_focal_uv = np.zeros(self.n_sites, dtype=int)
         for s, e in zip(focal_start_pos, focal_end_pos):
-            delta = 1 if random.random() < 0.5 else -1
+            delta = 1 if random.random() < 0.8 else -1
             delta_CN_focal_uv[s:e] += delta
         return delta_CN_focal_uv
 
