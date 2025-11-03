@@ -56,11 +56,13 @@ def main():
     parser.add_argument('--jc-correction', action='store_true', help="Use Jukes-Cantor correction for distance estimation")
     parser.add_argument('--rtol', '-t', type=float, default=1e-5, help="Relative tolerance for EM convergence")
     parser.add_argument('--learn-obs-params', action='store_true', help="Whether to learn observation model parameters during EM")
+    parser.add_argument('--numpy', action='store_true', help="Use plain numpy implementation instead of using `pomegranate` (torch) for HMM learning")
     # init params
     parser.add_argument('--tau', type=float, default=50.0, help="Prior precision for observation model")
     parser.add_argument('--save-diagnostics', action='store_true', help="Whether to save diagnostics tracking parameters over EM iterations. Will save to output directory.")
     args = parser.parse_args()
 
+    hmm_alg = 'broadcast' if args.numpy else 'pomegranate'
     # set paths
     adata_path = args.input
     # load data
@@ -90,7 +92,7 @@ def main():
     logger.debug(f"Excluded {adata.n_obs - obs.shape[1]} normal cells from distance estimation")
     # run inference
     time_inference = time.time()
-    evo_model = JCBModel(n_states=args.n_states, chromosome_ends=chromosome_ends, jc_correction=args.jc_correction, alpha=args.alpha)
+    evo_model = JCBModel(n_states=args.n_states, chromosome_ends=chromosome_ends, jc_correction=args.jc_correction, alpha=args.alpha, hmm_alg=hmm_alg)
     obs_model = NormalModel(n_states=args.n_states, mu_v_prior=1., tau_v_prior=args.tau, train=args.learn_obs_params)
     em = EM(n_states=args.n_states, evo_model=evo_model, obs_model=obs_model, verbose=args.verbose, diagnostics=args.save_diagnostics)
     logger.info(f"Starting EM inference with max_iter={args.max_iter}")
