@@ -1,3 +1,4 @@
+import os
 import dendropy
 import pandas as pd
 import anndata
@@ -62,7 +63,9 @@ def main(snakemake):
 
     # validate inputs
     print(ad)
-    n_cells = ad[~ad.obs['normal']].shape[0]
+    n_cells = ad.n_obs
+    if 'normal' in ad.obs.keys():
+        n_cells = ad[~ad.obs['normal']].shape[0]
     assert len(cell_names) == n_cells
     assert cm_dist.shape == (n_cells, n_cells, 3), f"EM distance matrix has incorrect shape: {cm_dist.shape} vs {(n_cells, n_cells, 3)}"
     print("EM tree", cm_tree)
@@ -114,20 +117,23 @@ def main(snakemake):
 
 
 if __name__=="__main__":
-    # mock snakemake object for local testing
+    # mock snakemake object for local testing if not executed via snakemake
+
+    dat_path = '/home/vittorio.zampinetti/Cellmates/reproducibility/workflows/cnasim_makedata/results/A3_0/0'
+    cm_out_dir = 'cm_out'
     class MockSnakeMake:
         input = {
-            'truth_ad': '/home/vittorio.zampinetti/Cellmates/reproducibility/workflows/cnasim_makedata/results/A3_0/0/anndata.h5ad',
-            'cm_dist': '/home/vittorio.zampinetti/Cellmates/reproducibility/workflows/cnasim_makedata/results/A3_0/0/cm_out_rtol1e-4/distance_matrix.npy',
-            'cm_tree': '/home/vittorio.zampinetti/Cellmates/reproducibility/workflows/cnasim_makedata/results/A3_0/0/cm_out_rtol1e-4/tree.nwk',
-            'cm_cells': '/home/vittorio.zampinetti/Cellmates/reproducibility/workflows/cnasim_makedata/results/A3_0/0/cm_out_rtol1e-4/cell_names.txt'
+            'truth_ad': os.path.join(dat_path, 'anndata.h5ad'),
+            'cm_dist': os.path.join(dat_path, cm_out_dir, 'distance_matrix.npy'),
+            'cm_tree': os.path.join(dat_path, cm_out_dir, 'tree.nwk'),
+            'cm_cells':os.path.join(dat_path, cm_out_dir, 'cell_names.txt'),
         }
         params = {
             'n_states': 7,
             'seed': 0,
             'dataset': 'A3_0'
         }
-        output = ['/home/vittorio.zampinetti/Cellmates/reproducibility/workflows/cnasim_makedata/results/A3_0/0/eval_tmp_numpy.csv']
+        output = [os.path.join(dat_path, 'eval_tmp.csv')]
 
     snakemake = MockSnakeMake()
 
