@@ -7,6 +7,11 @@ from typing import Dict, List, Optional
 import anndata
 import networkx as nx
 import numpy as np
+from Bio import Phylo
+import dendropy as dpy
+from dendropy import Tree
+
+from cellmates.utils import tree_utils
 
 
 def run_dice(dataset_path, out_path=None, method='star', tree_rec='balME'):
@@ -176,19 +181,23 @@ def convert_to_dice_tsv(
 
     print(f"Successfully wrote DICE input file to: {output_filepath}")
 
-def convert_dice_tsv_to_medicc2(dataset_path, out_path, totalCN=False):
+def convert_dice_tsv_to_medicc2(dataset_path, out_path, out_filename=None, totalCN=False):
     """
     Function to convert DICE input tsv file to MEDICC2 input tsv file.
+    Loads a DICE formatted tsv file specified by dataset_path and writes a MEDICC2 formatted tsv file to out_path.
     Adapted from DICE codebase: https://github.com/samsonweiner/DICE/blob/main/scripts/utilities.py
     Parameters
     ----------
-    prefix
-    totalCN
-
-    Returns
-    -------
+    out_filename: str
+        Name of the output MEDICC2 tsv file. If None, defaults to 'medicc2_input.tsv'.
+    dataset_path: str
+        Path to the DICE formatted tsv file.
+    out_path: str
+        Directory where the MEDICC2 formatted tsv file will be saved.
+    totalCN: bool
+        If True, only total copy number is considered. If False, allele-specific copy numbers are
     """
-    out_path = out_path + '/medicc_input.tsv'
+    out_path += '/' + out_filename if out_filename else '/medicc2_input.tsv'
 
     data = {}
     if totalCN:
@@ -290,3 +299,23 @@ def add_root(dice_tree_nx, healthy_cell_name):
     dice_tree_nx.add_edge(str(max_idx), ancestor_healthy[0])
     dice_tree_nx.add_edge(str(max_idx), healthy_cell_name)
     return dice_tree_nx
+
+def load_dice_tree(dice_output_path: str,
+                   taxon_namespace,
+                   healthy_cell_name='cell_0',
+                   cell_names=None) -> Tree:
+    """Loads the DICE-inferred tree from the output file and adds a root node."""
+    cell_names = ['cell_' + str(i) for i in range(N)] if cell_names is None else cell_names
+    # Load newick
+    dice_nwk_file_path = dice_output_path
+    newick_str = open(dice_nwk_file_path).read().strip()
+    # Convert to dendropy tree and make integer internal labels
+    dice_tree_dpy: dpy.Tree = dpy.Tree.get(data=newick_str, schema='newick', taxon_namespace=taxon_namespace)
+    tree_utils.label_tree(dice_tree_dpy)
+    # Convert to networkx, add root, relabel cell names to integers
+    dice_tree_nx = tree_utils.convert_dendropy_to_networkx(dice_tree_dpy)
+    add_root(dice_tree_nx, healthy_cell_name=healthy_cell_name)
+    dice_tree_nx = tree_utils.relabel_name_to_int(dice_tree_nx, cell_names)
+    # Convert back to dendropy
+    dice_tree_dpy2 = tree_utils.convert_networkx_to_dendropy(dice_tree_nx, taxon_namespace=taxon_namespace)
+    return dice_tree_dpy2

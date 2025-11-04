@@ -3,7 +3,6 @@ import logging
 import unittest
 import os
 
-import anndata as ad
 import numpy as np
 from Bio import Phylo
 import dendropy as dpy
@@ -11,30 +10,29 @@ from dendropy.calculate import treecompare
 from matplotlib import pyplot as plt
 
 from cellmates.inference import neighbor_joining
-from cellmates.inference.em import EM
 from cellmates.models.evo import SimulationEvoModel, JCBModel
 from cellmates.models.obs import NormalModel
-from cellmates.other_methods import dice_api
+from cellmates.other_methods import dice_api, medicc2_api
 from cellmates.simulation import datagen
 from cellmates.utils import testing, visual, tree_utils
 from cellmates.utils.tree_utils import label_tree
 
 
-class DiceAPITestCase(unittest.TestCase):
+class Medicc2APITestCase(unittest.TestCase):
 
     def setUp(self):
-        self.test_out_dir_rel_path = '../../output/tests/test_other_methods/test_dice'
-        self.test_data_dir_rel_path = '../testdata/dice'
+        self.test_out_dir_rel_path = '../../output/tests/test_other_methods/test_medicc2'
+        self.test_data_dir_rel_path = '../testdata/medicc2'
 
-    def test_run_dice(self):
+    def test_run_medicc2(self):
         logging.basicConfig(level=logging.INFO)
         path_to_testdata = self.test_data_dir_rel_path + "/sampleProfiles.tsv"
         out_dir = self.test_out_dir_rel_path + '/test_run_dice'
          # Run DICE on the test data
-        dice_api.run_dice(path_to_testdata, out_path=out_dir)
+        medicc2_api.run_medicc2(path_to_testdata, out_path=out_dir)
         self.assertTrue(os.path.exists(out_dir))
 
-    def test_toy_data_and_run_dice(self):
+    def test_toy_data_and_run_medicc2(self):
         # Simulate a small AnnData object
         n_cells = 10
         n_bins = 50
@@ -47,11 +45,14 @@ class DiceAPITestCase(unittest.TestCase):
         chr_ends_idx = [10, 20, 35, n_bins-1]
         bin_length = 1000
         dice_api.convert_to_dice_tsv(cnps, chr_ends_idx, bin_length, dataset_path + '_states.tsv')
+        out_dir = testing.create_output_test_folder()
+        medicc2_tsv_path = self.test_out_dir_rel_path + '/test_simulate_data_and_run_dice/medicc2_tsv'
+        dice_api.convert_dice_tsv_to_medicc2(dataset_path + '_states.tsv', self.test_out_dir_rel_path)
 
         # Run DICE on the simulated data
-        dice_input_path = dataset_path + '_states.tsv'
-        dice_out_dir = self.test_out_dir_rel_path + '/test_toy_data_and_run_dice'
-        dice_api.run_dice(dice_input_path, dice_out_dir)
+        medicc2_input_path = dataset_path + '_states.tsv'
+        medicc2_out_dir = self.test_out_dir_rel_path + '/test_toy_data_and_run_dice'
+        medicc2_api.run_medicc2(medicc2_input_path, medicc2_out_dir)
 
     def test_simulate_data_and_run_dice(self):
         """
@@ -59,8 +60,7 @@ class DiceAPITestCase(unittest.TestCase):
         Then loads the DICE output and checks if it is as expected.
         """
         testing.set_seed(0)
-        run_CM_inference = True # Warning: takes long time for larger datasets
-        N, M, K = 5, 500, 7  # number of cells, bins, states
+        N, M, K = 25, 500, 7  # number of cells, bins, states
         M_tot = 2*M # total bins for both haplotypes
         n_clonal_events_per_edge = 3
         n_focal_events_per_edge = 3
@@ -106,9 +106,19 @@ class DiceAPITestCase(unittest.TestCase):
         # Load and check DICE output
         # Load DICE tree
         cell_names = ['cell_'+str(i) for i in range(N)]
-        taxon_namespace = true_tree.taxon_namespace
+        taxon_namespace = true_tree.taxon_namespace # dpy.TaxonNamespace(cell_names)
         dice_nwk_file_path = dice_out_dir + '/standard_root_balME_tree.nwk'
-        dice_tree_dpy2 = dice_api.load_dice_tree(dice_nwk_file_path, taxon_namespace=taxon_namespace, cell_names=cell_names)
+        newick_str = open(dice_nwk_file_path).read().strip()
+        dice_tree_bio = Phylo.read(dice_nwk_file_path, 'newick')
+
+        dice_tree_dpy: dpy.Tree = dpy.Tree.get(data=newick_str, schema='newick', taxon_namespace=taxon_namespace)
+        label_tree(dice_tree_dpy)
+
+        dice_tree_nx = tree_utils.convert_dendropy_to_networkx(dice_tree_dpy)
+        # Root at healthy cell
+        dice_api.add_root(dice_tree_nx, healthy_cell_name='cell_0')
+        dice_tree_nx = tree_utils.relabel_name_to_int(dice_tree_nx, cell_names)
+        dice_tree_dpy2 = tree_utils.convert_networkx_to_dendropy(dice_tree_nx, taxon_namespace=taxon_namespace)
 
         # Compare with ideal Cellmates inference
         # Setup Cellmates model
@@ -123,50 +133,31 @@ class DiceAPITestCase(unittest.TestCase):
                                                                   true_tree_nx, cell_pairs, K,
                                                                   evo_model, obs_model, psi_init)
 
-        distances, iterations, loglikelihoods = -np.ones((N, N, 3)), -np.ones((N, N)), -np.ones((N, N))
+        distances = -np.ones((N, N, 3))
+        iterations = -np.ones((N, N))
+        loglikelihoods = -np.ones((N, N))
+        # collect results
         for (u, v), l_i, loglik, it, _, _ in results:
             distances[u, v, :] = l_i
             iterations[(u, v)] = it
             loglikelihoods[(u, v)] = loglik
 
-        if run_CM_inference:
-            em_alg = EM(n_states=K, evo_model=evo_model, obs_model=obs_model)
-            x_hap_a = out_sim_hap_a['obs']
-            x_hap_b = out_sim_hap_b['obs']
-            x_cellmates = np.concatenate((x_hap_a, x_hap_b), axis=0)  # shape (2*n_bins, n_cells)
-            em_alg.fit(x_cellmates, max_iter=20, rtol=1e-4, num_processors=1, psi_init=psi_init)
-            distances_cm_inf = em_alg.distances
-
         # Build tree from inferred distances
         CM_tree_nx = neighbor_joining.build_tree(distances)
         CM_tree_dp = tree_utils.convert_networkx_to_dendropy(CM_tree_nx, taxon_namespace=true_tree.taxon_namespace)
-        if run_CM_inference:
-            CM_inf_tree_nx = neighbor_joining.build_tree(distances_cm_inf)
-            CM_inf_tree_dp = tree_utils.convert_networkx_to_dendropy(CM_inf_tree_nx,
-                                                                     edge_length='length',
-                                                                     taxon_namespace=true_tree.taxon_namespace)
-            tree_utils.label_tree(CM_inf_tree_dp)
-            # Save CM inferred tree figure
-            visual.plot_tree_phylo(CM_inf_tree_dp, out_dir=out_dir, filename='CM_inferred_tree', show=False)
 
         # Compare trees
         norm_rf_dist_dice = tree_utils.normalized_rf_distance(true_tree, dice_tree_dpy2)
         norm_rf_dist_CM = tree_utils.normalized_rf_distance(true_tree, CM_tree_dp)
         rf_dist_CM = treecompare.symmetric_difference(true_tree, CM_tree_dp)
         rf_dist_DICE = treecompare.symmetric_difference(true_tree, dice_tree_dpy2)
-
-        if run_CM_inference:
-            norm_rf_dist_CM_inf = tree_utils.normalized_rf_distance(true_tree, CM_inf_tree_dp)
-            rf_dist_CM_inf = treecompare.symmetric_difference(true_tree, CM_inf_tree_dp)
-
         print(f"Normalized RF distance DICE: {norm_rf_dist_dice}")
         print(f"Normalized RF distance CM: {norm_rf_dist_CM}")
         print(f"RF dist CM: \n {rf_dist_CM}")
         print(f"RF dist DICE: \n {rf_dist_DICE}")
-        if run_CM_inference:
-            print(f"Normalized RF distance CM inference: {norm_rf_dist_CM_inf}")
-            print(f"RF dist CM inference: \n {rf_dist_CM_inf}")
 
+        #true_tree.print_plot()
+        #dice_tree_dpy2.print_plot()
 
     def test_simulate_data_and_convert_to_dice_tsv_and_medicc2_tsv(self):
         """
