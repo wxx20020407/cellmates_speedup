@@ -562,6 +562,8 @@ class JitterCopy(ObsModel):
 
     def __init__(self, n_states: int, error_rate: float = 0.1, train: bool = False, **kwargs):
         super().__init__(n_states, train, **kwargs)
+        if self.train:
+            raise ValueError("JitterCopy does not support training. Choose train=False.")
         self.error_rate = error_rate
 
     def new(self):
@@ -636,7 +638,8 @@ class JitterCopy(ObsModel):
         return log_v, log_w
 
     def update(self, obs_vw, conditionals_vw, **kwargs):
-        raise NotImplementedError()
+        if not self.train:
+            return
 
     def M_step(self, obs_vw, conditionals_vw, **kwargs):
         raise NotImplementedError()
