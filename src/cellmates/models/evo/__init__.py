@@ -640,7 +640,7 @@ class SimulationEvoModel():
                  n_focal_events: int | dict = None, focal_CN_length: int | dict = None,
                  allow_overlapping_CN_events=True,
                  n_homoplasies=None, zero_absorption: bool = True,
-                 root_cn: int = 2):
+                 root_cn: int = 2, max_CN_state: int = 6):
         """
         Initialize simulation model.
         All dicts should have keys as edge tuples (u,v) where u is the parent node and v is the child node.
@@ -657,6 +657,8 @@ class SimulationEvoModel():
         allow_overlapping_CN_events: Only implemented for TRUE now.
         n_homoplasies: Not implemented yet.
         zero_absorption: Not implemented yet.
+        root_cn: copy number of the root node (healthy cell), e.g., 2 for total CN, 1 for haplotype specific.
+        max_CN_state: maximum copy number state = n_states - 1.
         """
         # ------- Simulation parameters -------
         # Clonal CN event parameters
@@ -680,6 +682,7 @@ class SimulationEvoModel():
         # Simulation helpers
         self.n_sites = None
         self.chr_idxs = None
+        self.max_CN_state = max_CN_state
 
         # Simulation outputs
         self.focal_events_out = {}
@@ -732,8 +735,12 @@ class SimulationEvoModel():
                 n.cn[non_absorbing_bins] += delta_CN_clonal_uv[non_absorbing_bins] + delta_CN_focal_uv[non_absorbing_bins]
             else:
                 n.cn += delta_CN_clonal_uv + delta_CN_focal_uv
-            n.cn = np.clip(n.cn, a_min=0, a_max=None)
+            n.cn = np.clip(n.cn, a_min=0, a_max=self.max_CN_state)
             cn[v, :] = n.cn
+            # Calculate JCB edge length
+            D_uv = math_utils.compute_cn_changes(np.array([cn[u, :], cn[v, :]]), pairs=[(0, 1)])[0]
+            l_expected = math_utils.l_from_p(D_uv/self.n_sites, n_states=self.max_CN_state-1)
+            tree.edges()[v].length = l_expected
         return cn
 
     def draw_number_of_CN_events(self, u, v):
