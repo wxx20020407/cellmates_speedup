@@ -159,7 +159,8 @@ if __name__ == '__main__':
 def plot_tree_phylo(tree: str | dendropy.Tree,
                     out_dir,
                     filename='tree',
-                    show=False, save=True):
+                    show=False, save=True,
+                    title=None):
     """
     Plot a tree using Bio.Phylo and Matplotlib.
     """
@@ -173,6 +174,8 @@ def plot_tree_phylo(tree: str | dendropy.Tree,
 
     fig, ax = plt.subplots(figsize=(6, 4))
     Phylo.draw(bio_tree, axes=ax)
+    if title is not None:
+        fig.suptitle(title)
     if show:
         plt.show()
     if save:
