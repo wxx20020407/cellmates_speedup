@@ -1,9 +1,10 @@
-import itertools
 import logging
 from abc import ABC, abstractmethod
 
 import numpy as np
 from scipy import stats as ss
+from scipy.special import gammaln, psi, polygamma
+from scipy.optimize import root_scalar, minimize
 
 
 class ObsModel(ABC):
@@ -647,3 +648,126 @@ class JitterCopy(ObsModel):
 
     def M_step(self, obs_vw, conditionals_vw, **kwargs):
         raise NotImplementedError()
+
+class NegBinomialModel(ObsModel):
+    """
+    Negative Binomial observation model:
+    p(y_m^v | C_m^v=j, mu_v, r_v) = NB(y_m^v; mean=j*mu_v, size=r_v)
+    """
+
+    def __init__(self, n_states, mu_v_prior=1., mu_w_prior=None,
+                 r_v_prior=10., r_w_prior=None,
+                 M=None, train=False, **kwargs):
+        super().__init__(n_states, train, **kwargs)
+        self.M = M
+        self.mu_v_prior = mu_v_prior
+        self.mu_w_prior = mu_w_prior if mu_w_prior is not None else mu_v_prior
+        self.r_v_prior = r_v_prior
+        self.r_w_prior = r_w_prior if r_w_prior is not None else r_v_prior
+        self.update_params(self.mu_v_prior, self.r_v_prior, self.mu_w_prior, self.r_w_prior)
+
+    def new(self):
+        return NegBinomialModel(self.n_states, mu_v_prior=self.mu_v_prior, mu_w_prior=self.mu_w_prior,
+                                r_v_prior=self.r_v_prior, r_w_prior=self.r_w_prior,
+                                M=self.M, train=self.train)
+
+    def initialize(self, psi_init=None):
+        if psi_init is not None:
+            self.mu_v, self.r_v = psi_init['mu_v'], psi_init['r_v']
+            self.mu_w, self.r_w = psi_init['mu_w'], psi_init['r_w']
+        else:
+            self.mu_v, self.r_v = self.mu_v_prior, self.r_v_prior
+            self.mu_w, self.r_w = self.mu_w_prior, self.r_w_prior
+        self.psi = {'mu_v': self.mu_v, 'r_v': self.r_v,
+                    'mu_w': self.mu_w, 'r_w': self.r_w}
+        self.psi_init = self.psi.copy()
+
+    def sample(self, cnp: np.ndarray, mu_r_params=None, **kwargs):
+        """Sample NB emissions given copy number states."""
+        n_cells, n_sites = cnp.shape
+        if mu_r_params is None:
+            mu_r_params = np.array([[self.mu_v_prior, self.r_v_prior],
+                                    [self.mu_w_prior, self.r_w_prior]])
+            mu = np.repeat(mu_r_params[0, 0], n_cells)
+            r = np.repeat(mu_r_params[0, 1], n_cells)
+        else:
+            mu = mu_r_params[:, 0]
+            r = mu_r_params[:, 1]
+        p = r[:, None] / (r[:, None] + mu[:, None] * cnp)
+        draws = np.random.negative_binomial(r[:, None], p)
+        return draws.T
+
+    def log_emission_split(self, obs_vw, **kwargs):
+        """Compute log p(y|C=j, mu,r) for NB model."""
+        n_sites = obs_vw.shape[0]
+        log_emissions_v = np.empty((n_sites, self.n_states))
+        log_emissions_w = np.empty((n_sites, self.n_states))
+        mu = np.array([self.mu_v, self.mu_w])
+        r = np.array([self.r_v, self.r_w])
+        cn = np.arange(self.n_states)
+
+        def log_nb(y, mean, r):
+            p = r / (r + mean)
+            return (gammaln(y + r) - gammaln(r) - gammaln(y + 1)
+                    + r * np.log(p) + y * np.log(1 - p))
+
+        for s in range(self.n_states):
+            log_emissions_v[:, s] = log_nb(obs_vw[:, 0], cn[s] * mu[0], r[0])
+            log_emissions_w[:, s] = log_nb(obs_vw[:, 1], cn[s] * mu[1], r[1])
+        return log_emissions_v, log_emissions_w
+
+    def M_step(self, obs_vw, conditionals_vw, **kwargs):
+        """M-step using numerical optimization for NB parameters."""
+        y_v, y_w = obs_vw[:, 0], obs_vw[:, 1]
+        gamma_v, gamma_w = conditionals_vw
+        cn = np.arange(self.n_states)
+        mu_v, r_v = self._update_channel(y_v, gamma_v, cn, self.mu_v, self.r_v)
+        mu_w, r_w = self._update_channel(y_w, gamma_w, cn, self.mu_w, self.r_w)
+        return {'mu_v': mu_v, 'r_v': r_v, 'mu_w': mu_w, 'r_w': r_w}
+
+    def _update_channel(self, y, gamma, cn, mu_init, r_init):
+        """Optimize mu and r for one channel."""
+        def neg_Q(params):
+            mu, r = params
+            mu = np.maximum(mu, 1e-6)
+            r = np.maximum(r, 1e-6)
+            mean = np.outer(np.ones_like(y), cn) * mu  # mean shape (n_sites, n_states)
+            p = r / (r + mean)
+            # elementwise NB log-likelihood
+            loglik = (gammaln(y[:, None] + r)
+                      - gammaln(r)
+                      - gammaln(y[:, None] + 1)
+                      + r * np.log(p)
+                      + y[:, None] * np.log1p(-p))
+            return -np.sum(gamma * loglik)  # negative expected log-likelihood
+        res = minimize(neg_Q, [mu_init, r_init], bounds=[(1e-6, None), (1e-6, None)], method="L-BFGS-B")
+        return res.x[0], res.x[1]
+
+    def update_params(self, mu_v, r_v, mu_w, r_w):
+        self.mu_v = mu_v
+        self.r_v = r_v
+        self.mu_w = mu_w
+        self.r_w = r_w
+        self.psi = {'mu_v': mu_v, 'r_v': r_v, 'mu_w': mu_w, 'r_w': r_w}
+
+    def log_emission(self, obs_vw, **kwargs):
+        """
+        Compute joint log-emission probabilities for all sites and copy states.
+        Returns array (n_sites, n_states, n_states):
+        log p(y_m^{vw} | C_m^v=i, C_m^w=j) = log p(y_m^v|C_m^v=i) + log p(y_m^w|C_m^w=j)
+        """
+        n_sites = obs_vw.shape[0]
+        log_emissions = np.empty((n_sites, self.n_states, self.n_states))
+        log_emissions_v, log_emissions_w = self.log_emission_split(obs_vw, **kwargs)
+        log_emissions[...] = log_emissions_v[:, :, None] + log_emissions_w[:, None, :]
+        return log_emissions
+
+    def update(self, obs_vw, conditionals_vw, **kwargs):
+        """
+        Perform the M-step update of parameters given observations and posterior copy-state probabilities.
+        """
+        if not self.train:
+            return
+        out_M_step = self.M_step(obs_vw, conditionals_vw, **kwargs)
+        mu_v, r_v, mu_w, r_w = out_M_step['mu_v'], out_M_step['r_v'], out_M_step['mu_w'], out_M_step['r_w']
+        self.update_params(mu_v, r_v, mu_w, r_w)
