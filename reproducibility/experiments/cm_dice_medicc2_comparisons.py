@@ -3,6 +3,8 @@ import itertools
 import logging
 import os
 import pickle
+import time
+import timeit
 
 import anndata
 import numpy as np
@@ -76,7 +78,10 @@ def run_dice(dataset_path, dice_out_dir=None):
 def run_medicc2(medicc2_input_path, medicc2_out_dir=None):
     medicc2_out_dir = medicc2_out_dir if medicc2_out_dir is not None else medicc2_input_path
     medicc2_api.run_medicc2(medicc2_input_path + '/medicc2_states.tsv', medicc2_out_dir)
-    logging.info(f'Medicc2 results are saved to {medicc2_out_dir}')
+    logging.info(f'Medicc2 results are saved to {medicc2_input_path}/{medicc2_out_dir}')
+
+def run_cellmates(x, K, haplotype_aware):
+    evo_model = JCBModel(K)
 
 def run_cellmates_ideal(cnps, K, haplotype_aware, true_tree: dpy.Tree):
     # Compare with ideal Cellmates inference
@@ -147,13 +152,25 @@ def compare_trees(true_tree, dice_tree, medicc2_tree, cellmates_tree, out_dir):
     with open(cellmates_tree_nwk_file_path, 'w') as f:
         f.write(cellmates_tree.as_string(schema='newick'))
 
+    logging.info(f"RF distances:\nDICE: {rf_dist['DICE']['normalized']}, MEDICC2: {rf_dist['MEDICC2']['normalized']}, Cellmates: {rf_dist['Cellmates']['normalized']}")
+    print(f"RF distances:"
+          f"\nDICE: {rf_dist['DICE']['normalized']},"
+          f" MEDICC2: {rf_dist['MEDICC2']['normalized']},"
+          f" Cellmates: {rf_dist['Cellmates']['normalized']}")
+    print(f"RF distances:"
+          f"\nDICE: {rf_dist['DICE']['absolute']},"
+          f" MEDICC2: {rf_dist['MEDICC2']['absolute']},"
+          f" Cellmates: {rf_dist['Cellmates']['absolute']}")
+
 
 def load_trees(out_dir, taxon_namespace, N):
     # Load DICE tree
     cell_names = ['cell_'+str(i) for i in range(N)]
     dice_tree = dice_api.load_dice_tree(out_dir + '/standard_root_balME_tree.nwk', taxon_namespace, cell_names)
-    medicc2_api.load_medicc2_tree(out_dir)
-    return dice_tree, None
+    medicc2_tree = medicc2_api.load_medicc2_tree(out_dir + '/medicc2_states_final_tree.new', taxon_namespace, N)
+    return dice_tree, medicc2_tree
+
+
 
 def run(args):
     out_dir = args.out_dir
@@ -164,7 +181,9 @@ def run(args):
     haplotype_aware = args.haplotype_aware
     if args.dataset_path is None:
         N, M, K = args.num_cells, args.num_bins, args.num_states
-        nCN, nfCN = 1, 1
+        nCN, nfCN = args.num_CN, args.num_fCN
+        out_dir += f"/N{N}_M{M}_K{K}_nCN{nCN}_nfCN{nfCN}"
+        os.makedirs(out_dir, exist_ok=True)
         cnps, true_tree, x = simulate_data(N, M, K, nCN, nfCN, out_dir=args.out_dir)
         cnps_obs = cnps[:N]  # observed cells only
         convert_data(None, cnps_obs=cnps_obs, out_dir=out_dir, haplotype_aware=haplotype_aware)
@@ -173,32 +192,44 @@ def run(args):
         dataset_path = args.dataset_path
         adata = anndata.load_h5ad(dataset_path)
         convert_data(dataset_path, out_dir, haplotype_aware=haplotype_aware)
-    # Convert dataset to DICE and MEDICC2 formats
+        # Get N, M, K, nCN, nfCN
 
     # Run DICE
+    time_dice_start = time.time()
     run_dice(out_dir, out_dir)
+    time_dice = time.time() - time_dice_start
     # Run MEDICC2
+    time_medicc2_start = time.time()
     run_medicc2(out_dir)
+    time_medicc2 = time.time() - time_medicc2_start
     # Run Cellmates
+    time_cellmates_start = time.time()
     cellmates_tree = run_cellmates_ideal(cnps, K, haplotype_aware, true_tree)
-    #run_cellmates()
+    time_cellmates = time.time() - time_cellmates_start
+    run_cellmates()
 
     # Evaluation
     taxon_namespace = true_tree.taxon_namespace
-    dice_tree, _ = load_trees(out_dir, taxon_namespace, N)
-    compare_trees(true_tree, dice_tree, None, cellmates_tree, out_dir)
+    dice_tree, medicc2_tree = load_trees(out_dir, taxon_namespace, N)
+    compare_trees(true_tree, dice_tree, medicc2_tree, cellmates_tree, out_dir)
+    print(f"DICE: {time_dice:.2f}, MEDICC2: {time_medicc2:.2f}, Cellmates: {time_cellmates:.2f}")
 
 
 if __name__ == '__main__':
     cli = argparse.ArgumentParser("Run Cellmates, DICE and Medicc2 on simulated data")
 
-    cli.add_argument('--out_dir', type=str, required=True,)
-    cli.add_argument('--dataset_path', type=str, default=None,)
-    cli.add_argument('--num_cells', type=int, default=10,)
-    cli.add_argument('--num_bins', type=int, default=1000,)
-    cli.add_argument('--num_states', type=int, default=5,)
-    cli.add_argument('--num_processors', type=int, default=1,)
-    cli.add_argument('--haplotype_aware', action='store_true', default=True)
+    cli.add_argument('--out-dir', type=str, required=True,)
+    cli.add_argument('--dataset-path', type=str, default=None,)
+    cli.add_argument('--num-cells', type=int, default=10,)
+    cli.add_argument('--num-bins', type=int, default=1000,)
+    cli.add_argument('--num-states', type=int, default=5,)
+    cli.add_argument('--num-CN', type=int, default=1,)
+    cli.add_argument('--num-fCN', type=int, default=1,)
+    cli.add_argument('--CN-length-ration', type=float, default=0.1,)
+    cli.add_argument('--CN-prob', type=float, default=None)
+    cli.add_argument('--fCN-prob', type=float, default=None)
+    cli.add_argument('--num-processors', type=int, default=1,)
+    cli.add_argument('--haplotype-aware', action='store_true', default=True)
     args = cli.parse_args()
 
     run(args)

@@ -1,3 +1,4 @@
+import logging
 import subprocess
 import dendropy as dpy
 
@@ -22,9 +23,11 @@ def load_medicc2_tsv_file(medicc2_tsv_path):
 
 def run_medicc2(dataset_path, out_dir_path, topology_only=False, num_proc=1):
     # Prepare command to run MEDICC2
-    medicc2_command = f'medicc2 {dataset_path} {out_dir_path} -j {num_proc} --no-plot'
+    medicc2_command = f'medicc2 {dataset_path} {out_dir_path} -j "{num_proc}"'
     medicc2_command += '--topology-only ' if topology_only else ''
+    medicc2_command += ' --plot auto'
     # Run MEDICC2
+    logging.info(f'Running dice: {medicc2_command}')
     subprocess.run(medicc2_command, shell=True)
 
 
