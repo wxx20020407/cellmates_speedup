@@ -228,68 +228,6 @@ def convert_dice_tsv_to_medicc2(dataset_path, out_path, out_filename=None, total
     f.close()
 
 
-# --- Example Usage ---
-if __name__ == "__main__":
-
-    # 1. Define Example Inputs
-
-    # N=3 cells, M=4 bins
-    N = 3
-    M = 4
-
-    # Haplotype A data (Shape N, M)
-    hap_a_data = np.array([
-        [1, 1, 3, 3],  # Cell 0: leaf1
-        [1, 2, 4, 3],  # Cell 1: leaf2
-        [2, 2, 3, 3]  # Cell 2: leaf5
-    ], dtype=int)
-
-    # Haplotype B data (Shape N, M)
-    hap_b_data = np.array([
-        [1, 1, 4, 4],  # Cell 0: leaf1
-        [2, 2, 4, 4],  # Cell 1: leaf2
-        [2, 2, 4, 4]  # Cell 2: leaf5
-    ], dtype=int)
-
-    # Stack them to create the (N, M, 2) input array
-    input_data = np.stack([hap_a_data, hap_b_data], axis=2)
-
-    print(f"Input array shape: {input_data.shape}")  # Should be (3, 4, 2)
-
-    # Cell IDs (List of N strings)
-    cell_names = ["leaf1", "leaf2", "leaf5"]
-
-    # Bin metadata (Total of M=4 bins)
-    # 'chr1' will be bins 0, 1
-    # 'chr2' will be bins 2, 3
-    # So, the end bin of chr1 is 1
-    # And the end bin of chr2 is 3
-    chromosome_ends_list = [1, 3]
-
-    # Bin length
-    bin_size = 10000
-
-    # Output file path
-    output_file = "dice_formatted_input_v3.tsv"
-
-    # 2. Run the function
-    try:
-        convert_to_dice_tsv(
-            cn_array=input_data,
-            chromosome_ends=chromosome_ends_list,
-            bin_length=bin_size,
-            output_filepath=output_file,
-            cell_ids=cell_names
-        )
-
-        # 3. Print the output file content for verification
-        print("\n--- Content of generated file: ---")
-        with open(output_file, 'r') as f:
-            print(f.read())
-    except Exception as e:
-        print(f"Error during conversion: {e}")
-
-
 def add_root(dice_tree_nx, healthy_cell_name):
     """Adds a root node to the unrooted DICE-inferred tree networkx object
      by rooting it between the healthy cell and its ancestor as described in the paper."""
