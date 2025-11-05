@@ -1,134 +1,31 @@
 import argparse
-import os
 import logging
-import time
-import pickle
-
-import anndata
-import numpy as np
-
-from cellmates.inference.em import EM
-from cellmates.inference.neighbor_joining import build_tree
-from cellmates.models.evo import JCBModel
-from cellmates.models.obs import NormalModel, JitterCopy
-from cellmates.utils.tree_utils import write_newick
-from cellmates.common_helpers.cnasim_data import correct_readcounts
+from cellmates.inference.pipeline import run_inference_pipeline
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-
-def obs_from_adata(adata, layer_name='copy', normal_annotation='normal'):
-    """
-    Extract observations and chromosome ends from AnnData object.
-    Parameters
-    ----------
-    adata : anndata.AnnData
-        AnnData object containing the data.
-    layer_name : str, optional
-        Name of the layer to use for observations. If None, use adata.X.
-    normal_annotation : str, optional
-        Annotation in adata.obs to identify normal cells. (normal cells are not used in distance estimation)
-    Returns
-    -------
-    obs : np.ndarray
-        Observation matrix (cells x features).
-    chromosome_ends : list
-        List of indices where chromosomes end.
-    """
-    chromosome_ends = np.where(adata.var['chr'].cat.codes.diff() != 0)[0] + 1
-    # return dat.T, chromosome_ends.tolist()
-    adata_tumor = adata
-    if normal_annotation is not None:
-        adata_tumor = adata[~adata.obs[normal_annotation]]
-    dat = adata_tumor.layers[layer_name] if layer_name else adata_tumor.X
-
-    return dat.T, chromosome_ends.tolist(), adata_tumor.obs_names.tolist()
-
+def parse_args():
+    parser = argparse.ArgumentParser(description="Estimate distance matrix and build phylogenetic tree")
+    parser.add_argument('--input', '-i', required=True, help="Path to input AnnData file")
+    parser.add_argument('--output', '-o', default=None, help="Path to output directory")
+    parser.add_argument('--n-states', '-s', type=int, default=7)
+    parser.add_argument('--max-iter', '-m', type=int, default=30)
+    parser.add_argument('--verbose', '-v', type=int, default=0)
+    parser.add_argument('--num-processors', '-p', type=int, default=1)
+    parser.add_argument('--alpha', type=float, default=1.0)
+    parser.add_argument('--jc-correction', action='store_true')
+    parser.add_argument('--rtol', '-t', type=float, default=1e-5)
+    parser.add_argument('--learn-obs-params', action='store_true')
+    parser.add_argument('--numpy', action='store_true')
+    parser.add_argument('--use-copynumbers', action='store_true')
+    parser.add_argument('--tau', type=float, default=50.0)
+    parser.add_argument('--save-diagnostics', action='store_true')
+    return parser.parse_args()
 
 def main():
-    # read params from argparse
-    parser = argparse.ArgumentParser(description="Estimate distance matrix and build phylogenetic tree")
-    parser.add_argument('--input', '-i', type=str, required=True, help="Path to input AnnData file")
-    parser.add_argument('--output', '-o', type=str, default=None, help="Path to output AnnData file")
-    parser.add_argument('--n-states', '-s', type=int, default=7, help="Number of hidden states")
-    parser.add_argument('--max-iter', '-m', type=int, default=30, help="Maximum number of EM iterations")
-    parser.add_argument('--verbose', '-v', type=int, default=0, help="Verbosity level (0: silent, 1: progress, 2+: debug)")
-    parser.add_argument('--num-processors', '-p', type=int, default=1, help="Number of processors to use in parallel")
-    parser.add_argument('--alpha', type=float, default=1.0, help="Rate parameter alpha in the Jukes-Cantor model")
-    parser.add_argument('--jc-correction', action='store_true', help="Use Jukes-Cantor correction for distance estimation")
-    parser.add_argument('--rtol', '-t', type=float, default=1e-5, help="Relative tolerance for EM convergence")
-    parser.add_argument('--learn-obs-params', action='store_true', help="Whether to learn observation model parameters during EM")
-    parser.add_argument('--numpy', action='store_true', help="Use plain numpy implementation instead of using `pomegranate` (torch) for HMM learning")
-    parser.add_argument('--use-copynumbers', action='store_true', help="Use copy number states directly as observations instead of read counts")
-    # init params
-    parser.add_argument('--tau', type=float, default=50.0, help="Prior precision for observation model")
-    parser.add_argument('--save-diagnostics', action='store_true', help="Whether to save diagnostics tracking parameters over EM iterations. Will save to output directory.")
-    args = parser.parse_args()
+    args = parse_args()
+    run_inference_pipeline(**vars(args))
 
-    hmm_alg = 'broadcast' if args.numpy else 'pomegranate'
-    # set paths
-    adata_path = args.input
-    # load data
-    logger.info(f"Reading AnnData file {adata_path}")
-    adata = anndata.read_h5ad(adata_path)
-    if 'cnasim-params' in adata.uns:
-        logger.info(f"Found CNAsim parameters in AnnData uns.")
-        logger.info(f"Adding `copy` layer...")
-        correct_readcounts(adata)
-        logger.info(f"`copy` layer added to AnnData. (avg value: {np.mean(adata.layers['copy'])})")
-    elif 'copy' not in adata.layers and not args.use_copynumbers:
-        logger.error("No 'copy' layer found in AnnData and no CNAsim parameters in uns to correct readcounts.")
-        raise ValueError("Input AnnData must contain a 'copy' layer or CNAsim parameters for correction.")
-    elif args.use_copynumbers and 'state' not in adata.layers:
-        logger.error("No 'state' layer found in AnnData for using copy number states directly.")
-        raise ValueError("Input AnnData must contain a 'state' layer when using --use-copynumbers.")
-    logger.info(f"Dataset contains {adata.n_obs} cells and {adata.n_vars} bins")
-    logger.info(f"Using {args.num_processors} processors for parallel computation")
-
-    # prepare output paths
-    out_path = args.output if args.output else '.'  # default to current directory if not provided
-    if out_path:
-        os.makedirs(out_path, exist_ok=True)
-        logger.info(f"Created output directory: {out_path}")
-    dist_path = os.path.join(out_path, 'distance_matrix.npy')  # numpy format
-    tree_path = os.path.join(out_path, 'tree.nwk')
-    cell_names_path = os.path.join(out_path, 'cell_names.txt')
-
-    # extract observations
-    if not args.use_copynumbers:
-        obs, chromosome_ends, cell_names = obs_from_adata(adata)
-        obs_model = NormalModel(n_states=args.n_states, mu_v_prior=1., tau_v_prior=args.tau, train=args.learn_obs_params)
-    else:
-        logger.info("Using copy number states directly as observations.")
-        obs, chromosome_ends, cell_names = obs_from_adata(adata, layer_name='state', normal_annotation=None)
-        obs_model = JitterCopy(n_states=args.n_states, jitter=1e-3)
-    logger.debug(f"Excluded {adata.n_obs - obs.shape[1]} normal cells from distance estimation")
-    # run inference
-    time_inference = time.time()
-    evo_model = JCBModel(n_states=args.n_states, chromosome_ends=chromosome_ends, jc_correction=args.jc_correction, alpha=args.alpha, hmm_alg=hmm_alg)
-    em = EM(n_states=args.n_states, evo_model=evo_model, obs_model=obs_model, verbose=args.verbose, diagnostics=args.save_diagnostics)
-    logger.info(f"Starting EM inference with max_iter={args.max_iter}")
-    em.fit(obs, max_iter=args.max_iter, rtol=args.rtol, num_processors=args.num_processors)
-    if args.save_diagnostics:
-        with open(os.path.join(out_path, 'em_diagnostics.pkl'), 'wb') as f:
-            pickle.dump(em.diagnostic_data, f)
-        logger.info(f"Saved EM diagnostics to {os.path.join(out_path, 'em_diagnostics.pkl')}")
-    nx_tree = build_tree(em.distances, edge_attr='branch_length')
-    time_inference_end = time.time()
-    logger.info(f"Inference completed in {time_inference_end - time_inference:.2f} seconds")
-    # save results
-    np.save(dist_path, em.distances)  # save distance matrix
-    nwk_str = write_newick(nx_tree, cell_names=cell_names, out_path=tree_path, edge_attr='branch_length') # save newick tree
-    # save cell names
-    with open(cell_names_path, 'w') as f:
-        for name in cell_names:
-            f.write(f"{name}\n")
-
-    logger.debug(f"Newick string: {nwk_str} output to {tree_path}")
-    logger.info(f"Saved tree to {tree_path}")
-    logger.info(f"Saved dist matrix to {dist_path}")
-    logger.info(f"Saved cell names to {cell_names_path}")
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

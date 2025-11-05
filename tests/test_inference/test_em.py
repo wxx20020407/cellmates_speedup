@@ -12,7 +12,6 @@ import networkx as nx
 import numpy as np
 from dendropy.calculate import treecompare
 from matplotlib import pyplot as plt
-from scipy.special import logsumexp
 
 from cellmates.utils import math_utils, testing, tree_utils
 from cellmates.utils.visual import plot_cn_profile, plot_cell_pairwise_heatmap
@@ -20,29 +19,12 @@ from cellmates.models.evo import p_delta_change, CopyTree, JCBModel, SimulationE
 from cellmates.models.obs import NormalModel, PoissonModel
 from cellmates.simulation.datagen import rand_dataset, simulate_quadruplet, rand_ann_dataset
 from cellmates.inference.em import jcb_em_ctrtable, EM, jcb_em_alg, fit_quadruplet
-from cellmates.utils.testing import create_output_test_folder
+from cellmates.utils.testing import create_output_test_folder, _generate_obs
 from cellmates.utils.tree_utils import convert_networkx_to_dendropy, random_binary_tree, label_tree, nxtree_to_newick, \
     get_ctr_table
 from cellmates.utils.math_utils import l_from_p, p_from_l, compute_cn_changes
 
 from cellmates.inference.em import build_tree
-
-
-def _generate_obs(noise=0):
-    # 10 sites, 5 cells
-    obs = np.array([
-        [200] * 5 + [300] * 5,
-        [100] * 5 + [200] * 5,
-        [100] * 3 + [200] * 2 + [300] * 5,
-        [200] * 9 + [100],
-        [400] * 2 + [300] * 2 + [200] * 3 + [100] * 3
-    ]).transpose()
-    eps = np.ones((5, 5))
-    print("cn:\n")
-    print((obs / 100).astype(int).transpose())
-    noise = np.round(np.random.normal(size=obs.shape) * noise).astype(int)
-    return obs + noise, eps
-
 
 class EMTestCase(unittest.TestCase):
 

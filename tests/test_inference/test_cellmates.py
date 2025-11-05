@@ -382,12 +382,3 @@ class CellmatesTestCase(unittest.TestCase):
             'cell_names': cell_names
         }
         return out_dict
-
-
-
-
-
-
-
-
-

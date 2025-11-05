@@ -93,3 +93,9 @@ class PoissonModelTestCase(unittest.TestCase):
             print("Log emission computed successfully with NaN values.")
         except Exception as e:
             self.fail(f"Model failed to handle NaN values: {e}")
+
+        # perform M-step update
+        gamma = np.random.rand(n_sites, K)
+        gamma /= gamma.sum(axis=1, keepdims=True)
+        obs_model.M_step(obs_vw=x[:, [0, 1]], conditionals_vw=[gamma, gamma])
+        self.assertTrue(all(not np.isnan(val).any() for val in obs_model.psi.values()))
