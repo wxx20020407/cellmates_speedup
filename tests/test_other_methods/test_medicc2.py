@@ -212,18 +212,7 @@ class Medicc2APITestCase(unittest.TestCase):
         true_tree_dp = dpy.Tree.get(data=true_tree_nw,
                                         schema='newick')
         medicc2_nwk_file_path = f'../testdata/medicc2/{dataset}/{dataset}_medicc2_input_final_tree.new'
-        medicc2_tree_nw = open(medicc2_nwk_file_path).read().strip()
-        medicc2_tree_dpy: dpy.Tree = dpy.Tree.get(data=medicc2_tree_nw,
-                                                  schema='newick', taxon_namespace=true_tree_dp.taxon_namespace)
-        leaves_mapping = {f'cell {i}': str(i) for i in range(25)}
-        leaves_mapping['diploid'] = '26'
-        tree_utils.relabel_dendropy(medicc2_tree_dpy, leaves_mapping)
-        # Remove healthy root if present
-        if medicc2_tree_dpy.find_node_with_taxon_label('26') is not None:
-            medicc2_tree_dpy.prune_subtree(medicc2_tree_dpy.find_node_with_taxon_label('26'))
-
-        medicc2_tree_nx = tree_utils.convert_dendropy_to_networkx(medicc2_tree_dpy)
-        medicc2_tree_dpy2 = tree_utils.convert_networkx_to_dendropy(medicc2_tree_nx, taxon_namespace=true_tree_dp.taxon_namespace)
+        medicc2_tree_dpy2 = medicc2_api.load_medicc2_tree(medicc2_nwk_file_path, true_tree_dp.taxon_namespace, N_cells=25, remove_diploid=True)
 
         norm_rf_dist_medicc2 = tree_utils.normalized_rf_distance(true_tree_dp, medicc2_tree_dpy2)
         rf_dist_medicc2 = treecompare.symmetric_difference(true_tree_dp, medicc2_tree_dpy2)

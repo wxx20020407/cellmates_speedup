@@ -302,10 +302,10 @@ def add_root(dice_tree_nx, healthy_cell_name):
 
 def load_dice_tree(dice_output_path: str,
                    taxon_namespace,
+                   cell_names,
                    healthy_cell_name='cell_0',
-                   cell_names=None) -> Tree:
+                   ) -> Tree:
     """Loads the DICE-inferred tree from the output file and adds a root node."""
-    cell_names = ['cell_' + str(i) for i in range(N)] if cell_names is None else cell_names
     # Load newick
     dice_nwk_file_path = dice_output_path
     newick_str = open(dice_nwk_file_path).read().strip()

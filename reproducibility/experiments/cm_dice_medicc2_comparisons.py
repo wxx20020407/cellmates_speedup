@@ -1,5 +1,7 @@
 import argparse
+import itertools
 import logging
+import os
 import pickle
 
 import anndata
@@ -8,11 +10,12 @@ from dendropy.calculate import treecompare
 import dendropy as dpy
 from matplotlib import pyplot as plt
 
+from cellmates.inference import neighbor_joining
 from cellmates.models.evo import SimulationEvoModel, JCBModel
 from cellmates.models.obs import NormalModel
 from cellmates.other_methods import dice_api, medicc2_api
 from cellmates.simulation import datagen
-from cellmates.utils import visual, tree_utils
+from cellmates.utils import visual, tree_utils, testing
 
 
 def simulate_data(N, M, K, n_clonal_events_per_edge, n_focal_events_per_edge,
@@ -52,24 +55,42 @@ def simulate_data(N, M, K, n_clonal_events_per_edge, n_focal_events_per_edge,
 
     return cnps, true_tree, x
 
-def convert_data(dataset_path, out_dir=None):
+def convert_data(dataset_path, cnps_obs=None, out_dir=None, haplotype_aware=True):
     out_dir = out_dir if out_dir is not None else dataset_path
-    dice_api.convert_to_dice_tsv(cnps_obs, chr_ends_idx, bin_length, dataset_path + '_states.tsv')
-    dice_api.convert_dice_tsv_to_medicc2()
+    if cnps_obs is None:
+        # Load dataset
+        asd = 1
+        # cnps = load
+    M = cnps_obs.shape[1]
+    chr_ends_idx = [M // 2, M - 1]
+    bin_length = 1000
+    dice_api.convert_to_dice_tsv(cnps_obs, chr_ends_idx, bin_length, out_dir + '/dice_states.tsv')
+    dice_api.convert_dice_tsv_to_medicc2(out_dir + '/dice_states.tsv', out_dir, out_filename='medicc2_states.tsv',
+                                         totalCN=not haplotype_aware)
 
-def run_dice(dataset_path):
-    dice_api.run_dice(dice_input_path, dice_out_dir, method='star', tree_rec='balME')
+def run_dice(dataset_path, dice_out_dir=None):
+    dice_out_dir = dice_out_dir if dice_out_dir is not None else dataset_path
+    dice_api.run_dice(dataset_path + '/dice_states.tsv', dice_out_dir, method='star', tree_rec='balME')
+    logging.info(f'Dice results are saved to {dice_out_dir}')
 
-def run_medicc2(dataset_path):
-    medicc2_api.run_medicc2(medicc2_input_path, medicc2_out_dir)
+def run_medicc2(medicc2_input_path, medicc2_out_dir=None):
+    medicc2_out_dir = medicc2_out_dir if medicc2_out_dir is not None else medicc2_input_path
+    medicc2_api.run_medicc2(medicc2_input_path + '/medicc2_states.tsv', medicc2_out_dir)
+    logging.info(f'Medicc2 results are saved to {medicc2_out_dir}')
 
-def run_cellmates_ideal(cnps, haplotype_aware, true_tree):
+def run_cellmates_ideal(cnps, K, haplotype_aware, true_tree: dpy.Tree):
     # Compare with ideal Cellmates inference
     # Setup Cellmates model
+    N = (cnps.shape[0] + 1) // 2
     true_tree_nx = tree_utils.convert_dendropy_to_networkx(true_tree)
     evo_model = JCBModel(n_states=K)
     obs_model = NormalModel(n_states=K)
-    cnps_cellmates = np.concatenate((cnps_hap_a, cnps_hap_b), axis=1)  # shape (n_cells, 2*n_bins)
+    if haplotype_aware:
+        cnps_hap_a = cnps[:, :, 0]  # shape (2*n_cells-1, n_bins)
+        cnps_hap_b = cnps[:, :, 1]  # shape (2*n_cells-1, n_bins)
+        cnps_cellmates = np.concatenate((cnps_hap_a, cnps_hap_b), axis=1)  # shape (n_cells, 2*n_bins)
+    else:
+        cnps_cellmates = cnps  # shape (n_cells, n_bins)
     cell_pairs = list(itertools.combinations(range(N), r=2))
     psi_init = {'mu_v': 1.0, 'tau_v': 50.0, 'mu_w': 1.0, 'tau_w': 50.0}
     results, D, Dp = testing.run_ideal_cellmates_em_from_cnps(cnps_cellmates,
@@ -77,23 +98,31 @@ def run_cellmates_ideal(cnps, haplotype_aware, true_tree):
                                                               true_tree_nx, cell_pairs, K,
                                                               evo_model, obs_model, psi_init)
 
-    distances = -np.ones((N, N, 3))
-    iterations = -np.ones((N, N))
-    loglikelihoods = -np.ones((N, N))
-    # collect results
+    distances, iterations, loglikelihoods = -np.ones((N, N, 3)), -np.ones((N, N)), -np.ones((N, N))
     for (u, v), l_i, loglik, it, _, _ in results:
         distances[u, v, :] = l_i
         iterations[(u, v)] = it
         loglikelihoods[(u, v)] = loglik
 
+    # Build tree from distances
+    CM_tree_nx = neighbor_joining.build_tree(distances)
+    CM_tree_dp = tree_utils.convert_networkx_to_dendropy(CM_tree_nx,
+                                                         taxon_namespace=true_tree.taxon_namespace)
+
+    # Save Cellmates tree
+
+    return CM_tree_dp
+
+
+
 
 def compare_trees(true_tree, dice_tree, medicc2_tree, cellmates_tree, out_dir):
     # Calculate RF distances
     norm_rf_dist_dice = tree_utils.normalized_rf_distance(true_tree, dice_tree)
-    norm_rf_dist_medicc2 = tree_utils.normalized_rf_distance(true_tree, medicc2_tree)
+    norm_rf_dist_medicc2 = tree_utils.normalized_rf_distance(true_tree, true_tree)#medicc2_tree)
     norm_rf_dist_CM = tree_utils.normalized_rf_distance(true_tree, cellmates_tree)
     rf_dist_DICE = treecompare.symmetric_difference(true_tree, dice_tree)
-    rf_dist_Medicc2 = treecompare.symmetric_difference(true_tree, medicc2_tree)
+    rf_dist_Medicc2 = treecompare.symmetric_difference(true_tree, true_tree)#medicc2_tree)
     rf_dist_CM = treecompare.symmetric_difference(true_tree, cellmates_tree)
     logging.info(f"Normalized RF distances:\nDICE: {norm_rf_dist_dice}\nMEDICC2: {norm_rf_dist_medicc2}\nCellmates: {norm_rf_dist_CM}")
     logging.info(f"RF distances:\nDICE: {rf_dist_DICE}\nMEDICC2: {rf_dist_Medicc2}\nCellmates: {rf_dist_CM}")
@@ -101,8 +130,8 @@ def compare_trees(true_tree, dice_tree, medicc2_tree, cellmates_tree, out_dir):
     rf_dist = {'DICE': {'normalized': norm_rf_dist_dice, 'absolute': rf_dist_DICE},
                'MEDICC2': {'normalized': norm_rf_dist_medicc2, 'absolute': rf_dist_Medicc2},
                'Cellmates': {'normalized': norm_rf_dist_CM, 'absolute': rf_dist_CM}}
-    with open(out_dir + '/rf_distances.pkl', 'w') as f:
-        pickle.dump(rf_dist, f)
+    with open(out_dir + '/rf_distances.pkl', 'wb') as handle:
+        pickle.dump(rf_dist, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
     # Save tree figures and Newick files
     visual.plot_tree_phylo(dice_tree, out_dir=out_dir, filename='dice_tree', show=False)
@@ -119,34 +148,45 @@ def compare_trees(true_tree, dice_tree, medicc2_tree, cellmates_tree, out_dir):
         f.write(cellmates_tree.as_string(schema='newick'))
 
 
-def load_trees(out_dir):
+def load_trees(out_dir, taxon_namespace, N):
     # Load DICE tree
-    dice_api.load_dice_tree(out_dir)
+    cell_names = ['cell_'+str(i) for i in range(N)]
+    dice_tree = dice_api.load_dice_tree(out_dir + '/standard_root_balME_tree.nwk', taxon_namespace, cell_names)
     medicc2_api.load_medicc2_tree(out_dir)
+    return dice_tree, None
 
 def run(args):
+    out_dir = args.out_dir
+    if os.path.exists(out_dir):
+        logging.warning(f"Output directory {out_dir} already exists. Contents may be overwritten.")
+    os.makedirs(out_dir, exist_ok=True)
+
+    haplotype_aware = args.haplotype_aware
     if args.dataset_path is None:
         N, M, K = args.num_cells, args.num_bins, args.num_states
         nCN, nfCN = 1, 1
-        haplotype_aware = args.haplotype_aware
-        cnps, true_tree = simulate_data(N, M, K, nCN, nfCN, out_dir=args.out_dir)
+        cnps, true_tree, x = simulate_data(N, M, K, nCN, nfCN, out_dir=args.out_dir)
+        cnps_obs = cnps[:N]  # observed cells only
+        convert_data(None, cnps_obs=cnps_obs, out_dir=out_dir, haplotype_aware=haplotype_aware)
     else:
         # Load dataset from path
         dataset_path = args.dataset_path
         adata = anndata.load_h5ad(dataset_path)
+        convert_data(dataset_path, out_dir, haplotype_aware=haplotype_aware)
     # Convert dataset to DICE and MEDICC2 formats
-    convert_data(dataset_path, args.out_dir)
 
     # Run DICE
-    run_dice(dataset_path)
+    run_dice(out_dir, out_dir)
     # Run MEDICC2
-    #run_medicc2(dataset_path)
+    run_medicc2(dataset_path)
     # Run Cellmates
-    run_cellmates_ideal(cnps, haplotype_aware, true_tree)
+    cellmates_tree = run_cellmates_ideal(cnps, K, haplotype_aware, true_tree)
+    #run_cellmates()
 
     # Evaluation
-    load_trees(out_dir)
-    compare_trees(true_tree, dice_tree, medicc2_tree, cellmates_tree)
+    taxon_namespace = true_tree.taxon_namespace
+    dice_tree, _ = load_trees(out_dir, taxon_namespace, N)
+    compare_trees(true_tree, dice_tree, None, cellmates_tree, out_dir)
 
 
 if __name__ == '__main__':
@@ -158,8 +198,10 @@ if __name__ == '__main__':
     cli.add_argument('--num_bins', type=int, default=1000,)
     cli.add_argument('--num_states', type=int, default=5,)
     cli.add_argument('--num_processors', type=int, default=1,)
-    cli.add_argument('--haplotype_aware', action='store_true',)
+    cli.add_argument('--haplotype_aware', action='store_true', default=True)
     args = cli.parse_args()
+
+    run(args)
 
 
 
