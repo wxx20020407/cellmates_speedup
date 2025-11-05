@@ -157,7 +157,7 @@ def set_seed(seed):
     dpy.utility.GLOBAL_RNG.seed(seed)
 
 
-def plot_diagnostics(diagnostics: dict, out_dir: str) -> None:
+def plot_diagnostics(diagnostics: dict, out_dir: str, prefix: str = '') -> None:
     """
     Plot diagnostics from EM algorithm.
     """
@@ -179,6 +179,6 @@ def plot_diagnostics(diagnostics: dict, out_dir: str) -> None:
     ax[2].set_xlabel('Iteration')
     ax[2].set_ylabel('Psi')
     plt.tight_layout()
-    plt.savefig(os.path.join(out_dir, 'em_diagnostics.png'))
-
+    plt.savefig(os.path.join(out_dir, f'{prefix}em_diagnostics.png'))
+    plt.close()
     return None

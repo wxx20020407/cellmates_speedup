@@ -3,7 +3,6 @@ import logging
 import unittest
 import os
 
-import anndata as ad
 import numpy as np
 from Bio import Phylo
 import dendropy as dpy
@@ -20,6 +19,8 @@ from cellmates.utils import testing, visual, tree_utils
 from cellmates.utils.tree_utils import label_tree
 
 
+# skip if DICE is not installed (executable not found)
+@unittest.skipUnless(dice_api.is_dice_installed(), "DICE is not installed")
 class DiceAPITestCase(unittest.TestCase):
 
     def setUp(self):

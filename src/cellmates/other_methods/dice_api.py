@@ -257,3 +257,19 @@ def load_dice_tree(dice_output_path: str,
     # Convert back to dendropy
     dice_tree_dpy2 = tree_utils.convert_networkx_to_dendropy(dice_tree_nx, taxon_namespace=taxon_namespace)
     return dice_tree_dpy2
+
+
+def is_dice_installed():
+    """Checks if DICE is installed in the active virtual environment."""
+    try:
+        result = subprocess.run(['dice', '--version'], capture_output=True, text=True)
+        if result.returncode == 0:
+            logging.info(f"DICE is installed: {result.stdout.strip()}")
+            return True
+        else:
+            logging.warning("DICE command returned a non-zero exit code.")
+
+    except Exception as e:
+        logging.error(f"Error checking DICE installation: {e}")
+    logging.warning("DICE is not installed in the active virtual environment.")
+    return False

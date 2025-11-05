@@ -17,16 +17,28 @@ import anndata
 # ==================================
 # Main functions (read CNAsim files)
 # ==================================
-def convert_cnasim_output_to_anndata(cnasim_data_dir: str, out_path: str = None, normalize_counts: bool = True) -> str:
+def convert_cnasim_output_to_anndata(cnasim_data_dir: str, out_path: str = None, normalize_counts: bool = True, copynumbers_only: bool = False) -> str:
     """
     Convert CNAsim output files to anndata object and save it to out_path
     """
-    adata = load_cnasim_output_files(cnasim_data_dir, normalize_counts)
+    if copynumbers_only:
+        adata = profiles_to_anndata(os.path.join(cnasim_data_dir, 'profiles.tsv'))
+        add_sc_tree(adata, cnasim_data_path=cnasim_data_dir)
+    else:
+        adata = load_cnasim_output_files(cnasim_data_dir, normalize_counts)
     if out_path is None:
         out_path = os.path.join(cnasim_data_dir, 'adata.h5ad')
     adata.write(Path(out_path))
     return out_path
 
+def get_sc_tree_leaves_only(cnasim_data_path):
+    """
+    Parse tree.nwk file that only has labels for leaves (cells).
+    e.g. ((leaf1:0.08,((leaf3:0.024,leaf4:0.024):0.055)root;
+    """
+    tree_file = os.path.join(cnasim_data_path, 'tree.nwk')
+    tree_nx = _parse_newick(tree_file)
+    return tree_nx
 
 def get_sc_tree(cnasim_data_path: str, cell_types_df: pd.DataFrame) -> nx.DiGraph:
     """
@@ -130,6 +142,7 @@ def profiles_to_anndata(profiles_path: str) -> anndata.AnnData:
     cell_names = wide_cn_df.columns.tolist()
     cn_profiles = wide_cn_df[cell_names].transpose().to_numpy()
     adata = anndata.AnnData(cn_profiles)
+    adata.layers['state'] = cn_profiles
     adata.obs_names = cell_names
     adata.var_names = wide_cn_df.index.map(lambda x: f"{x[0]}:{x[1]}-{x[2]}")
     # prefix can be 'chr' or 'chr_' and chromosome names can be '1', ... '22', 'X', 'Y'
@@ -203,7 +216,7 @@ def correct_readcounts(adata, min_normal_cells=1, inplace=True) -> np.ndarray:
 
     if 'normal' not in adata.obs or adata.obs['normal'].sum() < min_normal_cells:
         # use cnasim params to compute mean read counts per bin per copy
-        baseline = adata.uns['cnasim-params']['bin_length'] * adata.uns['cnasim-params']['coverage'] / adata.uns['cnasim-params']['read_length']
+        baseline = adata.uns['cnasim-params']['bin_length'] * adata.uns['cnasim-params']['coverage'] / (adata.uns['cnasim-params']['read_length'] * 2 * normal_cn)
     else:
         baseline = adata[adata.obs['normal']].X.mean(axis=0) / normal_cn # counts per copy
 
@@ -255,6 +268,30 @@ def load_counts_init_anndata(cnasim_data_path: str):
                                                 sort=False)[cell_names].transpose().to_numpy()
     return adata
 
+
+def add_sc_tree(adata, cnasim_data_path: str = None) -> None:
+    tree_nx = get_sc_tree_leaves_only(cnasim_data_path)
+    cell_tree_newick = _tree_to_newick(tree_nx, root='root', weight='weight') + ";"
+    adata.uns['cell-tree-newick'] = cell_tree_newick
+
+
+def add_tree(adata, cnasim_data_path: str = None, cell_types_df: pd.DataFrame = None) -> None:
+    tree_nx = get_sc_tree(cnasim_data_path, cell_types_df)
+    clonal_tree_nx = _collapse_equal_clones(tree_nx, clone_attr='clone')
+    remapped_clonal_tree_nx = nx.relabel_nodes(clonal_tree_nx, {n: clonal_tree_nx.nodes[n]['clone'] for n in clonal_tree_nx.nodes()})
+    # when normal cells are not simulated, set founder as root (tree structure changes)
+    root_node = 'root' if np.any(adata.obs['normal']) else 'founder'
+    root_node_id = 0 if root_node == 'root' else 1
+
+    cell_tree_newick = _tree_to_newick(tree_nx, root=root_node, weight='weight') + ";"
+    clonal_tree_newick = _tree_to_newick(clonal_tree_nx, root=root_node, weight='weight') + ";"
+    clone_id_tree_nwk = _tree_to_newick(remapped_clonal_tree_nx, root=root_node_id, weight='weight') + ";"
+
+    adata.uns['cell-tree-newick'] = cell_tree_newick
+    adata.uns['clonal-tree-newick'] = clonal_tree_newick
+    adata.uns['clone-id-tree-newick'] = clone_id_tree_nwk
+
+
 def load_cnasim_output_files(cnasim_data_path: str | Path, normalize_counts: bool = True) -> anndata.AnnData:
     """
     Load CNAsim output files into anndata object. The annData object will contain:
@@ -292,20 +329,7 @@ def load_cnasim_output_files(cnasim_data_path: str | Path, normalize_counts: boo
     # 4. read and process tree.nwk
     # print(clone_founder)  # ['root', 'ancestor2', 'ancestor19', ...]
     # print(clone_id_map)  # {'normal': 0, 'clone6': 6, 'clone2': 2, ...}
-    tree_nx = get_sc_tree(cnasim_data_path, cell_types_df)
-    clonal_tree_nx = _collapse_equal_clones(tree_nx, clone_attr='clone')
-    remapped_clonal_tree_nx = nx.relabel_nodes(clonal_tree_nx, {n: clonal_tree_nx.nodes[n]['clone'] for n in clonal_tree_nx.nodes()})
-    # when normal cells are not simulated, set founder as root (tree structure changes)
-    root_node = 'root' if np.any(adata.obs['normal']) else 'founder'
-    root_node_id = 0 if root_node == 'root' else 1
-
-    cell_tree_newick = _tree_to_newick(tree_nx, root=root_node, weight='weight') + ";"
-    clonal_tree_newick = _tree_to_newick(clonal_tree_nx, root=root_node, weight='weight') + ";"
-    clone_id_tree_nwk = _tree_to_newick(remapped_clonal_tree_nx, root=root_node_id, weight='weight') + ";"
-
-    adata.uns['cell-tree-newick'] = cell_tree_newick
-    adata.uns['clonal-tree-newick'] = clonal_tree_newick
-    adata.uns['clone-id-tree-newick'] = clone_id_tree_nwk
+    add_tree(adata)
     return adata
 
 # =======================================
@@ -363,6 +387,48 @@ def _parse_newick(tree_file):
     """
     Parameters
     ----------
+    tree_file : filepath or file-like
+        If a Newick string is desired, pass StringIO(newick_string) instead.
+
+    Returns
+    -------
+    nx.DiGraph
+        Directed NetworkX tree.
+    """
+    tree = Phylo.read(tree_file, 'newick')
+    und_tree_nx = Phylo.to_networkx(tree)
+
+    # Extract node names or confidence values
+    names = []
+    unlabeled_counter = 1
+    for cl in und_tree_nx.nodes:
+        if cl.name is not None:
+            names.append(str(cl.name))
+        elif cl.confidence is not None:
+            names.append(str(cl.confidence))
+        else:
+            names.append(f"unlabeled{unlabeled_counter}")
+            unlabeled_counter += 1
+
+    # Try converting names to int if all numeric
+    try:
+        int_names = list(map(int, names))
+        mapping = dict(zip(und_tree_nx, int_names))
+    except ValueError:
+        mapping = dict(zip(und_tree_nx, names))
+
+    relabeled_tree = nx.relabel_nodes(und_tree_nx, mapping)
+
+    # Convert to directed graph
+    tree_nx = nx.DiGraph()
+    tree_nx.add_weighted_edges_from(relabeled_tree.edges(data='weight', default=1.0))
+
+    return tree_nx
+
+def _parse_newick_old(tree_file):
+    """
+    Parameters
+    ----------
     tree_file: filepath. if newick string is desired, it's enough to
         pass StringIO(newick_string) instead
 
@@ -397,9 +463,10 @@ def main():
     cli.add_argument('-i', '--input', type=str, required=True, help="CNAsim files directory (where `readcounts.tsv`, `profiles.tsv`, `cell_types.tsv` and `tree.nwk` are located)")
     cli.add_argument('-o', '--output', type=str, default=None, help="output file path e.g. ./datasets/dat.h5ad")
     cli.add_argument('--counts-only', action='store_true', help="Only load read counts without normalization or copy number states")
+    cli.add_argument('--copynumbers-only', action='store_true', help="Only load copy number states without read counts")
     args = cli.parse_args()
 
-    convert_cnasim_output_to_anndata(args.input, args.output, normalize_counts=not args.counts_only)
+    convert_cnasim_output_to_anndata(args.input, args.output, normalize_counts=not args.counts_only, copynumbers_only=args.copynumbers_only)
     logger.info(f"Wrote {args.output}")
 
 if __name__ == "__main__":
