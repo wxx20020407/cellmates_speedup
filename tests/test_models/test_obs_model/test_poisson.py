@@ -63,3 +63,33 @@ class PoissonModelTestCase(unittest.TestCase):
         updated_psi = obs_model.psi
         self.assertAlmostEqual(updated_psi['lambda_v'], lambda_v_true, delta=lambda_v_true * 0.1)
         self.assertAlmostEqual(updated_psi['lambda_w'], lambda_w_true, delta=lambda_w_true * 0.1)
+
+    def test_nan_values(self):
+        """
+        Tests that the model handles NaN values in the observations without errors.
+        """
+        n_sites = 100
+        K = 7
+        obs_model = PoissonModel(n_states=K, lambda_v_prior=100.)
+        evo_model_sim = SimulationEvoModel(n_clonal_CN_events=5, n_focal_events=5, clonal_CN_length=10)
+        data = datagen.simulate_quadruplet(n_sites, obs_model, evo_model_sim, n_states=K)
+        x = data['obs']
+        x_full = x.copy()
+        # Introduce NaN values randomly
+        nan_indices = np.random.choice(n_sites, size=10, replace=False)
+        x[nan_indices, 0] = np.nan
+        x[nan_indices, 1] = np.nan
+
+        # Attempt to compute log emission probabilities
+        try:
+            log_p = obs_model.log_emission(x)
+            self.assertTrue(not np.any(np.isnan(log_p)), "Log probabilities should not contain NaNs.")
+            self.assertEqual(log_p.shape, (n_sites, K, K), "Log probabilities shape mismatch.")
+            # sum of log emissions is higher if there are nans
+            loglik_full = np.sum(obs_model.log_emission(x_full))
+            loglik_nan = np.sum(obs_model.log_emission(x))
+            self.assertTrue(loglik_nan > loglik_full - 1e-3,
+                            "Log likelihood with NaNs should be higher than or equal to full data.")
+            print("Log emission computed successfully with NaN values.")
+        except Exception as e:
+            self.fail(f"Model failed to handle NaN values: {e}")

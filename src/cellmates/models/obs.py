@@ -277,7 +277,9 @@ class NormalModel(ObsModel):
         log_emissions_v[...] = ss.norm.logpdf(obs_vw[:, 0][:, None], loc=loc_param_v[None, :], scale=(tau[0]**(-1/2)))
         # log p(y_m^w | . )
         log_emissions_w[...] = ss.norm.logpdf(obs_vw[:, 1][:, None], loc=loc_param_w[None, :], scale=(tau[1]**(-1/2)))
-
+        # if y is nan (missing data), set log prob to 0
+        log_emissions_v[np.isnan(obs_vw[:, 0]), :] = 0.
+        log_emissions_w[np.isnan(obs_vw[:, 1]), :] = 0.
         return log_emissions_v, log_emissions_w
 
     def update(self, obs_vw, conditionals_vw, **kwargs):
@@ -447,7 +449,9 @@ class PoissonModel(ObsModel):
         log_emissions_v[...] = ss.poisson.logpmf(obs_vw[:, 0][:, None], poisson_params_v[None, :])
         # log p(y_m^w | . )
         log_emissions_w[...] = ss.poisson.logpmf(obs_vw[:, 1][:, None], poisson_params_w[None, :])
-
+        # if y is nan (missing data), set log prob to 0
+        log_emissions_v[np.isnan(obs_vw[:, 0]), :] = 0.
+        log_emissions_w[np.isnan(obs_vw[:, 1]), :] = 0.
         return log_emissions_v, log_emissions_w
 
     def update(self, obs_vw, conditionals_vw, **kwargs):
