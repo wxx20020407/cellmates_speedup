@@ -178,7 +178,7 @@ def run(args):
     # Run DICE
     run_dice(out_dir, out_dir)
     # Run MEDICC2
-    run_medicc2(dataset_path)
+    run_medicc2(out_dir)
     # Run Cellmates
     cellmates_tree = run_cellmates_ideal(cnps, K, haplotype_aware, true_tree)
     #run_cellmates()
