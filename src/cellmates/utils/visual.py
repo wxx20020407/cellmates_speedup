@@ -173,9 +173,9 @@ def plot_tree_phylo(tree: str | dendropy.Tree,
     bio_tree = Phylo.read(handle, "newick")
 
     fig, ax = plt.subplots(figsize=(6, 4))
-    Phylo.draw(bio_tree, axes=ax)
     if title is not None:
-        fig.suptitle(title)
+        ax.set_title(title)
+    Phylo.draw(bio_tree, axes=ax)
     if show:
         plt.show()
     if save:

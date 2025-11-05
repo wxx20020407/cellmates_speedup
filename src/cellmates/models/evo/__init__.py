@@ -635,7 +635,7 @@ class SimulationEvoModel():
 
     def __init__(self,
                  clonal_CN_prob: float | dict = 0.05, clonal_CN_length_ratio: float = 0.2,
-                 focal_prob: float | dict = 0.05, focal_length_avg: int = 5,
+                 focal_prob: float | dict = 0.05, focal_length_avg: int = 2,
                  n_clonal_CN_events: int | dict = None, clonal_CN_length: int |dict = None,
                  n_focal_events: int | dict = None, focal_CN_length: int | dict = None,
                  allow_overlapping_CN_events=True,
@@ -747,7 +747,7 @@ class SimulationEvoModel():
         # Draw number of clonal CN events
         if self.n_clonal_CN_events is None:
             clonal_rate = self.clonal_CN_prob * self.n_sites
-            n_clonal_events_uv = ss.poisson(clonal_rate)
+            n_clonal_events_uv = ss.poisson(clonal_rate).rvs()
         else:
             if isinstance(self.n_clonal_CN_events, dict):
                 n_clonal_events_uv = self.n_clonal_CN_events[(u, v)]
@@ -756,7 +756,7 @@ class SimulationEvoModel():
         # Draw number of focal CN events
         if self.n_focal_events is None:
             focal_rate = self.focal_prob * self.n_sites
-            n_focal_events_uv = ss.poisson(focal_rate)
+            n_focal_events_uv = ss.poisson(focal_rate).rvs()
         else:
             if isinstance(self.n_focal_events, dict):
                 n_focal_events_uv = self.n_focal_events[(u, v)]
@@ -781,9 +781,6 @@ class SimulationEvoModel():
             else:
                 focal_lengths = self.focal_CN_length[u, v] if isinstance(self.focal_CN_length, dict) else self.focal_CN_length
             focal_end_pos = np.clip(focal_start_pos + focal_lengths, a_min=None, a_max=n_sites - 1)
-            # Ensure no 0-absorption
-            if self.zero_absorption:
-                pass
         else:
             # Draw non-overlapping CN events
             raise NotImplementedError()
