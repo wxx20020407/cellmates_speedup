@@ -1,5 +1,6 @@
 import argparse
 import itertools
+import json
 import logging
 import os
 import pickle
@@ -100,9 +101,9 @@ def run_dice(dataset_path, dice_out_dir=None):
     dice_api.run_dice(dataset_path + '/dice_states.tsv', dice_out_dir, method='star', tree_rec='balME')
     logging.info(f'Dice results are saved to {dice_out_dir}')
 
-def run_medicc2(medicc2_input_path, medicc2_out_dir=None):
+def run_medicc2(medicc2_input_path, medicc2_out_dir=None, num_proc=1):
     medicc2_out_dir = medicc2_out_dir if medicc2_out_dir is not None else medicc2_input_path
-    medicc2_api.run_medicc2(medicc2_input_path + '/medicc2_states.tsv', medicc2_out_dir)
+    medicc2_api.run_medicc2(medicc2_input_path + '/medicc2_states.tsv', medicc2_out_dir, num_proc=num_proc)
     logging.info(f'Medicc2 results are saved to {medicc2_input_path}/{medicc2_out_dir}')
 
 def run_cellmates(x, K, cellmates_out_dir, num_proc=1):
@@ -174,8 +175,8 @@ def compare_trees(true_tree, dice_tree, medicc2_tree, cellmates_tree, out_dir):
     rf_dist = {'DICE': {'normalized': norm_rf_dist_dice, 'absolute': rf_dist_DICE},
                'MEDICC2': {'normalized': norm_rf_dist_medicc2, 'absolute': rf_dist_Medicc2},
                'Cellmates': {'normalized': norm_rf_dist_CM, 'absolute': rf_dist_CM}}
-    with open(out_dir + '/rf_distances.pkl', 'wb') as handle:
-        pickle.dump(rf_dist, handle, protocol=pickle.HIGHEST_PROTOCOL)
+    with open(out_dir + '/rf_distances.json', 'w') as fp:
+        json.dump(rf_dist, fp)
 
     # Save tree figures and Newick files
     visual.plot_tree_phylo(dice_tree, out_dir=out_dir, filename='dice_tree', title='DICE tree')
@@ -258,7 +259,7 @@ def run(args):
     time_dice = time.time() - time_dice_start
     # Run MEDICC2
     time_medicc2_start = time.time()
-    run_medicc2(out_dir)
+    run_medicc2(out_dir, num_proc=args.num_proc)
     time_medicc2 = time.time() - time_medicc2_start
     # Run Cellmates
     time_cellmates_start = time.time()
@@ -287,7 +288,7 @@ if __name__ == '__main__':
     cli.add_argument('--CN-prob', type=float, default=None)
     cli.add_argument('--fCN-prob', type=float, default=None)
     cli.add_argument('--jitter-error', type=float, default=None)
-    cli.add_argument('--num-processors', type=int, default=1,)
+    cli.add_argument('--num-proc', type=int, default=1,)
     cli.add_argument('--haplotype-aware', action='store_true', default=True)
     args = cli.parse_args()
 
