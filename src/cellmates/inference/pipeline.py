@@ -11,7 +11,7 @@ from cellmates.utils.tree_utils import write_newick
 
 logger = logging.getLogger(__name__)
 
-def obs_from_adata(adata, layer_name='copy', normal_annotation='normal'):
+def obs_from_adata(adata, layer_name='copy', normal_annotation=None):
     """
     Extract observations and chromosome ends from AnnData object.
     Parameters
@@ -33,6 +33,7 @@ def obs_from_adata(adata, layer_name='copy', normal_annotation='normal'):
     # return dat.T, chromosome_ends.tolist()
     adata_tumor = adata
     if normal_annotation is not None:
+        assert normal_annotation in adata.obs, f"Normal annotation '{normal_annotation}' not found in adata.obs"
         adata_tumor = adata[~adata.obs[normal_annotation]]
     dat = adata_tumor.layers[layer_name] if layer_name else adata_tumor.X
 
@@ -104,7 +105,7 @@ def save_results(em, out_path, cell_names):
 
     np.save(dist_path, em.distances)
     tree = build_tree(em.distances, edge_attr='branch_length')
-    nwk_str = write_newick(tree, cell_names=cell_names, out_path=tree_path)
+    nwk_str = write_newick(tree, cell_names=cell_names, out_path=tree_path, edge_attr='branch_length')
 
     with open(cell_names_path, 'w') as f:
         f.writelines(f"{n}\n" for n in cell_names)
@@ -128,7 +129,7 @@ def run_inference_pipeline(
     use_copynumbers=False,
     tau=50.0,
     save_diagnostics=False,
-    normal_annotation='normal',
+    normal_annotation=None,
 ):
     out_path = output or "."
     hmm_alg = "broadcast" if numpy else "pomegranate"

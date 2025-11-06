@@ -10,6 +10,7 @@ from dendropy.calculate import treecompare
 
 from cellmates.inference import neighbor_joining
 from cellmates.inference.em import EM, fit_quadruplet
+from cellmates.inference.pipeline import run_inference_pipeline
 from cellmates.models.obs import NormalModel
 from cellmates.utils import tree_utils, testing, visual
 
@@ -18,8 +19,9 @@ import networkx as nx
 import numpy as np
 from matplotlib import pyplot as plt
 
-from cellmates.simulation.datagen import rand_dataset
+from cellmates.simulation.datagen import rand_dataset, rand_ann_dataset
 from cellmates.models.evo import JCBModel, SimulationEvoModel
+from cellmates.utils.testing import create_output_test_folder
 
 
 class CellmatesTestCase(unittest.TestCase):
@@ -382,3 +384,51 @@ class CellmatesTestCase(unittest.TestCase):
             'cell_names': cell_names
         }
         return out_dict
+
+    def test_run_inference_pipeline_saves_and_deletes_files(self):
+        # Create small AnnData (5 cells x 10 features) with a `copy` layer and `normal` annotation
+        n_cells = 5
+        n_states = 5
+        n_sites = 20
+        adata = rand_ann_dataset(n_cells, n_states, n_sites)
+        adata.layers['copy'] = adata.X.copy()
+        test_dir = create_output_test_folder()
+
+        h5ad_path = os.path.join(test_dir, "test_data.h5ad")
+        adata.write_h5ad(str(h5ad_path))
+
+        results = run_inference_pipeline(
+            input=str(h5ad_path),
+            output=test_dir,
+            max_iter=3,
+            numpy=True,
+            use_copynumbers=False,
+            save_diagnostics=True,
+        )
+
+        # Verify returned paths exist and content is plausible
+        dist_path = results["distances"]
+        tree_path = results["tree"]
+        cells_path = results["cells"]
+
+        assert os.path.exists(dist_path), "distance file not created"
+        assert os.path.exists(tree_path), "tree file not created"
+        assert os.path.exists(cells_path), "cell names file not created"
+
+        # Check distance matrix shape matches number of cells
+        loaded = np.load(dist_path)
+        assert loaded.shape == (n_cells, n_cells, 3)
+
+        # Basic check for cell names contents
+        with open(cells_path, "r") as f:
+            lines = [l.strip() for l in f.readlines()]
+        assert len(lines) == n_cells
+
+        # Read tree and check number of leaves
+        tree_dp = dendropy.Tree.get(path=tree_path, schema="newick")
+        assert len(tree_dp.leaf_nodes()) == n_cells
+
+        # Clean up the created files explicitly
+        os.remove(dist_path)
+        os.remove(tree_path)
+        os.remove(cells_path)
