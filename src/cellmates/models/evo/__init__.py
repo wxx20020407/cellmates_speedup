@@ -639,7 +639,9 @@ class SimulationEvoModel():
                  n_clonal_CN_events: int | dict = None, clonal_CN_length: int |dict = None,
                  n_focal_events: int | dict = None, focal_CN_length: int | dict = None,
                  allow_overlapping_CN_events=True,
-                 n_homoplasies=None, zero_absorption: bool = True,
+                 n_homoplasies=None,
+                 zero_absorption: bool = True,
+                 zero_absorption_prob: float | dict = 0.0,
                  root_cn: int = 2, max_CN_state: int = 6):
         """
         Initialize simulation model.
@@ -675,6 +677,7 @@ class SimulationEvoModel():
         self.allow_overlapping_CN_events = allow_overlapping_CN_events # Only implemented for TRUE now
         self.n_homoplasies = n_homoplasies  # Not implemented yet
         self.zero_absorption = zero_absorption
+        self.zero_absorption_prob = zero_absorption_prob
 
         # Healthy cells related parameters
         self.root_cn = root_cn
