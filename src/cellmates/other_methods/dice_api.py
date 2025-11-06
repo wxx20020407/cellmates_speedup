@@ -1,3 +1,4 @@
+import copy
 import csv
 import logging
 import os
@@ -256,6 +257,7 @@ def load_dice_tree(dice_output_path: str,
     dice_tree_nx = tree_utils.relabel_name_to_int(dice_tree_nx, cell_names)
     # Convert back to dendropy
     dice_tree_dpy2 = tree_utils.convert_networkx_to_dendropy(dice_tree_nx, taxon_namespace=taxon_namespace)
+    tree_utils.label_tree(dice_tree_dpy2)
     return dice_tree_dpy2
 
 
