@@ -1,5 +1,6 @@
 import itertools
 import logging
+import pickle
 import time
 import multiprocessing as mp
 from multiprocessing import shared_memory
@@ -67,8 +68,7 @@ class EM:
 
 
     def fit(self, X: np.ndarray, max_iter: int = 200, rtol: float = 1e-4, num_processors: int = 1,
-            theta_init=None,
-            psi_init=None):
+            theta_init=None, psi_init=None, checkpoint_path: str = None):
         """
         Run the EM algorithm for the given observations X.
         Parameters
@@ -85,7 +85,16 @@ class EM:
         obs = X
         # reset diagnostics
         if self.diagnostics:
-            self.diagnostic_data = {}
+            if checkpoint_path is None:
+                self.diagnostic_data = {}
+            else:
+                # TODO: load existing checkpoint data
+                self.logger.info(f"checkpoints will be saved during inference in the output directory: {checkpoint_path}")
+                self.diagnostic_data = {}
+                pass
+        else:
+            if checkpoint_path is not None:
+                self.logger.warning('checkpoint path provided but diagnostics disabled, no data will be saved')
 
         # init to an average of 5 changes over the whole length if not provided
         p_init_default = 5 / self.n_sites
@@ -108,11 +117,11 @@ class EM:
         # run inference for each pair of cells
         if num_processors > 1:
             self.logger.debug(f'using {num_processors} processors')
-            results = _fit_shared_mem(self, obs, theta_init_, psi_init, max_iter, rtol, num_processors)
+            results = _fit_shared_mem(self, obs, theta_init_, psi_init, max_iter, rtol, num_processors, checkpoint_path)
         else:
             # single processor
             self.logger.debug(f'using single processor')
-            results = _fit_em(self, obs, theta_init_, psi_init, max_iter, rtol)
+            results = _fit_em(self, obs, theta_init_, psi_init, max_iter, rtol, checkpoint_path)
 
         # collect results
         for (s, t), l_i, loglik, it, obs_model, diagnostics in results:
@@ -261,7 +270,7 @@ def fit_quadruplet(v: int, w: int, obs_vw: np.ndarray,
                    obs_model_template: ObsModel,
                    psi_init: dict = None,
                    save_diagnostics: bool = False,
-                   min_iter: int = 0):
+                   min_iter: int = 0, checkpoint_path: str = None):
     """
     This function runs the EM algorithm for a pair of cells v, w with observations obs_vw and given initial parameters.
     It may be used in parallel, so all models are passed as templates and initialized inside the function and the EM
@@ -331,19 +340,32 @@ def fit_quadruplet(v: int, w: int, obs_vw: np.ndarray,
         logger.warning(f'final loglikelihood: {loglik} < max loglikelihood: {likelihood_max} (rel drop {rel_drop})')
         logger.warning(f'likelihood decreased {likelihood_drop_counter} times')
 
+    # tmp results
+    if save_diagnostics and checkpoint_path is not None:
+        # save diagnostics data with pair name
+        with open(f'{checkpoint_path}/_checkpoint_{v}_{w}.pkl', 'wb') as f:
+            pickle.dump({
+                'loglikelihoods': diagnostic_data['loglikelihoods'],
+                'thetas': diagnostic_data['thetas'],
+                'psis': diagnostic_data['psis'],
+                'obs_model_name': obs_model_template.__class__.__name__,
+                'evo_model_name': evo_model_template.__class__.__name__,
+                'pair': (v, w)
+            }, f)
     return (v, w), quad_model.theta, loglik, it, obs_model, diagnostic_data
 
 def _fit_em(em, obs: np.ndarray,
         theta_init_: np.ndarray,
         psi_init: dict,
         max_iter: int,
-        rtol: float):
+        rtol: float,
+        checkpoint_path: str = None):
     # for s, t in itertools.combinations(range(self.n_cells), r=2):
     #     results.append(self._fit_quadruplet(s, t, obs[:, [s, t]], theta_init_, max_iter, rtol, psi_init))
     results = []
     pairs = list(itertools.combinations(range(em.n_cells), r=2))
     for s, t in tqdm(pairs, desc="Running inference"):
-        results.append(fit_quadruplet(s, t, obs[:, [s, t]], max_iter, rtol, em.evo_model, theta_init_, em.obs_model, psi_init, em.diagnostics, em.min_iter))
+        results.append(fit_quadruplet(s, t, obs[:, [s, t]], max_iter, rtol, em.evo_model, theta_init_, em.obs_model, psi_init, em.diagnostics, em.min_iter, checkpoint_path))
     return results
 
 ## Multiprocessing with shared memory
@@ -352,7 +374,8 @@ def _fit_shared_mem(em, obs: np.ndarray,
                     psi_init: dict,
                     max_iter: int,
                     rtol: float,
-                    num_processors: int):
+                    num_processors: int,
+                    checkpoint_path: str = None):
     # dispatch jobs to multiple processors using shared memory
     # create shared memory for observations, numpy array backed by shared memory and copy data
     results = []
@@ -361,7 +384,7 @@ def _fit_shared_mem(em, obs: np.ndarray,
     try:
         shared_obs = np.ndarray(obs.shape, dtype=obs.dtype, buffer=shm_obs.buf)
         np.copyto(shared_obs, obs)
-        args = [(s, t, shm_obs.name, theta_init, psi_init, max_iter, rtol, em)
+        args = [(s, t, shm_obs.name, theta_init, psi_init, max_iter, rtol, em, checkpoint_path)
                 for s, t in itertools.combinations(range(n_cells), r=2)]
         total_tasks = len(args)
         with mp.Pool(num_processors) as pool:
@@ -381,10 +404,10 @@ def _fit_quadruplet_shared_mem(args_tuple: tuple) -> tuple:
     Pairwise EM algorithm for a pair of cells v, w with shared observations to be used in multiprocessing.
     Loads the observations from shared memory and calls the fit_quadruplet function.
     """
-    v, w, shared_obs_mem_name, theta_init, psi_init, max_iter, rtol, em = args_tuple
+    v, w, shared_obs_mem_name, theta_init, psi_init, max_iter, rtol, em, checkpoint_path = args_tuple
     shm = shared_memory.SharedMemory(name=shared_obs_mem_name)
     obs_vw = np.ndarray((em.n_sites, em.n_cells), dtype=np.float64, buffer=shm.buf)[..., [v, w]]
-    return fit_quadruplet(v, w, obs_vw, max_iter, rtol, em.evo_model, theta_init, em.obs_model, psi_init, em.diagnostics, em.min_iter)
+    return fit_quadruplet(v, w, obs_vw, max_iter, rtol, em.evo_model, theta_init, em.obs_model, psi_init, em.diagnostics, em.min_iter, checkpoint_path)
 
 if __name__ == '__main__':
     seed = 42

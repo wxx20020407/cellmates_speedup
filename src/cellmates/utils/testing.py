@@ -157,7 +157,7 @@ def set_seed(seed):
     dpy.utility.GLOBAL_RNG.seed(seed)
 
 
-def plot_diagnostics(diagnostics: dict, out_dir: str, prefix: str = '') -> None:
+def plot_diagnostics(diagnostics: dict, out_dir: str = None, prefix: str = ''):
     """
     Plot diagnostics from EM algorithm.
     """
@@ -178,7 +178,27 @@ def plot_diagnostics(diagnostics: dict, out_dir: str, prefix: str = '') -> None:
     ax[2].set_title('Psi parameters over iterations')
     ax[2].set_xlabel('Iteration')
     ax[2].set_ylabel('Psi')
+    fig.suptitle("EM diagnostics " + prefix)
     plt.tight_layout()
-    plt.savefig(os.path.join(out_dir, f'{prefix}em_diagnostics.png'))
-    plt.close()
-    return None
+    if out_dir is not None:
+        plt.savefig(os.path.join(out_dir, f'{prefix}em_diagnostics.png'))
+        plt.close()
+        return None
+    else:
+        plt.show()
+        return {'fig': fig, 'axes': ax}
+
+def _generate_obs(noise=0):
+    # 10 sites, 5 cells
+    obs = np.array([
+        [200] * 5 + [300] * 5,
+        [100] * 5 + [200] * 5,
+        [100] * 3 + [200] * 2 + [300] * 5,
+        [200] * 9 + [100],
+        [400] * 2 + [300] * 2 + [200] * 3 + [100] * 3
+    ]).transpose()
+    eps = np.ones((5, 5))
+    print("cn:\n")
+    print((obs / 100).astype(int).transpose())
+    noise = np.round(np.random.normal(size=obs.shape) * noise).astype(int)
+    return obs + noise, eps

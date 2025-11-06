@@ -298,7 +298,7 @@ class NormalModel(ObsModel):
         M-step to update model parameters given observations and conditional probabilities of the copy number states.
         Follows the eq:
         mu_v = (sum_m sum_i p(C_m^v = i | y_m^{vw}) * y_m^v) / (sum_m sum_i p(C_m^v = i | y_m^{vw}) * i)
-        tau_v = 2*(sum_m sum_i p(C_m^v = i | y_m^{vw})) / (sum_m sum_i p(C_m^v = i | y_m^{vw}) * (y_m^v - mu_v * i)^2)
+        tau_v = (sum_m sum_i p(C_m^v = i | y_m^{vw})) / (sum_m sum_i p(C_m^v = i | y_m^{vw}) * (y_m^v - mu_v * i)^2)
         Parameters
         ----------
         obs_vw, array of shape (n_sites, 2) with observations for pair of leaves
@@ -321,18 +321,25 @@ class NormalModel(ObsModel):
         return {'mu_v': mu_v, 'tau_v': tau_v, 'mu_w': mu_w, 'tau_w': tau_w}
 
     def mu_update(self, gamma, obs, cn_states):
+        valid = ~np.isnan(obs)
+        if not np.any(valid):
+            return np.nan  # or keep previous value if stored
+        gamma = gamma[valid]
+        obs = obs[valid]
         mu_num = np.einsum('mj, m, j ->', gamma, obs, cn_states)
-        mu_den = np.einsum('mj, j ->', gamma, cn_states**2)
-        mu = mu_num / mu_den
-        return mu
+        mu_den = np.einsum('mj, j ->', gamma, cn_states ** 2)
+        return mu_num / mu_den
 
     def tau_update(self, gamma, obs, cn_states, mu):
+        valid = ~np.isnan(obs)
+        if not np.any(valid):
+            return np.nan
+        gamma = gamma[valid]
+        obs = obs[valid]
         obs_mu_c_diff = obs[:, None] - mu * cn_states[None, :]
-        obs_mu_c_diff_squared = obs_mu_c_diff**2
         tau_num = np.einsum('mj ->', gamma)
-        tau_den = np.einsum('mj, mj ->', gamma, obs_mu_c_diff_squared)
-        tau = tau_num / tau_den
-        return tau
+        tau_den = np.einsum('mj, mj ->', gamma, obs_mu_c_diff ** 2)
+        return tau_num / tau_den
 
     def update_params(self, mu_v, tau_v, mu_w, tau_w):
         self.mu_v = mu_v
@@ -490,6 +497,11 @@ class PoissonModel(ObsModel):
         return {'lambda_v': lambda_v, 'lambda_w': lambda_w}
 
     def lambda_update(self, gamma, obs, cn_states):
+        valid = ~np.isnan(obs)
+        if not np.any(valid):
+            return np.nan  # or keep previous value if stored
+        gamma = gamma[valid]
+        obs = obs[valid]
         lambda_num = np.einsum('mj, m ->', gamma, obs)
         lambda_den = np.einsum('mj, j ->', gamma, cn_states)
         lambda_ = lambda_num / lambda_den
