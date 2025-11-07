@@ -38,6 +38,69 @@ def run_dice(dataset_path, out_path=None, method='star', tree_rec='balME'):
     logging.info(f'Running dice: {dice_command}')
     subprocess.run(dice_command, shell=True)
 
+def load_anndata_and_convert_to_dice_tsv(
+    dataset_path: str, output_filepath: str
+    ):
+    """
+    Loads an AnnData object from the specified path and converts it
+    into a DICE-compatible TSV file.
+
+    Args:
+        dataset_path: Path to the .h5ad file containing the AnnData object.
+        output_filepath: The path to the .tsv file to be created (e.g., "output.tsv").
+    """
+    # Load AnnData object
+    adata = anndata.read_h5ad(dataset_path)
+
+    # Convert to DICE TSV
+    convert_anndata_to_dice_tsv(adata, output_filepath)
+
+def convert_anndata_to_dice_tsv(adata: anndata.AnnData, output_filepath: str):
+    """
+    Converts an AnnData object containing copy number states into a
+    DICE-compatible TSV file.
+
+    Args:
+        adata: An AnnData object where:
+                    - adata.n_obs is the number of cells.
+                    - adata.n_vars is the number of bins.
+                  The adata.layers['state'] should contain integer CN states
+                  with shape (N, M, 2) for allele-specific copy numbers.
+
+        output_filepath: The path to the .tsv file to be created (e.g., "output.tsv").
+    """
+    # Validate that 'state' layer exists
+    if 'state' not in adata.layers:
+        raise ValueError("AnnData object must contain a 'state' layer with copy number states.")
+
+    # Extract CN array from AnnData
+    cn_array = adata.layers['state']
+
+    if len(cn_array.shape) == 2:
+        total_CN = True
+
+    # Create cell IDs
+    cell_ids = adata[~adata.obs['normal']].obs_names.tolist()
+    bin_coords = adata.var[['chr', 'start', 'end']]
+    # Assume uniform bin length and chromosome ends for simplicity
+    num_bins_m = adata.n_vars
+    bin_length = 10000  # Example fixed bin length; adjust as needed
+    chromosome_ends = []
+    bins_per_chromosome = 100  # Example; adjust as needed
+    for end_bin in range(bins_per_chromosome - 1, num_bins_m, bins_per_chromosome):
+        chromosome_ends.append(end_bin)
+    if chromosome_ends and chromosome_ends[-1] != num_bins_m - 1:
+        chromosome_ends.append(num_bins_m - 1)
+
+    # Call the conversion function
+    convert_to_dice_tsv(
+        cn_array=cn_array,
+        chromosome_ends=chromosome_ends,
+        bin_length=bin_length,
+        output_filepath=output_filepath,
+        cell_ids=cell_ids
+    )
+
 
 def convert_to_dice_tsv(
         cn_array: np.ndarray,
@@ -265,7 +328,7 @@ def is_dice_installed():
     """Checks if DICE is installed in the active virtual environment."""
     try:
         result = subprocess.run(['dice', '--version'], capture_output=True, text=True)
-        if result.returncode == 0:
+        if result.returncode == 0 or result.returncode == 2: # dice --version returns 2 for when installed in environment Harald 6/11-2025
             logging.info(f"DICE is installed: {result.stdout.strip()}")
             return True
         else:

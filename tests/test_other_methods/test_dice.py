@@ -213,6 +213,13 @@ class DiceAPITestCase(unittest.TestCase):
         medicc2_filename = dataset + '/' + dataset + '_medicc2_input.tsv'
         dice_api.convert_dice_tsv_to_medicc2(dice_tsv_path, medicc2_output_path, medicc2_filename, totalCN=False)
 
+    def test_load_anndata_and_convert_to_dice_tsv(self):
+        """
+        Tests loading an AnnData object and converting it to DICE TSV format.
+        """
+        path_to_anndata_file = self.test_data_dir_rel_path + '/adata_filt.h5ad'
+        out_dir = self.test_out_dir_rel_path + '/test_load_anndata_and_convert_to_dice_tsv'
+        dice_api.load_anndata_and_convert_to_dice_tsv(path_to_anndata_file, out_dir)
 
 
 
