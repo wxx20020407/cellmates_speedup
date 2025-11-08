@@ -1,13 +1,16 @@
 import os, time, pickle, logging
+
+import networkx as nx
 import numpy as np
 import anndata
 
 from cellmates.common_helpers.cnasim_data import correct_readcounts
 from cellmates.inference.neighbor_joining import build_tree
-from cellmates.models.obs import NormalModel, JitterCopy
-from cellmates.models.evo import JCBModel
-from cellmates.inference.em import EM
-from cellmates.utils.tree_utils import write_newick
+from cellmates.models.obs import NormalModel, JitterCopy, ObsModel
+from cellmates.models.evo import JCBModel, EvoModel
+from cellmates.inference.em import EM, estimate_theta_from_cn
+from cellmates.utils.hmm import viterbi_decode_pomegranate
+from cellmates.utils.tree_utils import write_newick, get_ctr_table, convert_networkx_to_dendropy
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +28,7 @@ def obs_from_adata(adata, layer_name='copy', normal_annotation=None):
     Returns
     -------
     obs : np.ndarray
-        Observation matrix (cells x features).
+        Observation matrix (n_bins x n_cells).
     chromosome_ends : list
         List of indices where chromosomes end.
     """
@@ -66,20 +69,98 @@ def prepare_observations(adata, n_states, tau, learn_obs_params, use_copynumbers
         obs_model = JitterCopy(n_states=n_states, jitter=1e-3)
     return obs, chromosome_ends, cell_names, obs_model
 
+def predict_cn_profiles(obs: np.ndarray, nx_tree: nx.DiGraph,
+                        evo_model: EvoModel, leaf_obs_model: ObsModel,
+                        zero_absorption: bool = True) -> np.ndarray:
+    """
+    Predict copy number profiles for all nodes in the tree using Viterbi algorithm.
+    Parameters
+    ----------
+    obs : np.ndarray (n_bins x n_cells)
+    """
+    n_bins, n_cells = obs.shape
+    n_states = evo_model.n_states
+    n_nodes = n_cells * 2 - 1
+    cn_obs_model = JitterCopy(n_states=n_states, jitter=1e-3)  # FIXME: JitterCopy is a temporary solution
+    root = [n for n,d in nx_tree.in_degree() if d==0][0]
+    predicted_cn = np.zeros((n_nodes, n_bins), dtype=int) - 1
+    predicted_cn[root, :] = 2
+    # save internal nodes log_probs
+    log_p = np.zeros((n_nodes, n_bins, n_states)) - np.inf
+    log_p[root, :, 2] = 0.0  # root is diploid
+    # add log_p for observed leaves
+    for i in range(n_cells):
+        log_p[i, :, :] = leaf_obs_model.log_emission_split(obs[:, [i, 0]])[0]
+    visited = {root}
+    # traverse the tree postorder and use viterbi to predict copy numbers
+    for u in nx.dfs_postorder_nodes(nx_tree):
+        # operate on median nodes
+        if u not in visited and nx_tree.out_degree(u) != 0:
+            vw = list(nx_tree.successors(u))  # if binary tree, there are two children
+            # make transition matrix
+            evo_model.theta = [
+                nx.path_weight(nx_tree, nx.shortest_path(nx_tree, root, u), weight='length'),
+                nx_tree.edges[u, vw[0]]['length'],
+                nx_tree.edges[u, vw[1]]['length']
+            ]
+            # at least one is an internal node
+            log_emissions = np.zeros((n_bins, n_states, n_states))
+            if not visited.intersection(vw):
+                obs_vw = obs[:, vw]
+                # both are leaves
+                log_emissions[...] = leaf_obs_model.log_emission(obs_vw)
+            else:
+                log_emissions_single = []
+                for v in vw:
+                    if v not in visited:
+                        # it must be a leaf node
+                        assert nx_tree.out_degree(v) == 0
+                        log_emissions_single.append(leaf_obs_model.log_emission_split(obs[:,[v, 0]])[0])
+                    else:
+                        cn_obs = predicted_cn[[v, root], :].T
+                        log_emission_cn = cn_obs_model.log_emission_split(cn_obs)[0]
+                        log_emissions_single.append(log_emission_cn)
+
+                # combine
+                log_emissions[...] = log_emissions_single[0][:, :, None] + log_emissions_single[1][:, None, :]
+
+            # FIXME: change to evo_model.viterbi_decode when available
+            path = viterbi_decode_pomegranate(log_emissions, evo_model.trans_mat, evo_model.start_prob)
+            # FIXME: temporary fix for zero-absorbing states
+            if zero_absorption:
+                # change u cn if they are zero and children are non-zero
+                child_zeros = np.any(path[1:, :] == 0, axis=0)
+                parent_zeros = path[0, :] == 0
+                fix_cn = (~child_zeros) & parent_zeros
+                for i in np.where(fix_cn)[0]:
+                    path[0, i] = path[0, i-1] if i > 0 else 2
+
+            predicted_cn[u, :] = path[0, :]
+            for i in range(2):
+                predicted_cn[vw[i], :] = path[i+1, :]
+            # add to visited
+            visited.update({u, vw[0], vw[1]})
+    return predicted_cn
 
 def run_em_inference(obs,
                      chromosome_ends,
                      n_states,
                      alpha,
                      jc_correction,
-                     hmm_alg, max_iter, rtol, num_processors, obs_model, verbose, save_diag, out_path):
+                     hmm_alg, max_iter, rtol, num_processors, obs_model, verbose, save_diag, out_path,
+                     cn_profiles: np.ndarray = None):
     evo_model = JCBModel(n_states=n_states, chromosome_ends=chromosome_ends,
                          jc_correction=jc_correction, alpha=alpha, hmm_alg=hmm_alg)
     em = EM(n_states=n_states, evo_model=evo_model, obs_model=obs_model,
             verbose=verbose, diagnostics=save_diag)
+    theta_init = None
+    if cn_profiles is not None:
+        theta_init = estimate_theta_from_cn(cn_profiles, n_states=n_states, evo_model=evo_model)
+        logger.info("Initialized evolutionary parameters from copy number profiles.")
+        logger.info("First 5 pairs of theta_init: " + ", ".join([str(t.tolist()) for t in theta_init[0, :5, :]]))
 
     start = time.time()
-    em.fit(obs, max_iter=max_iter, rtol=rtol, num_processors=num_processors, checkpoint_path=out_path)
+    em.fit(obs, max_iter=max_iter, rtol=rtol, num_processors=num_processors, checkpoint_path=out_path, theta_init=theta_init)
     elapsed = time.time() - start
     logger.info(f"EM inference completed in {elapsed:.2f}s")
 
@@ -97,20 +178,26 @@ def run_em_inference(obs,
     return em
 
 
-def save_results(em, out_path, cell_names):
+def save_results(em, out_path, cell_names, tree_nx, predicted_cn=None):
     os.makedirs(out_path, exist_ok=True)
     dist_path = os.path.join(out_path, 'distance_matrix.npy')
     tree_path = os.path.join(out_path, 'tree.nwk')
     cell_names_path = os.path.join(out_path, 'cell_names.txt')
 
     np.save(dist_path, em.distances)
-    tree = build_tree(em.distances, edge_attr='branch_length')
-    nwk_str = write_newick(tree, cell_names=cell_names, out_path=tree_path, edge_attr='branch_length')
+    logger.info(f"Saved distance matrix → {dist_path}")
+    if predicted_cn is not None:
+        cn_path = os.path.join(out_path, 'predicted_copy_numbers.npy')
+        np.save(cn_path, predicted_cn)
+        logger.info(f"Saved predicted copy number profiles → {cn_path}")
+
+    nwk_str = write_newick(tree_nx, cell_names=cell_names, out_path=tree_path, edge_attr='length')
+    logger.info(f"Saved tree in Newick format → {tree_path}")
 
     with open(cell_names_path, 'w') as f:
         f.writelines(f"{n}\n" for n in cell_names)
 
-    logger.info(f"Saved outputs to {out_path}")
+    logger.info(f"Saved cell names → {cell_names_path}")
     return {"distances": dist_path, "tree": tree_path, "cells": cell_names_path}
 
 
@@ -127,9 +214,11 @@ def run_inference_pipeline(
     learn_obs_params=False,
     numpy=False,
     use_copynumbers=False,
-    tau=50.0,
+    tau=10.0,
     save_diagnostics=False,
     normal_annotation=None,
+    init_from_cn=False,
+    predict_cn=True
 ):
     out_path = output or "."
     hmm_alg = "broadcast" if numpy else "pomegranate"
@@ -138,6 +227,13 @@ def run_inference_pipeline(
     obs, chrom_ends, cell_names, obs_model = prepare_observations(
         adata, n_states, tau, learn_obs_params, use_copynumbers, normal_annotation
     )
+    cn_profiles = None
+    cn_layer = 'state'  # parametrizable
+    if init_from_cn:
+        try:
+            cn_profiles = adata.layers[cn_layer]
+        except KeyError:
+            raise KeyError(f"Cannot initialize from copy numbers, layer {cn_layer} is not in AnnData obj")
 
     em = run_em_inference(
         obs=obs,
@@ -153,6 +249,14 @@ def run_inference_pipeline(
         verbose=verbose,
         save_diag=save_diagnostics,
         out_path=out_path,
+        cn_profiles=cn_profiles
     )
 
-    return save_results(em, out_path, cell_names)
+    tree = build_tree(em.distances)
+
+    # infer cn profiles using the tree and the distance matrix
+    predicted_cn = None
+    if predict_cn:
+        predicted_cn = predict_cn_profiles(obs, tree, em.evo_model, leaf_obs_model=em.obs_model)
+
+    return save_results(em, out_path, cell_names, tree, predicted_cn)

@@ -12,7 +12,8 @@ from cellmates.models.evo.basefunc import get_zipping_mask, get_zipping_mask0, p
 from cellmates.models.obs import ObsModel, PoissonModel
 from cellmates.utils import tree_utils, math_utils
 from cellmates.utils.hmm import _forward_likelihood_broadcast, _forward_likelihood_pomegranate, \
-    _forward_backward_broadcast, _forward_backward_pomegranate, _backward_pass_broadcast, _backward_pass_pomegranate
+    _forward_backward_broadcast, _forward_backward_pomegranate, _backward_pass_broadcast, _backward_pass_pomegranate, \
+    viterbi_decode_pomegranate
 
 
 class EvoModel:
@@ -267,6 +268,28 @@ class EvoModel:
 
         return alpha, log_p
 
+    def viterbi_path(self, log_emissions) -> tuple[np.ndarray, float]:
+        """
+        Compute the viterbi path of the hidden markov model.
+        Parameters
+        ----------
+        log_emissions array of shape (n_sites, n_states, n_states) with log emissions
+        Returns
+        -------
+        tuple with best path array of shape (n_sites, 3) and max log probability
+        """
+        alg = self.hmm_alg
+        n_sites, n_states, _ = log_emissions.shape
+        best_path, max_log_prob = None, None
+        match alg:
+            case 'broadcast':
+                best_path, _ = self.compute_viterbi_path(log_emissions)
+            case 'pomegranate':
+                best_path = viterbi_decode_pomegranate(log_emissions, self.trans_mat, self.start_prob)
+
+        return best_path
+
+
     def compute_viterbi_path(self, log_emissions) -> np.ndarray:
         """
         Compute the viterbi path of the hidden markov model.
@@ -277,6 +300,7 @@ class EvoModel:
         cnp_r = np.ones(M) * 2  # fix root cn = 2
         raw_pi = np.ones((K, K, K)) # Uniform pi prior, will be fully dictated by log_emissions
         log_pi = np.log(raw_pi / raw_pi.sum())
+        # FIXME: if model is JCB, theta is a length and not a probability (as expected by viterbi_matrix_K6)
         best_path, max_log_prob = math_utils.viterbi_matrix_K6(
             log_emissions, cnp_r, log_pi, theta_ru, theta_uv, theta_uw
         )

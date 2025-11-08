@@ -28,7 +28,8 @@ class TestJitterCopy(unittest.TestCase):
         # Simulated observations for two cells v,w
         obs_vw = np.array([[2, 3],
                            [1, 1],
-                           [4, 2]])
+                           [4, 2],
+                           [0, 3]])
         log_em = self.model.log_emission(obs_vw)
 
         # Shape should be (n_sites, n_states, n_states)
@@ -39,6 +40,7 @@ class TestJitterCopy(unittest.TestCase):
 
         # Probabilities reconstructed from log_emission_split should sum < 1 (since it's per-integer mass)
         log_v, log_w = self.model.log_emission_split(obs_vw)
+        self.assertTrue(log_v.shape, (obs_vw.shape[0], self.n_states))
         prob_v = np.exp(log_v)
         prob_w = np.exp(log_w)
         self.assertTrue(np.all(prob_v.sum(axis=1) <= 1.0 + 1e-6))

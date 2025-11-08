@@ -15,11 +15,11 @@ from scipy.special import comb
 from tqdm import tqdm
 
 from cellmates.inference.neighbor_joining import build_tree
-from cellmates.models.obs import ObsModel, NormalModel, PoissonModel
+from cellmates.models.obs import ObsModel, NormalModel, PoissonModel, JitterCopy
 from cellmates.simulation.datagen import rand_dataset
 
 from cellmates.models.evo import EvoModel, CopyTree, JCBModel
-from cellmates.utils.math_utils import l_from_p
+from cellmates.utils.math_utils import l_from_p, compute_cn_changes
 from cellmates.utils.tree_utils import convert_networkx_to_dendropy, get_ctr_table
 
 class EM:
@@ -97,13 +97,22 @@ class EM:
                 self.logger.warning('checkpoint path provided but diagnostics disabled, no data will be saved')
 
         # init to an average of 5 changes over the whole length if not provided
-        p_init_default = 5 / self.n_sites
-        theta_init_ = np.empty(3)
-        if theta_init is not None:
-            theta_init_[:] = theta_init
+        p_init_default = np.zeros(3) + (5 / self.n_sites)
+        if theta_init is None:
+            # default init
+            theta_init = p_init_default if isinstance(self.evo_model, CopyTree) else l_from_p(p_init_default,
+                                                                                               self.n_states)
+        theta_init_ = theta_init
+        # adjust initialization shape
+        if theta_init.ndim == 3:
+            # pairwise initialization provided
+            assert theta_init.shape == (self.n_cells, self.n_cells, 3), 'theta_init must be of shape (3,) for global initialization or (n_cells, n_cells, 3) for pairwise initialization'
+            self.logger.info('using pairwise provided theta_init for initialization')
         else:
-            theta_init_[:] = p_init_default if isinstance(self.evo_model, CopyTree) else l_from_p(p_init_default,
-                                                                                                   self.n_states)
+            assert theta_init.shape == (3,), 'theta_init must be of shape (3,) for global initialization or (n_cells, n_cells, 3) for pairwise initialization'
+            # expand to all pairs by using a numpy view
+            self.logger.info('using global provided theta_init for initialization')
+            theta_init_ = theta_init.reshape((1, 1, 3)).repeat(self.n_cells, axis=0).repeat(self.n_cells, axis=1)
 
         l_hat = -np.ones((self.n_cells, self.n_cells, 3))
 
@@ -360,12 +369,10 @@ def _fit_em(em, obs: np.ndarray,
         max_iter: int,
         rtol: float,
         checkpoint_path: str = None):
-    # for s, t in itertools.combinations(range(self.n_cells), r=2):
-    #     results.append(self._fit_quadruplet(s, t, obs[:, [s, t]], theta_init_, max_iter, rtol, psi_init))
     results = []
     pairs = list(itertools.combinations(range(em.n_cells), r=2))
     for s, t in tqdm(pairs, desc="Running inference"):
-        results.append(fit_quadruplet(s, t, obs[:, [s, t]], max_iter, rtol, em.evo_model, theta_init_, em.obs_model, psi_init, em.diagnostics, em.min_iter, checkpoint_path))
+        results.append(fit_quadruplet(s, t, obs[:, [s, t]], max_iter, rtol, em.evo_model, theta_init_[s, t, :], em.obs_model, psi_init, em.diagnostics, em.min_iter, checkpoint_path))
     return results
 
 ## Multiprocessing with shared memory
@@ -384,7 +391,7 @@ def _fit_shared_mem(em, obs: np.ndarray,
     try:
         shared_obs = np.ndarray(obs.shape, dtype=obs.dtype, buffer=shm_obs.buf)
         np.copyto(shared_obs, obs)
-        args = [(s, t, shm_obs.name, theta_init, psi_init, max_iter, rtol, em, checkpoint_path)
+        args = [(s, t, shm_obs.name, theta_init[s, t, :], psi_init, max_iter, rtol, em, checkpoint_path)
                 for s, t in itertools.combinations(range(n_cells), r=2)]
         total_tasks = len(args)
         with mp.Pool(num_processors) as pool:
@@ -408,6 +415,47 @@ def _fit_quadruplet_shared_mem(args_tuple: tuple) -> tuple:
     shm = shared_memory.SharedMemory(name=shared_obs_mem_name)
     obs_vw = np.ndarray((em.n_sites, em.n_cells), dtype=np.float64, buffer=shm.buf)[..., [v, w]]
     return fit_quadruplet(v, w, obs_vw, max_iter, rtol, em.evo_model, theta_init, em.obs_model, psi_init, em.diagnostics, em.min_iter, checkpoint_path)
+
+def estimate_theta_from_cn(cn_profiles, n_states: int, error_rate: float = 0.01, evo_model: EvoModel = None, method='triangle') -> np.ndarray:
+    """
+    Estimate initial theta parameters from copy number profiles.
+    Parameters
+    ----------
+    cn_profiles: np.ndarray with shape (n_cells, n_sites)
+    """
+    logging.getLogger(__name__).info(f'estimating initial theta parameters from copy number profiles using method: {method}')
+    n_cells, n_sites = cn_profiles.shape
+    init_theta = np.zeros((n_cells, n_cells, 3))
+    match method:
+        case 'full':
+            # inference on all pairs using copy numbers
+            cn_obs_model = JitterCopy(n_states=n_states, error_rate=error_rate)
+            # TODO: parallelize
+            for i in range(n_cells):
+                for j in range(i + 1, n_cells):
+                    _, init_theta[:], _, _, _, _ = fit_quadruplet(i, j, cn_profiles[[i, j], :].T, max_iter=5, rtol=1e-2,
+                                   evo_model_template=evo_model if evo_model is not None else JCBModel(n_states=n_states),
+                                   theta_init=np.ones(3) * 1 / n_sites,
+                                   obs_model_template=cn_obs_model)
+        case 'triangle':
+            # compute distances among pairs and from root, then solve triangle: l_ru = (l_rv + l_rw - l_vw) / 2
+            root_cn = np.zeros_like(cn_profiles[0]) + 2  # assume diploid root
+            l_v = []
+            for i in range(n_cells):
+                p_change = compute_cn_changes(np.vstack((root_cn, cn_profiles[i])))[0] / n_sites
+                l_v.append(l_from_p(p_change, n_states))
+            for i, j in tqdm(itertools.combinations(range(n_cells), r=2), total=int(comb(n_cells, 2)), desc="Estimating initial theta"):
+                p_change = compute_cn_changes(cn_profiles[[i, j], :])[0] / n_sites
+                l_vw = l_from_p(p_change, n_states)
+                l_ru = (l_v[i] + l_v[j] - l_vw) / 2
+                l_uv = l_v[i] - l_ru
+                l_uw = l_v[j] - l_ru
+                init_theta[i, j, 0] = l_ru
+                init_theta[i, j, 1] = l_uv
+                init_theta[i, j, 2] = l_uw
+    return init_theta
+
+
 
 if __name__ == '__main__':
     seed = 42
