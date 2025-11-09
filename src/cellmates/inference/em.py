@@ -102,17 +102,17 @@ class EM:
             # default init
             theta_init = p_init_default if isinstance(self.evo_model, CopyTree) else l_from_p(p_init_default,
                                                                                                self.n_states)
-        theta_init_ = theta_init
+        theta_init_ = theta_init if isinstance(theta_init, np.ndarray) else np.array(theta_init)
         # adjust initialization shape
-        if theta_init.ndim == 3:
+        if theta_init_.ndim == 3:
             # pairwise initialization provided
-            assert theta_init.shape == (self.n_cells, self.n_cells, 3), 'theta_init must be of shape (3,) for global initialization or (n_cells, n_cells, 3) for pairwise initialization'
+            assert theta_init_.shape == (self.n_cells, self.n_cells, 3), 'theta_init must be of shape (3,) for global initialization or (n_cells, n_cells, 3) for pairwise initialization'
             self.logger.info('using pairwise provided theta_init for initialization')
         else:
-            assert theta_init.shape == (3,), 'theta_init must be of shape (3,) for global initialization or (n_cells, n_cells, 3) for pairwise initialization'
+            assert theta_init_.shape == (3,), 'theta_init must be of shape (3,) for global initialization or (n_cells, n_cells, 3) for pairwise initialization'
             # expand to all pairs by using a numpy view
             self.logger.info('using global provided theta_init for initialization')
-            theta_init_ = theta_init.reshape((1, 1, 3)).repeat(self.n_cells, axis=0).repeat(self.n_cells, axis=1)
+            theta_init_ = theta_init_.reshape((1, 1, 3)).repeat(self.n_cells, axis=0).repeat(self.n_cells, axis=1)
 
         l_hat = -np.ones((self.n_cells, self.n_cells, 3))
 
@@ -372,6 +372,7 @@ def _fit_em(em, obs: np.ndarray,
     results = []
     pairs = list(itertools.combinations(range(em.n_cells), r=2))
     for s, t in tqdm(pairs, desc="Running inference"):
+        # print(f"Processing pair ({s}, {t}) with params: theta_init = {theta_init_[s, t, :]}, psi_init = {psi_init}, max_iter = {max_iter}, rtol = {rtol}")
         results.append(fit_quadruplet(s, t, obs[:, [s, t]], max_iter, rtol, em.evo_model, theta_init_[s, t, :], em.obs_model, psi_init, em.diagnostics, em.min_iter, checkpoint_path))
     return results
 
@@ -428,7 +429,7 @@ def estimate_theta_from_cn(cn_profiles, n_states: int, error_rate: float = 0.01,
     init_theta = np.zeros((n_cells, n_cells, 3))
     match method:
         case 'full':
-            # inference on all pairs using copy numbers
+            # inference on all pairs using pre-computed copy numbers, probably too slow to be worth it
             cn_obs_model = JitterCopy(n_states=n_states, error_rate=error_rate)
             # TODO: parallelize
             for i in range(n_cells):
@@ -439,6 +440,7 @@ def estimate_theta_from_cn(cn_profiles, n_states: int, error_rate: float = 0.01,
                                    obs_model_template=cn_obs_model)
         case 'triangle':
             # compute distances among pairs and from root, then solve triangle: l_ru = (l_rv + l_rw - l_vw) / 2
+            min_l = l_from_p(1 / n_sites, n_states)
             root_cn = np.zeros_like(cn_profiles[0]) + 2  # assume diploid root
             l_v = []
             for i in range(n_cells):
@@ -448,11 +450,13 @@ def estimate_theta_from_cn(cn_profiles, n_states: int, error_rate: float = 0.01,
                 p_change = compute_cn_changes(cn_profiles[[i, j], :])[0] / n_sites
                 l_vw = l_from_p(p_change, n_states)
                 l_ru = (l_v[i] + l_v[j] - l_vw) / 2
-                l_uv = l_v[i] - l_ru
+                l_uv = l_v[i] - l_ru  #
                 l_uw = l_v[j] - l_ru
-                init_theta[i, j, 0] = l_ru
-                init_theta[i, j, 1] = l_uv
-                init_theta[i, j, 2] = l_uw
+                init_theta[i, j, :] = np.array([l_ru, l_uv, l_uw])
+                # enforce minimum lengths to avoid negative lengths
+                init_theta[i, j, :] = np.maximum(init_theta[i, j, :], min_l)
+        case _:
+            raise ValueError(f'unknown method for theta initialization: {method}')
     return init_theta
 
 

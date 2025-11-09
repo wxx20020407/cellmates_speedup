@@ -1,4 +1,4 @@
-seeds: 5
+seeds: 10
 noise_level: 0
 
 defaults:
@@ -9,12 +9,16 @@ defaults:
   bin_size: 1000000
   n_clones: 0
   wgd: false
-  boundary_noise: 0
-  jitter: 0
+#  boundary_noise: 0
+#  jitter: 0
+
+# level 1 is high, 2 is low, 0 is no-noise
+levels_boundary_noise: [0, 0.04, 0.02]
+levels_jitter: [0, 0.1, 0.1]
 
 A:
   variable: n_cells
-  values: [10, 25, 50, 75, 100, 250, 500]
+  values: [10, 25, 50]
 
 B:
   variable: [n_chromosomes, chromosome_length]  # chrom length in Mbp

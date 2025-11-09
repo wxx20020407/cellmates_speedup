@@ -16,13 +16,17 @@ def expand_datasets():
                 vals = [vals]
             ds_name = f"{prefix}{i}"
             params = config["defaults"].copy()
+            params['jitter'] = LEVELS_JITTER[NOISE_LEVEL]
+            params['boundary_noise'] = LEVELS_BOUNDARY_NOISE[NOISE_LEVEL]
             for var, val in zip(variables, vals):
                 if val is not None:
                     params[var] = val
             datasets[ds_name] = params
     return datasets
 
-NOISE_LEVEL = config["noise_level"] # 0: none, 1: high, 2: low (as in paper)
+LEVELS_JITTER = config["levels_jitter"] # 0: none, 1: high, 2: low (as in paper)
+LEVELS_BOUNDARY_NOISE = config["levels_boundary_noise"]
+NOISE_LEVEL = config["noise_level"]
 SEEDS = list(range(config["seeds"])) # list of seeds for replicates
 DATASETS = expand_datasets()
 DATASET_NAMES = list(map(lambda x: x+'_'+str(NOISE_LEVEL), DATASETS.keys()))

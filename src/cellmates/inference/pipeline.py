@@ -10,7 +10,7 @@ from cellmates.models.obs import NormalModel, JitterCopy, ObsModel
 from cellmates.models.evo import JCBModel, EvoModel
 from cellmates.inference.em import EM, estimate_theta_from_cn
 from cellmates.utils.hmm import viterbi_decode_pomegranate
-from cellmates.utils.tree_utils import write_newick, get_ctr_table, convert_networkx_to_dendropy
+from cellmates.utils.tree_utils import write_cells_to_tree, relabel_name_to_int_mapping, nxtree_to_newick
 
 logger = logging.getLogger(__name__)
 
@@ -66,25 +66,49 @@ def prepare_observations(adata, n_states, tau, learn_obs_params, use_copynumbers
         obs, chromosome_ends, cell_names = obs_from_adata(
             adata, layer_name='state', normal_annotation=None
         )
-        obs_model = JitterCopy(n_states=n_states, jitter=1e-3)
+        obs_model = JitterCopy(n_states=n_states)  # default jitter (0.1)
     return obs, chromosome_ends, cell_names, obs_model
 
-def predict_cn_profiles(obs: np.ndarray, nx_tree: nx.DiGraph,
+def predict_cn_profiles(obs: np.ndarray, nx_tree: nx.DiGraph, cell_names: list,
                         evo_model: EvoModel, leaf_obs_model: ObsModel,
-                        zero_absorption: bool = True) -> np.ndarray:
+                        zero_absorption: bool = True) -> tuple[np.ndarray, list]:
     """
     Predict copy number profiles for all nodes in the tree using Viterbi algorithm.
     Parameters
     ----------
     obs : np.ndarray (n_bins x n_cells)
+        Observation matrix.
+    nx_tree : nx.DiGraph
+        Phylogenetic tree in NetworkX DiGraph format.
+    cell_names : list
+        List of cell names corresponding to the leaves of the tree.
+    evo_model : EvoModel
+        Evolutionary model for copy number changes.
+    leaf_obs_model : ObsModel
+        Observation model for leaf nodes.
+    zero_absorption : bool, optional
+        Whether to enforce zero-absorbing states.
+    Returns
+    -------
+    predicted_cn : np.ndarray (n_nodes x n_bins)
+        Predicted copy number profiles for all nodes in the tree.
+    node_labels : list
+        List of node labels corresponding to the rows of predicted_cn.
     """
     n_bins, n_cells = obs.shape
     n_states = evo_model.n_states
     n_nodes = n_cells * 2 - 1
+    int_nx_tree, full_mapping = relabel_name_to_int_mapping(nx_tree, cell_names)
+    # create node labels to map cn profiles array back to names
+    node_labels = [None] * n_nodes
+    for name, idx in full_mapping.items():
+        node_labels[idx] = name
+
     cn_obs_model = JitterCopy(n_states=n_states, jitter=1e-3)  # FIXME: JitterCopy is a temporary solution
-    root = [n for n,d in nx_tree.in_degree() if d==0][0]
-    predicted_cn = np.zeros((n_nodes, n_bins), dtype=int) - 1
-    predicted_cn[root, :] = 2
+    root = [n for n,d in int_nx_tree.in_degree() if d==0][0]
+    # print(f"Root node is {root}")
+    cn_matrix = np.zeros((n_nodes, n_bins), dtype=int) - 1
+    cn_matrix[root, :] = 2
     # save internal nodes log_probs
     log_p = np.zeros((n_nodes, n_bins, n_states)) - np.inf
     log_p[root, :, 2] = 0.0  # root is diploid
@@ -93,15 +117,15 @@ def predict_cn_profiles(obs: np.ndarray, nx_tree: nx.DiGraph,
         log_p[i, :, :] = leaf_obs_model.log_emission_split(obs[:, [i, 0]])[0]
     visited = {root}
     # traverse the tree postorder and use viterbi to predict copy numbers
-    for u in nx.dfs_postorder_nodes(nx_tree):
+    for u in nx.dfs_postorder_nodes(int_nx_tree):
         # operate on median nodes
-        if u not in visited and nx_tree.out_degree(u) != 0:
-            vw = list(nx_tree.successors(u))  # if binary tree, there are two children
+        if u not in visited and int_nx_tree.out_degree(u) != 0:
+            vw = list(int_nx_tree.successors(u))  # if binary tree, there are two children
             # make transition matrix
             evo_model.theta = [
-                nx.path_weight(nx_tree, nx.shortest_path(nx_tree, root, u), weight='length'),
-                nx_tree.edges[u, vw[0]]['length'],
-                nx_tree.edges[u, vw[1]]['length']
+                nx.path_weight(int_nx_tree, nx.shortest_path(int_nx_tree, root, u), weight='length'),
+                int_nx_tree.edges[u, vw[0]]['length'],
+                int_nx_tree.edges[u, vw[1]]['length']
             ]
             # at least one is an internal node
             log_emissions = np.zeros((n_bins, n_states, n_states))
@@ -114,10 +138,10 @@ def predict_cn_profiles(obs: np.ndarray, nx_tree: nx.DiGraph,
                 for v in vw:
                     if v not in visited:
                         # it must be a leaf node
-                        assert nx_tree.out_degree(v) == 0
+                        assert int_nx_tree.out_degree(v) == 0
                         log_emissions_single.append(leaf_obs_model.log_emission_split(obs[:,[v, 0]])[0])
                     else:
-                        cn_obs = predicted_cn[[v, root], :].T
+                        cn_obs = cn_matrix[[v, root], :].T
                         log_emission_cn = cn_obs_model.log_emission_split(cn_obs)[0]
                         log_emissions_single.append(log_emission_cn)
 
@@ -135,12 +159,12 @@ def predict_cn_profiles(obs: np.ndarray, nx_tree: nx.DiGraph,
                 for i in np.where(fix_cn)[0]:
                     path[0, i] = path[0, i-1] if i > 0 else 2
 
-            predicted_cn[u, :] = path[0, :]
+            cn_matrix[u, :] = path[0, :]
             for i in range(2):
-                predicted_cn[vw[i], :] = path[i+1, :]
+                cn_matrix[vw[i], :] = path[i+1, :]
             # add to visited
             visited.update({u, vw[0], vw[1]})
-    return predicted_cn
+    return cn_matrix, node_labels
 
 def run_em_inference(obs,
                      chromosome_ends,
@@ -178,7 +202,7 @@ def run_em_inference(obs,
     return em
 
 
-def save_results(em, out_path, cell_names, tree_nx, predicted_cn=None):
+def save_results(em, out_path, cell_names, tree_nx, predicted_cn: tuple[np.ndarray, list] = None):
     os.makedirs(out_path, exist_ok=True)
     dist_path = os.path.join(out_path, 'distance_matrix.npy')
     tree_path = os.path.join(out_path, 'tree.nwk')
@@ -187,11 +211,13 @@ def save_results(em, out_path, cell_names, tree_nx, predicted_cn=None):
     np.save(dist_path, em.distances)
     logger.info(f"Saved distance matrix → {dist_path}")
     if predicted_cn is not None:
-        cn_path = os.path.join(out_path, 'predicted_copy_numbers.npy')
-        np.save(cn_path, predicted_cn)
+        cn_path = os.path.join(out_path, 'predicted_copy_numbers.npz')
+        np.savez(cn_path, data=predicted_cn[0], labels=predicted_cn[1])
         logger.info(f"Saved predicted copy number profiles → {cn_path}")
 
-    nwk_str = write_newick(tree_nx, cell_names=cell_names, out_path=tree_path, edge_attr='length')
+    nwk_str = nxtree_to_newick(tree_nx, weight='length')
+    with open(tree_path, 'w') as f:
+        f.write(nwk_str + '\n')
     logger.info(f"Saved tree in Newick format → {tree_path}")
 
     with open(cell_names_path, 'w') as f:
@@ -210,7 +236,7 @@ def run_inference_pipeline(
     num_processors=1,
     alpha=1.0,
     jc_correction=False,
-    rtol=1e-5,
+    rtol=1e-3,
     learn_obs_params=False,
     numpy=False,
     use_copynumbers=False,
@@ -221,6 +247,8 @@ def run_inference_pipeline(
     predict_cn=True
 ):
     out_path = output or "."
+    if not os.path.exists(out_path):
+        os.makedirs(out_path)
     hmm_alg = "broadcast" if numpy else "pomegranate"
 
     adata = load_and_prepare_adata(input, use_copynumbers)
@@ -253,10 +281,11 @@ def run_inference_pipeline(
     )
 
     tree = build_tree(em.distances)
+    tree_relab = write_cells_to_tree(tree, cell_names=cell_names)  # relabel tree with cell names and put ancestor names
 
     # infer cn profiles using the tree and the distance matrix
     predicted_cn = None
     if predict_cn:
-        predicted_cn = predict_cn_profiles(obs, tree, em.evo_model, leaf_obs_model=em.obs_model)
+        predicted_cn = predict_cn_profiles(obs, tree_relab, cell_names, em.evo_model, leaf_obs_model=em.obs_model, zero_absorption=True)
 
-    return save_results(em, out_path, cell_names, tree, predicted_cn)
+    return save_results(em, out_path, cell_names, tree_relab, predicted_cn)

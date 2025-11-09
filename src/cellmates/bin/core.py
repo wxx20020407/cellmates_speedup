@@ -15,7 +15,7 @@ def parse_args():
     parser.add_argument('--num-processors', '-p', type=int, default=1)
     parser.add_argument('--alpha', type=float, default=1.0)
     parser.add_argument('--jc-correction', action='store_true')
-    parser.add_argument('--rtol', '-t', type=float, default=1e-5)
+    parser.add_argument('--rtol', '-t', type=float, default=1e-3)
     parser.add_argument('--learn-obs-params', action='store_true')
     parser.add_argument('--numpy', action='store_true')
     parser.add_argument('--use-copynumbers', action='store_true')

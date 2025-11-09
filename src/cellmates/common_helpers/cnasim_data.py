@@ -329,7 +329,7 @@ def load_cnasim_output_files(cnasim_data_path: str | Path, normalize_counts: boo
     # 4. read and process tree.nwk
     # print(clone_founder)  # ['root', 'ancestor2', 'ancestor19', ...]
     # print(clone_id_map)  # {'normal': 0, 'clone6': 6, 'clone2': 2, ...}
-    add_tree(adata)
+    add_tree(adata, cnasim_data_path, cell_types_df)
     return adata
 
 # =======================================
