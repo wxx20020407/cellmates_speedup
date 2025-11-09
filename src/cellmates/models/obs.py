@@ -652,6 +652,9 @@ class JitterCopy(ObsModel):
 
         log_v = np.log(probs[0])
         log_w = np.log(probs[1])
+        # if y is nan (missing data), set log prob to 0
+        log_v[np.isnan(obs_vw[:, 0]), :] = 0.
+        log_w[np.isnan(obs_vw[:, 1]), :] = 0.
         return log_v, log_w
 
     def update(self, obs_vw, conditionals_vw, **kwargs):
