@@ -126,7 +126,8 @@ class EM:
         # run inference for each pair of cells
         if num_processors > 1:
             self.logger.debug(f'using {num_processors} processors')
-            results = _fit_shared_mem(self, obs, theta_init_, psi_init, max_iter, rtol, num_processors, checkpoint_path)
+            # results = _fit_shared_mem(self, obs, theta_init_, psi_init, max_iter, rtol, num_processors, checkpoint_path)
+            results = _fit_copy_obs(self, obs, theta_init_, psi_init, max_iter, rtol, num_processors, checkpoint_path)
         else:
             # single processor
             self.logger.debug(f'using single processor')
@@ -416,6 +417,30 @@ def _fit_quadruplet_shared_mem(args_tuple: tuple) -> tuple:
     shm = shared_memory.SharedMemory(name=shared_obs_mem_name)
     obs_vw = np.ndarray((em.n_sites, em.n_cells), dtype=np.float64, buffer=shm.buf)[..., [v, w]]
     return fit_quadruplet(v, w, obs_vw, max_iter, rtol, em.evo_model, theta_init, em.obs_model, psi_init, em.diagnostics, em.min_iter, checkpoint_path)
+
+# no shared mem, pass obs_vw directly
+def _fit_copy_obs(em, obs: np.ndarray,
+                    theta_init: np.ndarray,
+                    psi_init: dict,
+                    max_iter: int,
+                    rtol: float,
+                    num_processors: int,
+                    checkpoint_path: str = None):
+
+    def fit_quadruplet_wrapper(args):
+        return fit_quadruplet(*args)
+
+    results = []
+    n_cells = em.n_cells
+    args = [(s, t, obs[:, [s, t]], max_iter, rtol, em.evo_model, theta_init, em.obs_model, psi_init, em.diagnostics, em.min_iter, checkpoint_path)
+            for s, t in itertools.combinations(range(n_cells), r=2)]
+    total_tasks = len(args)
+    with mp.Pool(num_processors) as pool:
+        # main loop
+        for res in tqdm(pool.imap_unordered(fit_quadruplet_wrapper, args),
+                        total=total_tasks, desc="Running inference", smoothing=0.1):
+            results.append(res)
+    return results
 
 def estimate_theta_from_cn(cn_profiles, n_states: int, error_rate: float = 0.01, evo_model: EvoModel = None, method='triangle') -> np.ndarray:
     """
