@@ -3,6 +3,7 @@ import os, time, pickle, logging
 import networkx as nx
 import numpy as np
 import anndata
+from tqdm import tqdm
 
 from cellmates.common_helpers.cnasim_data import correct_readcounts
 from cellmates.inference.neighbor_joining import build_tree
@@ -117,7 +118,7 @@ def predict_cn_profiles(obs: np.ndarray, nx_tree: nx.DiGraph, cell_names: list,
         log_p[i, :, :] = leaf_obs_model.log_emission_split(obs[:, [i, 0]])[0]
     visited = {root}
     # traverse the tree postorder and use viterbi to predict copy numbers
-    for u in nx.dfs_postorder_nodes(int_nx_tree):
+    for u in tqdm(nx.dfs_postorder_nodes(int_nx_tree), desc="Predicting CN profiles", total=n_nodes):
         # operate on median nodes
         if u not in visited and int_nx_tree.out_degree(u) != 0:
             vw = list(int_nx_tree.successors(u))  # if binary tree, there are two children
@@ -280,12 +281,14 @@ def run_inference_pipeline(
         cn_profiles=cn_profiles
     )
 
+    logger.info("Building tree from distance matrix...")
     tree = build_tree(em.distances)
     tree_relab = write_cells_to_tree(tree, cell_names=cell_names)  # relabel tree with cell names and put ancestor names
 
     # infer cn profiles using the tree and the distance matrix
     predicted_cn = None
     if predict_cn:
+        logger.info("Predicting copy number profiles for all nodes in the tree...")
         predicted_cn = predict_cn_profiles(obs, tree_relab, cell_names, em.evo_model, leaf_obs_model=em.obs_model, zero_absorption=True)
 
     return save_results(em, out_path, cell_names, tree_relab, predicted_cn)
