@@ -402,8 +402,10 @@ class CellmatesTestCase(unittest.TestCase):
         results = run_inference_pipeline(
             input=str(h5ad_path),
             output=test_dir,
+            n_states=n_states,
             max_iter=3,
             numpy=True,
+            learn_obs_params=True,
             use_copynumbers=False,
             save_diagnostics=True,
             init_from_cn=True
@@ -446,10 +448,11 @@ class CellmatesTestCase(unittest.TestCase):
         evo_model = JCBModel(n_states=n_states)
         obs_model = NormalModel(n_states=n_states, mu_v=1.0, tau_v=5.0)
         data = simulate_quadruplet(n_sites, obs_model=obs_model, n_states=n_states, seed=0, edge_lengths=edge_lengths)
+        cell_names = ['cell0', 'cell1']
         obs = data['obs']
         cn_true = data['cn']
         nx_tree = convert_dendropy_to_networkx(data['tree'], edge_attr='length')
-        cn_pred = predict_cn_profiles(obs, nx_tree, evo_model, obs_model)
+        cn_pred, ancestor_names = predict_cn_profiles(obs, nx_tree, cell_names, evo_model, obs_model)
         self.assertEqual(cn_pred.shape, cn_true)
         # Check that predicted CNs are within valid range
         self.assertTrue(np.all(cn_pred >= 0))
@@ -471,18 +474,21 @@ class CellmatesTestCase(unittest.TestCase):
         cn_true = data['cn']
         print(f"True CN profiles:\n {cn_true}")
         nx_tree = convert_dendropy_to_networkx(data['tree'], edge_attr='length')
+        cell_names = list(range(n_cells))
         evo_model = JCBModel(n_states=n_states)
         obs_model = NormalModel(n_states=n_states, mu_v=1.0, tau_v=5.0)
-        cn_pred = predict_cn_profiles(obs, nx_tree, evo_model, obs_model)
-        print(f"Predicted CN profiles:\n {cn_pred}")
-        self.assertEqual(cn_pred.shape, cn_true.shape)
+        cn_matrix, labels = predict_cn_profiles(obs, nx_tree, cell_names, evo_model, obs_model)
+        self.assertTrue(all(c in labels for c in cell_names))
+        print(f"Predicted CN profiles:\n {cn_matrix}")
+        self.assertEqual(cn_matrix.shape, cn_true.shape)
         # Check that predicted CNs are within valid range
         root = [n for n,d in nx_tree.in_degree() if d==0][0]
-        self.assertTrue(np.all(cn_pred[root] == 2))
-        self.assertTrue(np.all(cn_pred >= 0))
-        self.assertTrue(np.all(cn_pred < n_states))
+        self.assertTrue(root in labels)
+        self.assertTrue(np.all(cn_matrix[root] == 2))
+        self.assertTrue(np.all(cn_matrix >= 0))
+        self.assertTrue(np.all(cn_matrix < n_states))
         # Check that predicted CNs are reasonably close to true CNs, compute MAE
-        mae = np.mean(np.abs(cn_pred - cn_true), axis=1)
+        mae = np.mean(np.abs(cn_matrix - cn_true), axis=1)
         # check that cells cn is correctly estimated
         print(f"Mean Absolute Error per cell: {mae[:n_cells]}")
         self.assertTrue(np.all(mae[:n_cells] < 0.1), "Large errors in predicted CN for cells")
