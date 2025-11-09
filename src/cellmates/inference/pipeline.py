@@ -286,9 +286,9 @@ def run_inference_pipeline(
     tree_relab = write_cells_to_tree(tree, cell_names=cell_names)  # relabel tree with cell names and put ancestor names
 
     # infer cn profiles using the tree and the distance matrix
-    predicted_cn = None
+    predicted_cn_tuple = None
     if predict_cn:
         logger.info("Predicting copy number profiles for all nodes in the tree...")
-        predicted_cn = predict_cn_profiles(obs, tree_relab, cell_names, em.evo_model, leaf_obs_model=em.obs_model, zero_absorption=True)
+        predicted_cn_tuple = predict_cn_profiles(obs, tree_relab, cell_names, em.evo_model, leaf_obs_model=em.obs_model, zero_absorption=True)
 
-    return save_results(em, out_path, cell_names, tree_relab, predicted_cn)
+    return save_results(em, out_path, cell_names, tree_relab, predicted_cn_tuple)

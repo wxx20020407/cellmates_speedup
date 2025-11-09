@@ -67,6 +67,8 @@ def main(snakemake):
     n_cells = ad.n_obs
     if 'normal' in ad.obs.keys():
         n_cells = ad[~ad.obs['normal']].shape[0]
+    else:
+        ad.obs['normal'] = [False] * ad.n_obs  # all tumor cells
     assert len(cell_names) == n_cells
     assert cm_dist.shape == (n_cells, n_cells, 3), f"EM distance matrix has incorrect shape: {cm_dist.shape} vs {(n_cells, n_cells, 3)}"
     print("EM tree", cm_tree)
@@ -104,7 +106,31 @@ def main(snakemake):
     print(f"F1 score clades: GT {f1_gt}, EM {f1_em}")
     # check for ties in ground truth tree (zero-length edges) and print groups of cells involved
     gt_ties = group_ties(gt_dpy_tree)
-
+    # compute copy number MAD if available (# check if file exists in same folder as cm_dist
+    # load this
+    #        cn_path = os.path.join(out_path, 'predicted_copy_numbers.npz')
+    #        np.savez(cn_path, data=predicted_cn[0], labels=predicted_cn[1])
+    #        logger.info(f"Saved predicted copy number profiles → {cn_path}")
+    try:
+        cn_mad = None
+        if os.path.exists(os.path.join(os.path.dirname(cm_dist_path), 'predicted_copy_numbers.npz')):
+            cn_data = np.load(os.path.join(os.path.dirname(cm_dist_path), 'predicted_copy_numbers.npz'))
+            pred_cn = cn_data['data']
+            # get cells from labels in the same order as in ad
+            pred_cn_labels = cn_data['labels']
+            label_to_index = {label: idx for idx, label in enumerate(pred_cn_labels)}
+            ordered_indices = [label_to_index[name] for name in cell_names]
+            pred_cn = pred_cn[ordered_indices, :]
+            true_cn = ad[~ad.obs['normal']].layers['state']
+            assert pred_cn.shape == true_cn.shape, f"Predicted CN shape {pred_cn.shape} does not match true CN shape {true_cn.shape}"
+            cn_mad = np.mean(np.abs(pred_cn - true_cn))
+            print(f"Copy number MAD: {cn_mad}")
+        else:
+            print("Predicted copy number file not found, skipping CN MAD computation.")
+            cn_mad = None
+    except Exception as e:
+        print(f"Error computing CN MAD: {e}")
+        cn_mad = None
     # save results
     # for each edge, plot error, edge depth (TODO)
     results = pd.DataFrame({'dat_path': [truth_ad_path], 'dataset': [dataset], 'seed': [seed], 'n_cells': [n_cells], 'n_states': [n_states], 'n_clones': [len(set(clone_assignments))],
@@ -112,7 +138,7 @@ def main(snakemake):
                             'lambda': [ad.uns['cnasim-params']['placement_param']],
                             'ru_mse': [err_list[0]],
                             'uv_mse': [err_list[1]], 'uw_mse': [err_list[2]],
-                            'rf': [rf], 'urf': [urf], 'nrf': [nrf], 'f1_gt': [f1_gt], 'f1_em': [f1_em], 'wgd': [ad.uns['cnasim-params']['WGD']], 'gt_ties': [gt_ties], 'data_type': [data_type]})
+                            'rf': [rf], 'urf': [urf], 'nrf': [nrf], 'f1_gt': [f1_gt], 'f1_em': [f1_em], 'wgd': [ad.uns['cnasim-params']['WGD']], 'gt_ties': [gt_ties], 'data_type': [data_type], 'cn_mad': cn_mad})
     results.to_csv(out_csv, index=False)
     print(f"Saved results to {out_csv}")
 

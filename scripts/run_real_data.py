@@ -23,7 +23,12 @@ def main():
 
     # filter cells based on ploidy (only wgd and not noisy)
     normal_anno = 'normal'
+    datatype = "cn"  # "cn" or "sc"
     adata = anndata.read_h5ad(args.input)
+    if datatype == "cn":
+        print("Using layer 'state': ", adata.layers['state'][:5, :5])
+    else:
+        print("Using layer 'copy': ", adata.layers['copy'][:5, :5])
     adata_filt = adata[(adata.obs['mean_ploidy'] > 3) & (~adata.obs['is_noisy'])]
     adata_filt.obs[normal_anno] = adata_filt.obs['is_normal'].values.astype(bool) # create a boolean annotation for normal cells
     print("Filtered adata has {} cells and {} bins".format(adata_filt.n_obs, adata_filt.n_vars))
@@ -37,8 +42,9 @@ def main():
     assert 'copy' in adata_filt.layers.keys()
     print("Using {} processors".format(args.processors))
     run_inference_pipeline(input=adata_filt_path, output=args.output,
+                           use_copynumbers=datatype == "cn",
                            n_states=8, max_iter=30, num_processors=args.processors, rtol=1e-3, learn_obs_params=False,
-                           numpy=True, save_diagnostics=True, tau=2., normal_annotation=normal_anno, init_from_cn=True)
+                           numpy=True, save_diagnostics=True, tau=2., normal_annotation=normal_anno, init_from_cn=True, predict_cn=args.predict_cn)
 
 
 if __name__=="__main__":
