@@ -25,7 +25,9 @@ def parse_args():
     return parser.parse_args()
 
 def main():
-    set_start_method('spawn', force=True)
+    start_method = 'forkserver'
+    set_start_method(start_method, force=True)
+    print("using mp start method: ", start_method)
     args = parse_args()
     run_inference_pipeline(**vars(args))
 
