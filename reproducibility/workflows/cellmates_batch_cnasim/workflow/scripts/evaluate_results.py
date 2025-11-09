@@ -52,9 +52,10 @@ def main(snakemake):
     n_states = snakemake.params['n_states']
     dataset = snakemake.params['dataset']
     seed = snakemake.params['seed']
+    data_type = snakemake.params.get('method', 'reads')
     out_csv = snakemake.output[0]
 
-    print(f"Processing [{seed}] {truth_ad_path}, {cm_dist_path}, {cm_tree_path}, {cm_cell_names_path} to {out_csv} with n_states={n_states}")
+    print(f"Processing [{seed}] {truth_ad_path}, {cm_dist_path}, {cm_tree_path}, {cm_cell_names_path} to {out_csv} with n_states={n_states}, data_type={data_type}")
     # load inputs
     ad = anndata.read_h5ad(truth_ad_path)
     cm_dist = np.load(cm_dist_path)
@@ -111,7 +112,7 @@ def main(snakemake):
                             'lambda': [ad.uns['cnasim-params']['placement_param']],
                             'ru_mse': [err_list[0]],
                             'uv_mse': [err_list[1]], 'uw_mse': [err_list[2]],
-                            'rf': [rf], 'urf': [urf], 'nrf': [nrf], 'f1_gt': [f1_gt], 'f1_em': [f1_em], 'wgd': [ad.uns['cnasim-params']['WGD']], 'gt_ties': [gt_ties]})
+                            'rf': [rf], 'urf': [urf], 'nrf': [nrf], 'f1_gt': [f1_gt], 'f1_em': [f1_em], 'wgd': [ad.uns['cnasim-params']['WGD']], 'gt_ties': [gt_ties], 'data_type': [data_type]})
     results.to_csv(out_csv, index=False)
     print(f"Saved results to {out_csv}")
 

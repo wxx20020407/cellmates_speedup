@@ -1,3 +1,4 @@
 data_dir: "/home/vittorio.zampinetti/Cellmates/reproducibility/workflows/cnasim_makedata/results"
 datasets: ['A1_0', 'A2_0']
+datatypes: ['', '_cn']
 seeds: []  # Empty list indicates all seeds that are available

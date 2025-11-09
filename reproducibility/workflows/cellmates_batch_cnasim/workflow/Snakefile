@@ -26,10 +26,12 @@ import glob
 # which datasets to process is defined in the config file
 wildcard_constraints:
     dataset="|".join(config["datasets"]),
-    seed="\d+" if len(config["seeds"]) == 0 else "|".join(str(s) for s in config["seeds"])
+    seed="\d+" if len(config["seeds"]) == 0 else "|".join(str(s) for s in config["seeds"]),
+    datatype="|".join(["", "_cn"])
 
 # parameters
 data_dir = config["data_dir"]
+datatypes = config["datatypes"]
 eval_dir = os.path.join(data_dir, "evaluation")
 # constraint
 DATASET_LIST = glob_wildcards(data_dir + "/{dataset}/{seed}")
@@ -64,25 +66,42 @@ rule run_cellmates:
     benchmark: os.path.join(data_dir, "{dataset}", "{seed}", "cm_out", "benchmark_run_cellmates.tsv")
     threads: 16
     shell: """
-    cellmates -i {input} -o {params.directory} -v 2 --n-states {N_STATES} --num-processors {threads} --tau 5 --learn-obs-params --save-diagnostics --use-copynumbers
+    cellmates -i {input} -o {params.directory} -v 2 --n-states {N_STATES} --num-processors {threads} --tau 5 --learn-obs-params --save-diagnostics --numpy
+    """
+
+rule run_cellmates_cn:
+    input: os.path.join(data_dir, "{dataset}", "{seed}", "anndata.h5ad")
+    output:
+        cm_dist=os.path.join(data_dir, "{dataset}", "{seed}", "cm_out_cn", "distance_matrix.npy"),
+        cm_tree=os.path.join(data_dir, "{dataset}", "{seed}", "cm_out_cn", "tree.nwk"),
+        cm_cells=os.path.join(data_dir, "{dataset}", "{seed}", "cm_out_cn", "cell_names.txt"),
+        cm_diagnostics=os.path.join(data_dir, "{dataset}", "{seed}", "cm_out_cn", "em_diagnostics.pkl")
+    params:
+        directory=os.path.join(data_dir, "{dataset}", "{seed}", "cm_out_cn")
+    conda: "cellmates"
+    benchmark: os.path.join(data_dir, "{dataset}", "{seed}", "cm_out_cn", "benchmark_run_cellmates_cn.tsv")
+    threads: 16
+    shell: """
+    cellmates -i {input} -o {params.directory} -v 2 --n-states {N_STATES} --num-processors {threads} --save-diagnostics --use-copynumbers --numpy
     """
 
 rule evaluate:
     input:
         truth_ad=os.path.join(data_dir, "{dataset}", "{seed}", "anndata.h5ad"),
-        cm_dist=os.path.join(data_dir, "{dataset}", "{seed}", "cm_out", "distance_matrix.npy"),
-        cm_tree=os.path.join(data_dir, "{dataset}", "{seed}", "cm_out", "tree.nwk"),
-        cm_cells=os.path.join(data_dir, "{dataset}", "{seed}", "cm_out", "cell_names.txt")
-    output: os.path.join(data_dir, "{dataset}", "{seed}", "eval_tmp.csv")
+        cm_dist=os.path.join(data_dir, "{dataset}", "{seed}","cm_out{datatype}","distance_matrix.npy"),
+        cm_tree=os.path.join(data_dir, "{dataset}", "{seed}","cm_out{datatype}","tree.nwk"),
+        cm_cells=os.path.join(data_dir, "{dataset}", "{seed}","cm_out{datatype}","cell_names.txt")
+    output: os.path.join(data_dir, "{dataset}", "{seed}","eval_tmp{datatype}.csv")
     params:
         n_states=N_STATES,
         dataset=lambda wc: wc.dataset,
-        seed=lambda wc: int(wc.seed)
+        seed=lambda wc: int(wc.seed),
+        method=lambda wc: "cn" if wc.datatype == "_cn" else "reads"
     conda: "cellmates"
     script: "scripts/evaluate_results.py"
 
 rule combine_results:
-    input: expand(os.path.join(data_dir, "{dataset}","{seed}","eval_tmp.csv"), dataset=DATASET_LIST.dataset, seed=DATASET_LIST.seed)
+    input: expand(os.path.join(data_dir, "{dataset}","{seed}","eval_tmp{datatype}.csv"), dataset=DATASET_LIST.dataset, seed=DATASET_LIST.seed, datatype=datatypes)
     output: os.path.join(eval_dir, "stats.csv")
     shell: """
     echo "Combining results"
