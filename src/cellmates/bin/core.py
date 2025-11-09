@@ -1,6 +1,7 @@
 import argparse
 import logging
 from cellmates.inference.pipeline import run_inference_pipeline
+from multiprocessing import set_start_method
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -24,6 +25,7 @@ def parse_args():
     return parser.parse_args()
 
 def main():
+    set_start_method('spawn', force=True)
     args = parse_args()
     run_inference_pipeline(**vars(args))
 
