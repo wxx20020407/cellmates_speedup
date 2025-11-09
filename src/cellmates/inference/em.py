@@ -418,6 +418,9 @@ def _fit_quadruplet_shared_mem(args_tuple: tuple) -> tuple:
     obs_vw = np.ndarray((em.n_sites, em.n_cells), dtype=np.float64, buffer=shm.buf)[..., [v, w]]
     return fit_quadruplet(v, w, obs_vw, max_iter, rtol, em.evo_model, theta_init, em.obs_model, psi_init, em.diagnostics, em.min_iter, checkpoint_path)
 
+def fit_quadruplet_wrapper(args):
+    return fit_quadruplet(*args)
+
 # no shared mem, pass obs_vw directly
 def _fit_copy_obs(em, obs: np.ndarray,
                     theta_init: np.ndarray,
@@ -427,12 +430,9 @@ def _fit_copy_obs(em, obs: np.ndarray,
                     num_processors: int,
                     checkpoint_path: str = None):
 
-    def fit_quadruplet_wrapper(args):
-        return fit_quadruplet(*args)
-
     results = []
     n_cells = em.n_cells
-    args = [(s, t, obs[:, [s, t]], max_iter, rtol, em.evo_model, theta_init, em.obs_model, psi_init, em.diagnostics, em.min_iter, checkpoint_path)
+    args = [(s, t, obs[:, [s, t]], max_iter, rtol, em.evo_model, theta_init[s, t, :], em.obs_model, psi_init, em.diagnostics, em.min_iter, checkpoint_path)
             for s, t in itertools.combinations(range(n_cells), r=2)]
     total_tasks = len(args)
     with mp.Pool(num_processors) as pool:
