@@ -20,7 +20,7 @@ def parse_args():
     parser.add_argument('--learn-obs-params', action='store_true')
     parser.add_argument('--numpy', action='store_true')
     parser.add_argument('--use-copynumbers', action='store_true')
-    parser.add_argument('--tau', type=float, default=50.0)
+    parser.add_argument('--tau', type=float, default=5.0)
     parser.add_argument('--save-diagnostics', action='store_true')
     parser.add_argument('--predict-cn', action='store_true')
     return parser.parse_args()
