@@ -127,7 +127,8 @@ class EM:
         if num_processors > 1:
             self.logger.debug(f'using {num_processors} processors')
             # results = _fit_shared_mem(self, obs, theta_init_, psi_init, max_iter, rtol, num_processors, checkpoint_path)
-            results = _fit_copy_obs(self, obs, theta_init_, psi_init, max_iter, rtol, num_processors, checkpoint_path)
+            # results = _fit_copy_obs(self, obs, theta_init_, psi_init, max_iter, rtol, num_processors, checkpoint_path)
+            results = _fit_copy_obs_async(self, obs, theta_init_, psi_init, max_iter, rtol, num_processors, checkpoint_path)
         else:
             # single processor
             self.logger.debug(f'using single processor')
@@ -432,14 +433,53 @@ def _fit_copy_obs(em, obs: np.ndarray,
 
     results = []
     n_cells = em.n_cells
-    args = [(s, t, obs[:, [s, t]], max_iter, rtol, em.evo_model, theta_init[s, t, :], em.obs_model, psi_init, em.diagnostics, em.min_iter, checkpoint_path)
-            for s, t in itertools.combinations(range(n_cells), r=2)]
-    total_tasks = len(args)
+    evo_model_template = em.evo_model.new() # avoid pickling the whole evo_model which might contain large trans_mat
+    # generator of arguments
+    args = ((s, t, obs[:, [s, t]], max_iter, rtol, evo_model_template, theta_init[s, t, :], em.obs_model, psi_init, em.diagnostics, em.min_iter, checkpoint_path)
+            for s, t in itertools.combinations(range(n_cells), r=2))
+    total_tasks = int(comb(n_cells, 2))
     with mp.Pool(num_processors) as pool:
         # main loop
-        for res in tqdm(pool.imap_unordered(fit_quadruplet_wrapper, args),
+        for res in tqdm(pool.imap_unordered(fit_quadruplet_wrapper, args, chunksize=15),
                         total=total_tasks, desc="Running inference", smoothing=0.1):
             results.append(res)
+    return results
+
+def _fit_copy_obs_async(
+        em, obs: np.ndarray,
+        theta_init: np.ndarray,
+        psi_init: dict,
+        max_iter: int,
+        rtol: float,
+        num_processors: int,
+        checkpoint_path: str=None
+):
+    n_cells = obs.shape[1]
+    total_tasks = n_cells * (n_cells - 1) // 2
+    counter = mp.Value('i', 0)
+    lock = mp.Lock()
+    results = []
+    pbar = tqdm(total=total_tasks, desc="Running inference")
+
+    def collect_result(res):
+        results.append(res)
+        with lock:
+            counter.value += 1
+            pbar.update(1)
+
+    args_gen = ((s, t, obs[:, [s, t]], max_iter, rtol,
+                 em.evo_model, theta_init[s, t, :],
+                 em.obs_model, psi_init, em.diagnostics,
+                 em.min_iter, checkpoint_path)
+                for s, t in itertools.combinations(range(n_cells), 2))
+
+    with mp.Pool(num_processors) as pool:
+        for a in args_gen:
+            pool.apply_async(fit_quadruplet_wrapper, (a,), callback=collect_result)
+        pool.close()
+        pool.join()
+
+    pbar.close()
     return results
 
 def estimate_theta_from_cn(cn_profiles, n_states: int, error_rate: float = 0.01, evo_model: EvoModel = None, method='triangle') -> np.ndarray:

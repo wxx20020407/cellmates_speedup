@@ -458,6 +458,9 @@ class JCBModel(EvoModel):
         self._lengths = None
         super().__init__(n_states=n_states, **kwargs)
 
+    def new(self):
+        return JCBModel(self.n_states, self.alpha)
+
     @property
     def lengths(self):
         return self._lengths
