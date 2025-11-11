@@ -10,14 +10,13 @@ from numpy import ndarray, dtype, float64
 import dendropy as dpy
 
 from cellmates import ROOT_DIR
-from cellmates.inference.em import EM
 import cellmates.inference.em as em_module
 from cellmates.utils import tree_utils, math_utils, visual
 
 
 def create_output_test_folder(sub_folder_name=None) -> str:
     """
-    Create a test output folder based on the current pytest test name.
+    Create a test output folder based on the current pytest test name using the absolute path.
     The folder will be created under the "output" directory in the general tests folder.
     Returns the path to the created folder.
     Returns:
