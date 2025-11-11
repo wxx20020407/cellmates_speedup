@@ -1,11 +1,18 @@
+import copy
 import csv
 import logging
+import os
 import subprocess
 from typing import Dict, List, Optional
 
 import anndata
 import networkx as nx
 import numpy as np
+from Bio import Phylo
+import dendropy as dpy
+from dendropy import Tree
+
+from cellmates.utils import tree_utils
 
 
 def run_dice(dataset_path, out_path=None, method='star', tree_rec='balME'):
@@ -30,6 +37,69 @@ def run_dice(dataset_path, out_path=None, method='star', tree_rec='balME'):
     # Run DICE
     logging.info(f'Running dice: {dice_command}')
     subprocess.run(dice_command, shell=True)
+
+def load_anndata_and_convert_to_dice_tsv(
+    dataset_path: str, output_filepath: str
+    ):
+    """
+    Loads an AnnData object from the specified path and converts it
+    into a DICE-compatible TSV file.
+
+    Args:
+        dataset_path: Path to the .h5ad file containing the AnnData object.
+        output_filepath: The path to the .tsv file to be created (e.g., "output.tsv").
+    """
+    # Load AnnData object
+    adata = anndata.read_h5ad(dataset_path)
+
+    # Convert to DICE TSV
+    convert_anndata_to_dice_tsv(adata, output_filepath)
+
+def convert_anndata_to_dice_tsv(adata: anndata.AnnData, output_filepath: str):
+    """
+    Converts an AnnData object containing copy number states into a
+    DICE-compatible TSV file.
+
+    Args:
+        adata: An AnnData object where:
+                    - adata.n_obs is the number of cells.
+                    - adata.n_vars is the number of bins.
+                  The adata.layers['state'] should contain integer CN states
+                  with shape (N, M, 2) for allele-specific copy numbers.
+
+        output_filepath: The path to the .tsv file to be created (e.g., "output.tsv").
+    """
+    # Validate that 'state' layer exists
+    if 'state' not in adata.layers:
+        raise ValueError("AnnData object must contain a 'state' layer with copy number states.")
+
+    # Extract CN array from AnnData
+    cn_array = adata.layers['state']
+
+    if len(cn_array.shape) == 2:
+        total_CN = True
+
+    # Create cell IDs
+    cell_ids = adata[~adata.obs['normal']].obs_names.tolist()
+    bin_coords = adata.var[['chr', 'start', 'end']]
+    # Assume uniform bin length and chromosome ends for simplicity
+    num_bins_m = adata.n_vars
+    bin_length = 10000  # Example fixed bin length; adjust as needed
+    chromosome_ends = []
+    bins_per_chromosome = 100  # Example; adjust as needed
+    for end_bin in range(bins_per_chromosome - 1, num_bins_m, bins_per_chromosome):
+        chromosome_ends.append(end_bin)
+    if chromosome_ends and chromosome_ends[-1] != num_bins_m - 1:
+        chromosome_ends.append(num_bins_m - 1)
+
+    # Call the conversion function
+    convert_to_dice_tsv(
+        cn_array=cn_array,
+        chromosome_ends=chromosome_ends,
+        bin_length=bin_length,
+        output_filepath=output_filepath,
+        cell_ids=cell_ids
+    )
 
 
 def convert_to_dice_tsv(
@@ -175,67 +245,51 @@ def convert_to_dice_tsv(
 
     print(f"Successfully wrote DICE input file to: {output_filepath}")
 
+def convert_dice_tsv_to_medicc2(dataset_path, out_path, out_filename=None, totalCN=False):
+    """
+    Function to convert DICE input tsv file to MEDICC2 input tsv file.
+    Loads a DICE formatted tsv file specified by dataset_path and writes a MEDICC2 formatted tsv file to out_path.
+    Adapted from DICE codebase: https://github.com/samsonweiner/DICE/blob/main/scripts/utilities.py
+    Parameters
+    ----------
+    out_filename: str
+        Name of the output MEDICC2 tsv file. If None, defaults to 'medicc2_input.tsv'.
+    dataset_path: str
+        Path to the DICE formatted tsv file.
+    out_path: str
+        Directory where the MEDICC2 formatted tsv file will be saved.
+    totalCN: bool
+        If True, only total copy number is considered. If False, allele-specific copy numbers are
+    """
+    out_path += '/' + out_filename if out_filename else '/medicc2_input.tsv'
 
-# --- Example Usage ---
-if __name__ == "__main__":
+    data = {}
+    if totalCN:
+        headers = ['sample_id', 'chrom', 'start', 'end', 'cn_a']
+    else:
+        headers = ['sample_id', 'chrom', 'start', 'end', 'cn_a', 'cn_b']
+    f = open(dataset_path)
+    lines = f.readlines()
+    f.close()
+    for line in lines[1:]:
+        cell, chrom, start, end, CN = line[:-1].split('\t')
+        chrom = chrom[chrom.index('r') + 1:]
+        if totalCN:
+            row = [cell, 'chrom' + chrom, start, end, CN]
+        else:
+            cn_a, cn_b = CN[:CN.index(',')], CN[CN.index(',') + 1:]
+            row = [cell, 'chrom' + chrom, start, end, cn_a, cn_b]
+        if cell not in data:
+            data[cell] = [row]
+        else:
+            data[cell].append(row)
 
-    # 1. Define Example Inputs
-
-    # N=3 cells, M=4 bins
-    N = 3
-    M = 4
-
-    # Haplotype A data (Shape N, M)
-    hap_a_data = np.array([
-        [1, 1, 3, 3],  # Cell 0: leaf1
-        [1, 2, 4, 3],  # Cell 1: leaf2
-        [2, 2, 3, 3]  # Cell 2: leaf5
-    ], dtype=int)
-
-    # Haplotype B data (Shape N, M)
-    hap_b_data = np.array([
-        [1, 1, 4, 4],  # Cell 0: leaf1
-        [2, 2, 4, 4],  # Cell 1: leaf2
-        [2, 2, 4, 4]  # Cell 2: leaf5
-    ], dtype=int)
-
-    # Stack them to create the (N, M, 2) input array
-    input_data = np.stack([hap_a_data, hap_b_data], axis=2)
-
-    print(f"Input array shape: {input_data.shape}")  # Should be (3, 4, 2)
-
-    # Cell IDs (List of N strings)
-    cell_names = ["leaf1", "leaf2", "leaf5"]
-
-    # Bin metadata (Total of M=4 bins)
-    # 'chr1' will be bins 0, 1
-    # 'chr2' will be bins 2, 3
-    # So, the end bin of chr1 is 1
-    # And the end bin of chr2 is 3
-    chromosome_ends_list = [1, 3]
-
-    # Bin length
-    bin_size = 10000
-
-    # Output file path
-    output_file = "dice_formatted_input_v3.tsv"
-
-    # 2. Run the function
-    try:
-        convert_to_dice_tsv(
-            cn_array=input_data,
-            chromosome_ends=chromosome_ends_list,
-            bin_length=bin_size,
-            output_filepath=output_file,
-            cell_ids=cell_names
-        )
-
-        # 3. Print the output file content for verification
-        print("\n--- Content of generated file: ---")
-        with open(output_file, 'r') as f:
-            print(f.read())
-    except Exception as e:
-        print(f"Error during conversion: {e}")
+    f = open(out_path, 'w+')
+    f.write('\t'.join(headers) + '\n')
+    for cell, lines in data.items():
+        for line in lines:
+            f.write('\t'.join(line) + '\n')
+    f.close()
 
 
 def add_root(dice_tree_nx, healthy_cell_name):
@@ -248,12 +302,33 @@ def add_root(dice_tree_nx, healthy_cell_name):
     dice_tree_nx.add_edge(str(max_idx), healthy_cell_name)
     return dice_tree_nx
 
+def load_dice_tree(dice_output_path: str,
+                   taxon_namespace,
+                   cell_names,
+                   healthy_cell_name='cell_0',
+                   ) -> Tree:
+    """Loads the DICE-inferred tree from the output file and adds a root node."""
+    # Load newick
+    dice_nwk_file_path = dice_output_path
+    newick_str = open(dice_nwk_file_path).read().strip()
+    # Convert to dendropy tree and make integer internal labels
+    dice_tree_dpy: dpy.Tree = dpy.Tree.get(data=newick_str, schema='newick', taxon_namespace=taxon_namespace)
+    tree_utils.label_tree(dice_tree_dpy)
+    # Convert to networkx, add root, relabel cell names to integers
+    dice_tree_nx = tree_utils.convert_dendropy_to_networkx(dice_tree_dpy)
+    add_root(dice_tree_nx, healthy_cell_name=healthy_cell_name)
+    dice_tree_nx = tree_utils.relabel_name_to_int(dice_tree_nx, cell_names)
+    # Convert back to dendropy
+    dice_tree_dpy2 = tree_utils.convert_networkx_to_dendropy(dice_tree_nx, taxon_namespace=taxon_namespace)
+    tree_utils.label_tree(dice_tree_dpy2)
+    return dice_tree_dpy2
+
 
 def is_dice_installed():
     """Checks if DICE is installed in the active virtual environment."""
     try:
         result = subprocess.run(['dice', '--version'], capture_output=True, text=True)
-        if result.returncode == 0:
+        if result.returncode == 0 or result.returncode == 2: # dice --version returns 2 for when installed in environment Harald 6/11-2025
             logging.info(f"DICE is installed: {result.stdout.strip()}")
             return True
         else:

@@ -121,7 +121,7 @@ def label_tree(tree, method='int'):
         rev_node_idx = len(tree.nodes()) - 1
         for n in tree.nodes():
             if n.is_leaf():
-                n.label = n.taxon.label
+                n.label = str(n.taxon.label)
             else:
                 n.label = str(rev_node_idx)
                 rev_node_idx -= 1
@@ -403,3 +403,18 @@ def skbio_neighbour_joining_from_pairwise_distances(pairwise_distances: np.ndarr
     tree_nj_skbio = skbio.tree.nj(skbio_dm)
     tree_nj_skbio = tree_nj_skbio.root_at_midpoint()
     return tree_nj_skbio
+
+
+def relabel_dendropy(tree: dpy.Tree, leaves_mapping: dict):
+    """
+    Relabels the leaves of a DendroPy tree according to a given mapping.
+    ----------
+    tree: dendropy.Tree
+    leaves_mapping: dict, mapping from old labels to new labels
+    """
+    for n in tree.leaf_node_iter():
+        if n.label is None:
+            n.label = leaves_mapping[n.taxon.label]
+            n.taxon.label = n.label
+        else:
+            n.label = leaves_mapping[n.label]
