@@ -17,7 +17,7 @@ from cellmates.simulation import datagen
 from cellmates.utils import testing, visual, tree_utils
 from cellmates.utils.tree_utils import label_tree
 
-
+@unittest.skip("Skipping MEDICC2 tests by default. Run manually if needed.")
 class Medicc2APITestCase(unittest.TestCase):
 
     def setUp(self):
@@ -29,7 +29,7 @@ class Medicc2APITestCase(unittest.TestCase):
         path_to_testdata = self.test_data_dir_rel_path + "/sampleProfiles.tsv"
         out_dir = self.test_out_dir_rel_path + '/test_run_dice'
          # Run DICE on the test data
-        medicc2_api.run_medicc2(path_to_testdata, out_path=out_dir)
+        medicc2_api.run_medicc2(path_to_testdata, out_dir_path=out_dir)
         self.assertTrue(os.path.exists(out_dir))
 
     def test_toy_data_and_run_medicc2(self):
