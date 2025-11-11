@@ -855,6 +855,9 @@ class EMTestCase(unittest.TestCase):
         p_change = 2 / n_sites
         ll = l_from_p(p_change * 2, n_states)
         sl = l_from_p(p_change / 10, n_states)
+        # FIXME: test passes, but compute viterbi is taking lengths as if they were p_change directly
+        #   why does it still pass? needs a stricter test
+        print(f"GT |\tp_change LONG p: {p_change * 2}, SHORT p: {p_change / 10},\n\tlength LONG l: {ll}, SHORT l: {sl}")
         jcb_model = JCBModel(n_states=n_states)
         obs_vw = np.array([
             [100] * (t0 + 1) + [200] * (t1 - t0) + [300] * (n_sites - t1 - 1),

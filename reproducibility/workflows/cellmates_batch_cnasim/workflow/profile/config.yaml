@@ -7,7 +7,7 @@ set-threads:
 
 set-resources:
   run_cellmates:
-    runtime: 1000
+    runtime: 400
     mem_mb: 16000
 
 default-resources:

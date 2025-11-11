@@ -157,11 +157,30 @@ def set_seed(seed):
     dpy.utility.GLOBAL_RNG.seed(seed)
 
 
-def plot_diagnostics(diagnostics: dict, out_dir: str = None, prefix: str = ''):
+def plot_diagnostics(diagnostics: dict, out_dir: str = None, prefix: str = '', psi_obs_model: str = None, **kwargs):
     """
     Plot diagnostics from EM algorithm.
     """
-    fig, ax = plt.subplots(3, 1, figsize=(8, 12))
+    figsize = kwargs.pop('figsize', (4, 6))
+    dpi = kwargs.pop('dpi', 100)
+
+    psi_dict = {
+        'psi': diagnostics['psis']
+    }
+    match psi_obs_model:
+        case 'normal':
+            # psi = array([mu_v_i, tau_v_i, mu_w_i, tau_w_i]), so we split into dict
+            psi_dict = {
+                'mu': [psi[[0, 2]] for psi in diagnostics['psis']],
+                'tau': [psi[[1, 3]] for psi in diagnostics['psis']]
+            }
+        case 'poisson':
+            psi_dict = {
+                'lambda': diagnostics['psis']
+            }
+
+    npsi = len(psi_dict)
+    fig, ax = plt.subplots(2 + npsi, 1, figsize=figsize, dpi=dpi)
     ax[0].plot(diagnostics['loglikelihoods'], marker='o')
     ax[0].set_title('Log-likelihoods over iterations')
     ax[0].set_xlabel('Iteration')
@@ -174,10 +193,14 @@ def plot_diagnostics(diagnostics: dict, out_dir: str = None, prefix: str = ''):
     ax[1].set_title('Theta parameters over iterations')
     ax[1].set_xlabel('Iteration')
     ax[1].set_ylabel('Theta')
-    ax[2].plot(diagnostics['psis'], marker='o', color='green')
-    ax[2].set_title('Psi parameters over iterations')
-    ax[2].set_xlabel('Iteration')
-    ax[2].set_ylabel('Psi')
+    for i, (key, psi_values) in enumerate(psi_dict.items()):
+        for v, vstr in enumerate(['v', 'w']):
+            params_v = [psi[v] for psi in psi_values]
+            ax[i+2].plot(params_v, marker='o', color='C'+str(v), label=key+f'_{vstr}')
+        ax[i+2].legend()
+        ax[i+2].set_title(f'{key} parameters over iterations')
+        ax[i+2].set_xlabel('Iteration')
+        ax[i+2].set_ylabel(f'{key}')
     fig.suptitle("EM diagnostics " + prefix)
     plt.tight_layout()
     if out_dir is not None:

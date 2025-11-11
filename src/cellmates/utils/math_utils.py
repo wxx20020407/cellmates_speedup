@@ -73,6 +73,7 @@ def get_expected_branch_lengths_from_cnps(cnps: np.ndarray, n_states: int, model
 
     expected_lengths = {}
     for (u, v), changes in zip(pairs, changes_list):
+        # FIXME: why differentiating models here if the formula is the same?
         if model == 'jcb':
             p_change = changes / n_sites
         elif model == 'copytree':
@@ -173,6 +174,7 @@ def viterbi_matrix_K6(
     N = K ** 3  # Total number of composite states
 
     # --- 1. Get Log Probs for Transitions ---
+    # print("EPS values passed to viterbi: ", (eps_ru, eps_uv, eps_uw))
     log_probs_ru = _get_log_probs(eps_ru, K)
     log_probs_uv = _get_log_probs(eps_uv, K)
     log_probs_uw = _get_log_probs(eps_uw, K)

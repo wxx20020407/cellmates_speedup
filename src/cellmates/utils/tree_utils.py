@@ -169,7 +169,7 @@ def newick_to_nx(nwk_str, edge_attr='weight', interior_node_names=None) -> nx.Di
     tree_nx.add_weighted_edges_from(relabeled_tree.edges(data='weight'), weight=edge_attr)
     return tree_nx
 
-def write_newick(nx_tree, cell_names, out_path=None, edge_attr='weight') -> str:
+def write_cells_to_tree(nx_tree, cell_names) -> nx.DiGraph:
     # relabel leaf nodes with cell ids from adata
     # add ancestor nodes names with breadth-first search
     assert nx.is_arborescence(nx_tree)
@@ -185,11 +185,7 @@ def write_newick(nx_tree, cell_names, out_path=None, edge_attr='weight') -> str:
 
     nx.relabel_nodes(nx_tree, mapping, copy=False)
     # save and plot inferred tree
-    nwk_str = nxtree_to_newick(nx_tree, weight=edge_attr)
-    if out_path is not None:
-        with open(out_path, 'w') as f:
-            f.write(nwk_str)
-    return nwk_str
+    return nx_tree
 
 def make_gt_tree_dist(ad, n_states, cell_names: list) -> tuple[dpy.Tree, np.ndarray]:
     # TODO: this function can be rewritten to re-use the code from function (D, Dp) = utils.testing.get_expected_changes(cnps, tree_nx, cell_pairs)
@@ -221,11 +217,20 @@ def make_gt_tree_dist(ad, n_states, cell_names: list) -> tuple[dpy.Tree, np.ndar
     dist_matrix = get_ctr_table(dpy_tree)
     return dpy_tree, dist_matrix
 
-
-def relabel_name_to_int(nxtree: nx.DiGraph, cell_names: list, ancestors_mapping=None) -> nx.DiGraph:
+def relabel_name_to_int_mapping(nxtree: nx.DiGraph, cell_names: list, ancestors_mapping=None) -> tuple[nx.DiGraph, dict]:
     """
     Give integer labels to nodes in the tree. Cell names (leaves) are labeled from 0 to n-1 in the order of cell_names
     and ancestors are labeled from n to n+m-1 where m is the number of ancestors.
+    Returns the relabeled tree and the mapping from original names to integer labels.
+    Parameters
+    ----------
+    nxtree: nx.DiGraph, input tree
+    cell_names: list, list of cell names (leaves)
+    ancestors_mapping: dict, mapping of ancestor names to integer labels (optional)
+    Returns
+    -------
+    relabeled_tree: nx.DiGraph, tree with integer labels
+    full_mapping: dict, mapping from original names to integer labels
     """
     cells_mapping = {name: i for i, name in enumerate(cell_names)}
     if ancestors_mapping is None:
@@ -238,8 +243,15 @@ def relabel_name_to_int(nxtree: nx.DiGraph, cell_names: list, ancestors_mapping=
     for name in cell_names:
         assert name in nxtree.nodes(), f"Cell name {name} not in tree nodes"
         assert nxtree.out_degree(name) == 0, f"Cell name {name} is not a leaf node"
-    return nx.relabel_nodes(nxtree, full_mapping, copy=True)
+    return nx.relabel_nodes(nxtree, full_mapping, copy=True), full_mapping
 
+def relabel_name_to_int(nxtree: nx.DiGraph, cell_names: list, ancestors_mapping=None) -> nx.DiGraph:
+    """
+    Give integer labels to nodes in the tree. Cell names (leaves) are labeled from 0 to n-1 in the order of cell_names
+    and ancestors are labeled from n to n+m-1 where m is the number of ancestors.
+    """
+    relabeled_tree, _ = relabel_name_to_int_mapping(nxtree, cell_names, ancestors_mapping)
+    return relabeled_tree
 
 def get_root_distance(centroid):
     root_distance = 0

@@ -217,3 +217,31 @@ def _forward_backward_broadcast(log_emissions, trans_mat, start_prob, debug=Fals
         assert np.isclose(np.sum(expected_counts), n_sites - 1), f"Expected counts sum {np.sum(expected_counts)} != n_sites - 1 ({n_sites - 1})"
         assert np.allclose(sp.logsumexp(log_gamma, axis=(1, 2, 3)), np.zeros(n_sites)), f"Gamma sums not close to 1: {sp.logsumexp(log_gamma, axis=(1, 2, 3))}"
     return expected_counts, log_gamma, log_p
+
+def viterbi_decode_pomegranate(log_emissions, trans_mat, start_prob) -> np.ndarray:
+    """
+    Viterbi decode using pomegranate HMM
+    Parameters
+    ----------
+    log_emissions : np.ndarray
+        Log emissions of shape (n_sites, n_states, n_states)
+    trans_mat : np.ndarray
+        Transition matrix of shape (n_states, n_states, n_states, n_states, n_states, n_states)
+    start_prob : np.ndarray
+        Start probabilities of shape (n_states, n_states, n_states)
+    Returns
+    -------
+    path : np.ndarray
+        Viterbi path of shape (n_sites, n_states, n_states, n_states)
+    """
+    n_sites, n_states, _ = log_emissions.shape
+    log_emissions_3D = pmg_convert_emissions(log_emissions)
+    start_prob_1D = start_prob.flatten()
+    trans_mat_2D = trans_mat.reshape((n_states ** 3, n_states ** 3))
+    distributions = [Normal() for _ in range(n_states ** 3)]  # dummy distributions, used only for shape
+    model = DenseHMM(distributions=distributions, edges=trans_mat_2D, starts=start_prob_1D, ends=np.ones(n_states ** 3) / (n_states ** 3))
+    path = model.viterbi(emissions=log_emissions_3D)
+    path = np.array([((state // (n_states ** 2)) % n_states,
+                      (state // n_states) % n_states,
+                      state % n_states) for state in path[0]]).T  # extract states from (index, state)
+    return path

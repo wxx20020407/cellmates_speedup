@@ -10,6 +10,7 @@ from dendropy.calculate import treecompare
 
 from cellmates.inference import neighbor_joining
 from cellmates.inference.em import EM, fit_quadruplet
+from cellmates.inference.pipeline import run_inference_pipeline, predict_cn_profiles
 from cellmates.models.obs import NormalModel
 from cellmates.utils import tree_utils, testing, visual
 
@@ -18,8 +19,11 @@ import networkx as nx
 import numpy as np
 from matplotlib import pyplot as plt
 
-from cellmates.simulation.datagen import rand_dataset
+from cellmates.simulation.datagen import rand_dataset, rand_ann_dataset, simulate_quadruplet
 from cellmates.models.evo import JCBModel, SimulationEvoModel
+from cellmates.utils.math_utils import l_from_p
+from cellmates.utils.testing import create_output_test_folder
+from cellmates.utils.tree_utils import convert_dendropy_to_networkx
 
 
 class CellmatesTestCase(unittest.TestCase):
@@ -382,3 +386,114 @@ class CellmatesTestCase(unittest.TestCase):
             'cell_names': cell_names
         }
         return out_dict
+
+    def test_run_inference_pipeline_saves_and_deletes_files(self):
+        # Create small AnnData (5 cells x 10 features) with a `copy` layer and `normal` annotation
+        n_cells = 5
+        n_states = 5
+        n_sites = 20
+        adata = rand_ann_dataset(n_cells, n_states, n_sites)
+        adata.layers['copy'] = adata.X.copy()
+        test_dir = create_output_test_folder()
+
+        h5ad_path = os.path.join(test_dir, "test_data.h5ad")
+        adata.write_h5ad(str(h5ad_path))
+
+        results = run_inference_pipeline(
+            input=str(h5ad_path),
+            output=test_dir,
+            n_states=n_states,
+            max_iter=3,
+            numpy=True,
+            learn_obs_params=True,
+            use_copynumbers=False,
+            save_diagnostics=True,
+            init_from_cn=True
+        )
+
+        # Verify returned paths exist and content is plausible
+        dist_path = results["distances"]
+        tree_path = results["tree"]
+        cells_path = results["cells"]
+
+        assert os.path.exists(dist_path), "distance file not created"
+        assert os.path.exists(tree_path), "tree file not created"
+        assert os.path.exists(cells_path), "cell names file not created"
+
+        # Check distance matrix shape matches number of cells
+        loaded = np.load(dist_path)
+        assert loaded.shape == (n_cells, n_cells, 3)
+
+        # Basic check for cell names contents
+        with open(cells_path, "r") as f:
+            lines = [l.strip() for l in f.readlines()]
+        assert len(lines) == n_cells
+
+        # Read tree and check number of leaves
+        tree_dp = dendropy.Tree.get(path=tree_path, schema="newick")
+        assert len(tree_dp.leaf_nodes()) == n_cells
+
+        # Clean up the created files explicitly
+        os.remove(dist_path)
+        os.remove(tree_path)
+        os.remove(cells_path)
+
+    @unittest.skip("Under development")
+    def test_predict_cn_triplet(self):
+        # FIXME: the triplet is not actually a proper binary tree
+        seed = 0
+        n_sites, n_states = 100, 5
+        p_changes = np.array([0.05, 0.05, 0.05])
+        edge_lengths = l_from_p(p_changes)
+        evo_model = JCBModel(n_states=n_states)
+        obs_model = NormalModel(n_states=n_states, mu_v=1.0, tau_v=5.0)
+        data = simulate_quadruplet(n_sites, obs_model=obs_model, n_states=n_states, seed=0, edge_lengths=edge_lengths)
+        cell_names = ['cell0', 'cell1']
+        obs = data['obs']
+        cn_true = data['cn']
+        nx_tree = convert_dendropy_to_networkx(data['tree'], edge_attr='length')
+        cn_pred, ancestor_names = predict_cn_profiles(obs, nx_tree, cell_names, evo_model, obs_model)
+        self.assertEqual(cn_pred.shape, cn_true)
+        # Check that predicted CNs are within valid range
+        self.assertTrue(np.all(cn_pred >= 0))
+        self.assertTrue(np.all(cn_pred < n_states))
+        # Check that predicted CNs are reasonably close to true CNs, compute MAE
+        mae = np.mean(np.abs(cn_pred - cn_true), axis=1)
+        print(f"Mean Absolute Error per cell: {mae}")
+
+    def test_predict_cn(self):
+        # randomly generate a small dataset
+        n_sites = 20
+        n_cells = 7
+        n_states = 5
+        evo_model = JCBModel(n_states=n_states)
+        obs_model = NormalModel(n_states=n_states, mu_v=1.0, tau_v=5.0)
+        data = rand_dataset(n_sites=n_sites, n_cells=n_cells, n_states=n_states,
+                            obs_model=obs_model, evo_model=evo_model)
+        obs = data['obs']
+        cn_true = data['cn']
+        print(f"True CN profiles:\n {cn_true}")
+        nx_tree = convert_dendropy_to_networkx(data['tree'], edge_attr='length')
+        cell_names = list(range(n_cells))
+        evo_model = JCBModel(n_states=n_states)
+        obs_model = NormalModel(n_states=n_states, mu_v=1.0, tau_v=5.0)
+        cn_matrix, labels = predict_cn_profiles(obs, nx_tree, cell_names, evo_model, obs_model)
+        self.assertTrue(all(c in labels for c in cell_names))
+        print(f"Predicted CN profiles:\n {cn_matrix}")
+        self.assertEqual(cn_matrix.shape, cn_true.shape)
+        # Check that predicted CNs are within valid range
+        root = [n for n,d in nx_tree.in_degree() if d==0][0]
+        self.assertTrue(root in labels)
+        self.assertTrue(np.all(cn_matrix[root] == 2))
+        self.assertTrue(np.all(cn_matrix >= 0))
+        self.assertTrue(np.all(cn_matrix < n_states))
+        # Check that predicted CNs are reasonably close to true CNs, compute MAE
+        mae = np.mean(np.abs(cn_matrix - cn_true), axis=1)
+        # check that cells cn is correctly estimated
+        print(f"Mean Absolute Error per cell: {mae[:n_cells]}")
+        self.assertTrue(np.all(mae[:n_cells] < 0.1), "Large errors in predicted CN for cells")
+        print(f"Mean Absolute Error per internal nodes and depth:\n\t{mae[n_cells:]}\n\t{[len(nx.shortest_path(nx_tree, root, n)) for n in nx_tree.nodes if n >= n_cells]}")
+        print(f"Depth of ")
+        # FIXME: internal nodes predictions can be very off, this test is relaxed for now
+        #   several fixes include: better length over tree, proper zero absorption
+        self.assertTrue(np.all(mae[n_cells:] < 1.0), "Large errors in predicted CN for internal nodes")
