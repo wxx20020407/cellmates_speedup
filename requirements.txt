@@ -4,3 +4,4 @@ networkx==3.4.2
 numpy==2.2.2
 scipy==1.15.1
 scikit-bio==0.6.3
+pomegranate>=1.1.2
