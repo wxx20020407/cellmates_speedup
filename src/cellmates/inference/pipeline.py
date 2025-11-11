@@ -11,7 +11,7 @@ from cellmates.models.obs import NormalModel, JitterCopy, ObsModel
 from cellmates.models.evo import JCBModel, EvoModel
 from cellmates.inference.em import EM, estimate_theta_from_cn
 from cellmates.utils.hmm import viterbi_decode_pomegranate
-from cellmates.utils.tree_utils import write_cells_to_tree, relabel_name_to_int_mapping, nxtree_to_newick
+from cellmates.utils.tree_utils import write_cells_to_tree, relabel_name_to_int_mapping, nxtree_to_newick, newick_to_nx
 
 logger = logging.getLogger(__name__)
 
@@ -203,7 +203,7 @@ def run_em_inference(obs,
     return em
 
 
-def save_results(em, out_path, cell_names, tree_nx, predicted_cn: tuple[np.ndarray, list] = None):
+def save_results(em, out_path, cell_names, tree_nx):
     os.makedirs(out_path, exist_ok=True)
     dist_path = os.path.join(out_path, 'distance_matrix.npy')
     tree_path = os.path.join(out_path, 'tree.nwk')
@@ -211,10 +211,6 @@ def save_results(em, out_path, cell_names, tree_nx, predicted_cn: tuple[np.ndarr
 
     np.save(dist_path, em.distances)
     logger.info(f"Saved distance matrix → {dist_path}")
-    if predicted_cn is not None:
-        cn_path = os.path.join(out_path, 'predicted_copy_numbers.npz')
-        np.savez(cn_path, data=predicted_cn[0], labels=predicted_cn[1])
-        logger.info(f"Saved predicted copy number profiles → {cn_path}")
 
     nwk_str = nxtree_to_newick(tree_nx, weight='length')
     with open(tree_path, 'w') as f:
@@ -227,6 +223,11 @@ def save_results(em, out_path, cell_names, tree_nx, predicted_cn: tuple[np.ndarr
     logger.info(f"Saved cell names → {cell_names_path}")
     return {"distances": dist_path, "tree": tree_path, "cells": cell_names_path}
 
+def save_cn_profiles(predicted_cn_tuple, out_path):
+    cn_path = os.path.join(out_path, 'predicted_copy_numbers.npz')
+    np.savez(cn_path, data=predicted_cn_tuple[0], labels=predicted_cn_tuple[1])
+    logger.info(f"Saved predicted copy number profiles → {cn_path}")
+    return cn_path
 
 def run_inference_pipeline(
     input,
@@ -284,11 +285,32 @@ def run_inference_pipeline(
     logger.info("Building tree from distance matrix...")
     tree = build_tree(em.distances)
     tree_relab = write_cells_to_tree(tree, cell_names=cell_names)  # relabel tree with cell names and put ancestor names
-
+    # save before predicting cn profiles (which may take time)
+    res_paths = save_results(em, out_path, cell_names, tree_relab)
     # infer cn profiles using the tree and the distance matrix
-    predicted_cn_tuple = None
+    cn_path = None
     if predict_cn:
         logger.info("Predicting copy number profiles for all nodes in the tree...")
         predicted_cn_tuple = predict_cn_profiles(obs, tree_relab, cell_names, em.evo_model, leaf_obs_model=em.obs_model, zero_absorption=True)
+        cn_path = save_cn_profiles(predicted_cn_tuple, out_path)
+    res_paths['predicted_copy_numbers'] = cn_path
 
-    return save_results(em, out_path, cell_names, tree_relab, predicted_cn_tuple)
+    return res_paths
+
+def run_prediction_from_output(adata_path, output_path, tau, n_states, use_copynumbers=False, diagnostics_path=None):
+    # either normal or jittercopy model
+    # if diagnostics_path is not None:
+    #     with open(diagnostics_path, 'rb') as f:
+    #         diag_data = pickle.load(f)
+    #         psi = {p: diag_data[p]['psis'][-1] for p in diag_data}  # last iteration psi for each pair of cells
+    adata = load_and_prepare_adata(adata_path, use_copynumbers)
+    tree = newick_to_nx(open(os.path.join(output_path, 'tree.nwk')).read().strip(), edge_attr='length')
+    evo_model = JCBModel(n_states=n_states)
+    obs, chrom_ends, cell_names, obs_model = prepare_observations(
+        adata, n_states, tau, False, use_copynumbers, 'normal')
+
+    predicted_cn_tuple = predict_cn_profiles(obs, tree, cell_names, evo_model, leaf_obs_model=obs_model, zero_absorption=True)
+    cn_path = os.path.join(output_path, 'predicted_copy_numbers.npz')
+    np.savez(cn_path, data=predicted_cn_tuple[0], labels=predicted_cn_tuple[1])
+    logger.info(f"Saved predicted copy number profiles → {cn_path}")
+    return cn_path
