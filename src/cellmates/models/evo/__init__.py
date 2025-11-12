@@ -95,7 +95,9 @@ class EvoModel:
         # compute two slice marginals
         # prob(Cm = ijk, Cm+1 = i'j'k' | Y)
         if alg == 'viterbi':
+            # path_log_lik = None
             viterbi_path, path_log_lik = self.compute_viterbi_path(obs_model.log_emission(obs_vw))
+            # viterbi_path = self.viterbi_path(obs_model.log_emission(obs_vw))
             # FIXME: set log_gamma
             # count changes along viterbi path
             d, dp = self.counts_from_paths(viterbi_path)
