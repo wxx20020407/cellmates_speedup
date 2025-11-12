@@ -56,16 +56,17 @@ def load_and_prepare_adata(adata_path, use_copynumbers):
     return adata
 
 
-def prepare_observations(adata, n_states, tau, learn_obs_params, use_copynumbers, normal_annotation):
+def prepare_observations(adata, n_states, tau, learn_obs_params, use_copynumbers, normal_annotation, layer_name=None):
     if not use_copynumbers:
         obs, chromosome_ends, cell_names = obs_from_adata(adata, normal_annotation=normal_annotation)
         obs_model = NormalModel(
             n_states=n_states, mu_v_prior=1.0, tau_v_prior=tau, train=learn_obs_params
         )
     else:
+        layer_name = 'state' if layer_name is None else layer_name
         logger.info("Using copy number states directly.")
         obs, chromosome_ends, cell_names = obs_from_adata(
-            adata, layer_name='state', normal_annotation=None
+            adata, layer_name=layer_name, normal_annotation=None
         )
         obs_model = JitterCopy(n_states=n_states)  # default jitter (0.1)
     return obs, chromosome_ends, cell_names, obs_model
@@ -246,19 +247,27 @@ def run_inference_pipeline(
     save_diagnostics=False,
     normal_annotation=None,
     init_from_cn=False,
-    predict_cn=True
+    predict_cn=True,
+    layer_name=None
 ):
     out_path = output or "."
     if not os.path.exists(out_path):
         os.makedirs(out_path)
     hmm_alg = "broadcast" if numpy else "pomegranate"
 
+    if use_copynumbers and layer_name is None:
+        cn_layer = 'state'
+    elif use_copynumbers and layer_name is not None:
+        cn_layer = layer_name
+    else:
+        # when not using copy numbers, no initialization from cn
+        cn_layer = None
     adata = load_and_prepare_adata(input, use_copynumbers)
     obs, chrom_ends, cell_names, obs_model = prepare_observations(
-        adata, n_states, tau, learn_obs_params, use_copynumbers, normal_annotation
+        adata, n_states, tau, learn_obs_params, use_copynumbers, normal_annotation, layer_name=cn_layer
     )
     cn_profiles = None
-    cn_layer = 'state'  # parametrizable
+
     if init_from_cn:
         try:
             cn_profiles = adata.layers[cn_layer]

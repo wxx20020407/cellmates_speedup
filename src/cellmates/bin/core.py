@@ -23,13 +23,14 @@ def parse_args():
     parser.add_argument('--tau', type=float, default=5.0)
     parser.add_argument('--save-diagnostics', action='store_true')
     parser.add_argument('--predict-cn', action='store_true')
+    parser.add_argument('--layer-name', type=str, default=None)
     return parser.parse_args()
 
 def main():
     args = parse_args()
     if args.num_processors > 1:
-        method = 'fork'
-        print(f"using method: {method}")
+        method = 'spawn'
+        print(f"Using {method} method for multiprocessing with {args.num_processors} processors.")
         set_start_method(method, force=True)
 
     run_inference_pipeline(**vars(args))

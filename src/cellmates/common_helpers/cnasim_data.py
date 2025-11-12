@@ -122,7 +122,7 @@ def read_cell_types(cnasim_data_path: str) -> (np.ndarray, pd.DataFrame):
 
     return cell_assignment, cell_types
 
-def profiles_to_anndata(profiles_path: str) -> anndata.AnnData:
+def profiles_to_anndata(profiles_path: str, layer_name: str = 'state') -> anndata.AnnData:
     """
     Convert CNAsim profiles.tsv as in the benchmark files into anndata object
     profiles.tsv format:
@@ -142,7 +142,7 @@ def profiles_to_anndata(profiles_path: str) -> anndata.AnnData:
     cell_names = wide_cn_df.columns.tolist()
     cn_profiles = wide_cn_df[cell_names].transpose().to_numpy()
     adata = anndata.AnnData(cn_profiles)
-    adata.layers['state'] = cn_profiles
+    adata.layers[layer_name] = cn_profiles
     adata.obs_names = cell_names
     adata.var_names = wide_cn_df.index.map(lambda x: f"{x[0]}:{x[1]}-{x[2]}")
     # prefix can be 'chr' or 'chr_' and chromosome names can be '1', ... '22', 'X', 'Y'

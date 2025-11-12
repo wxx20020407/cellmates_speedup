@@ -82,7 +82,7 @@ rule run_cellmates_cn:
     benchmark: os.path.join(data_dir, "{dataset}", "{seed}", "cm_out_cn", "benchmark_run_cellmates_cn.tsv")
     #threads: 16
     shell: """
-    cellmates -i {input} -o {params.directory} -v 2 --n-states {N_STATES} --num-processors {threads} --save-diagnostics --use-copynumbers --numpy
+    cellmates -i {input} -o {params.directory} -v 2 --n-states {N_STATES} --num-processors {threads} --save-diagnostics --use-copynumbers --numpy --layer-name noisy-cn
     """
 
 rule evaluate:
