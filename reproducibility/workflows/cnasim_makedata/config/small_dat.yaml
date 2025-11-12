@@ -1,0 +1,37 @@
+seeds: 3
+noise_level: 0
+results_dir: /proj/sc_ml/shared/cnasim_data/dice_benchmark_reboot
+
+defaults:
+  n_cells: 50
+  n_chromosomes: 10
+  chromosome_length: 100
+  mean_cnas_per_edge: 2
+  bin_size: 500000
+  n_clones: 0
+  wgd: false
+
+levels_boundary_noise: [0, 0.04, 0.02]
+levels_jitter: [0, 0.1, 0.1]
+
+Cs:
+  variable: [wgd, n_clones, founder_chrom_rate, clone_chrom_rate, chrom_arm_rate]
+  values:
+    - [false, 4, 2, 2, 0]
+    - [true, 4, 2, 2, 0.75]
+
+Ds:
+  variable: mean_cnas_per_edge
+  values: [2, 5, 10]
+
+Fs:
+  variable: [boundary_noise, jitter, coverage]
+  values:
+    - [0.05, 0.02, 0.2]
+    - [0.15, 0.02, 0.2]
+    - [0.05, 0.04, 0.1]
+    - [0.15, 0.04, 0.1]
+    - [0.05, 0.06, 0.08]
+    - [0.15, 0.06, 0.08]
+    - [0.05, 0.10, 0.05]
+    - [0.15, 0.10, 0.05]

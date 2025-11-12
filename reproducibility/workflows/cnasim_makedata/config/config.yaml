@@ -2,7 +2,7 @@ seeds: 3
 noise_level: 0
 
 defaults:
-  n_cells: 250
+  n_cells: 50
   n_chromosomes: 22
   chromosome_length: 100
   mean_cnas_per_edge: 2

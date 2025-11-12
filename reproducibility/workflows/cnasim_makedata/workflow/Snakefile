@@ -1,11 +1,11 @@
 # Load config
-configfile: "config/config.yaml"
+#configfile: "config/config.yaml"
 
 # Helper: expand dataset names and parameters
 def expand_datasets():
     datasets = {}
     for prefix, entry in config.items():
-        if prefix not in 'ABCDEF':
+        if prefix[0] not in 'ABCDEF':
             continue
         variables = entry["variable"]
         values = entry["values"]
@@ -24,6 +24,7 @@ def expand_datasets():
             datasets[ds_name] = params
     return datasets
 
+RESULTS_DIR = config.get("results_dir", "results")
 LEVELS_JITTER = config["levels_jitter"] # 0: none, 1: high, 2: low (as in paper)
 LEVELS_BOUNDARY_NOISE = config["levels_boundary_noise"]
 NOISE_LEVEL = config["noise_level"]
@@ -35,14 +36,15 @@ SOURCE_PATH = "../../../src"
 # Example output naming
 rule all:
     input:
-        expand("results/{dataset}/{seed}/simulation.done", dataset=DATASET_NAMES, seed=SEEDS),
-        expand("results/{dataset}/{seed}/anndata.h5ad", dataset=DATASET_NAMES, seed=SEEDS)
+        expand(RESULTS_DIR + "/{dataset}/{seed}/simulation.done", dataset=DATASET_NAMES, seed=SEEDS),
+        expand(RESULTS_DIR + "/{dataset}/{seed}/anndata.h5ad", dataset=DATASET_NAMES, seed=SEEDS)
 
 # Main rule
 rule simulate:
     output:
-        "results/{dataset_class}_{noise_lev}/{seed}/simulation.done"
-    conda: "envs/cnasim.yml"
+        RESULTS_DIR + "/{dataset_class}_{noise_lev}/{seed}/simulation.done"
+    #conda: "envs/cnasim.yml"
+    conda: "cnasim"
     threads: 8
     params:
         n_cells=lambda wildcards: DATASETS[wildcards.dataset_class]["n_cells"],
@@ -64,8 +66,8 @@ rule simulate:
     """
 
 rule prepare_anndata:
-    input: "results/{dataset}/{seed}/simulation.done"
-    output: "results/{dataset}/{seed}/anndata.h5ad"
+    input: RESULTS_DIR + "/{dataset}/{seed}/simulation.done"
+    output: RESULTS_DIR + "/{dataset}/{seed}/anndata.h5ad"
     params:
         cnasim_dir=subpath(input[0], parent=True)
     conda: "envs/base.yml"
