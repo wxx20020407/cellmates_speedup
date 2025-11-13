@@ -40,10 +40,13 @@ def run_medicc2(dataset_path, out_dir_path, topology_only=False, num_proc=1):
 def load_medicc2_tree(medicc2_nwk_file_path: str,
                       taxon_namespace: dpy.TaxonNamespace,
                       N_cells,
-                      remove_diploid=True) -> dpy.Tree:
+                      remove_diploid=True,
+                      cell_names=None) -> dpy.Tree:
     medicc2_tree_nw = open(medicc2_nwk_file_path).read().strip()
     medicc2_tree_dpy: dpy.Tree = dpy.Tree.get(data=medicc2_tree_nw, schema='newick')
     leaves_mapping = {f'cell {i}': str(i) for i in range(N_cells)}
+    if cell_names is not None:
+        leaves_mapping = {cell_names[i]: str(i) for i in range(N_cells)}
     leaves_mapping['diploid'] = str(N_cells)
     tree_utils.relabel_dendropy(medicc2_tree_dpy, leaves_mapping)
     # Remove healthy root if present
