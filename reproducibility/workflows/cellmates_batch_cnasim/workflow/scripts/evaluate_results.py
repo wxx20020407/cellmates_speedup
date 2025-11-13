@@ -5,6 +5,8 @@ import anndata
 import numpy as np
 from dendropy.calculate import treecompare
 
+from cellmates.other_methods.dice_api import load_dice_tree
+from cellmates.other_methods.medicc2_api import load_medicc2_tree
 from cellmates.utils.tree_utils import convert_networkx_to_dendropy, newick_to_nx, make_gt_tree_dist, \
     relabel_name_to_int, normalized_rf_distance, f1_score_clades
 
@@ -171,10 +173,7 @@ def main(args):
     if args.medicc2_tree is not None:
         # compute MEDICC2 tree RF if provided
         medicc2_tree_path = args.medicc2_tree
-        medicc2_tree = open(medicc2_tree_path).read()
-        medicc2_nxtree = newick_to_nx(medicc2_tree)
-        medicc2_nxtree = relabel_name_to_int(medicc2_nxtree, cell_names)
-        medicc2_dpy_tree = convert_networkx_to_dendropy(medicc2_nxtree, edge_length='weight', internal_nodes_label='int', taxon_namespace=gt_dpy_tree.taxon_namespace)
+        medicc2_dpy_tree = load_medicc2_tree(medicc2_tree_path, gt_dpy_tree.taxon_namespace, len(cell_names))
         medicc2_nrf = normalized_rf_distance(gt_dpy_tree, medicc2_dpy_tree)
         print(f"MEDICC2 Tree RF normalized: {medicc2_nrf}")
 
@@ -182,10 +181,7 @@ def main(args):
     if args.dice_tree is not None:
         # compute DICE tree RF if provided
         dice_tree_path = args.dice_tree
-        dice_tree = open(dice_tree_path).read()
-        dice_nxtree = newick_to_nx(dice_tree)
-        dice_nxtree = relabel_name_to_int(dice_nxtree, cell_names)
-        dice_dpy_tree = convert_networkx_to_dendropy(dice_nxtree, edge_length='weight', internal_nodes_label='int', taxon_namespace=gt_dpy_tree.taxon_namespace)
+        dice_dpy_tree = load_dice_tree(dice_tree_path, gt_dpy_tree.taxon_namespace, cell_names)
         dice_nrf = normalized_rf_distance(gt_dpy_tree, dice_dpy_tree)
         print(f"DiCE Tree RF normalized: {dice_nrf}")
     # save results
