@@ -56,7 +56,7 @@ def load_and_prepare_adata(adata_path, use_copynumbers):
     return adata
 
 
-def prepare_observations(adata, n_states, tau, learn_obs_params, use_copynumbers, normal_annotation, layer_name=None):
+def prepare_observations(adata, n_states, tau, learn_obs_params, use_copynumbers, normal_annotation, layer_name=None, jitter=0.1):
     if not use_copynumbers:
         obs, chromosome_ends, cell_names = obs_from_adata(adata, normal_annotation=normal_annotation)
         obs_model = NormalModel(
@@ -68,7 +68,7 @@ def prepare_observations(adata, n_states, tau, learn_obs_params, use_copynumbers
         obs, chromosome_ends, cell_names = obs_from_adata(
             adata, layer_name=layer_name, normal_annotation=None
         )
-        obs_model = JitterCopy(n_states=n_states)  # default jitter (0.1)
+        obs_model = JitterCopy(n_states=n_states, error_rate=jitter)  # default jitter (0.1)
     return obs, chromosome_ends, cell_names, obs_model
 
 def predict_cn_profiles(obs: np.ndarray, nx_tree: nx.DiGraph, cell_names: list,
@@ -248,7 +248,8 @@ def run_inference_pipeline(
     normal_annotation=None,
     init_from_cn=False,
     predict_cn=True,
-    layer_name=None
+    layer_name=None,
+    jitter=0.1
 ):
     out_path = output or "."
     if not os.path.exists(out_path):
@@ -264,7 +265,7 @@ def run_inference_pipeline(
         cn_layer = None
     adata = load_and_prepare_adata(input, use_copynumbers)
     obs, chrom_ends, cell_names, obs_model = prepare_observations(
-        adata, n_states, tau, learn_obs_params, use_copynumbers, normal_annotation, layer_name=cn_layer
+        adata, n_states, tau, learn_obs_params, use_copynumbers, normal_annotation, layer_name=cn_layer, jitter=jitter
     )
     cn_profiles = None
 
@@ -306,7 +307,7 @@ def run_inference_pipeline(
 
     return res_paths
 
-def run_prediction_from_output(adata_path, output_path, tau, n_states, use_copynumbers=False, diagnostics_path=None):
+def run_prediction_from_output(adata_path, output_path, tau, n_states, use_copynumbers=False, diagnostics_path=None, normal_annotation=None):
     # either normal or jittercopy model
     # if diagnostics_path is not None:
     #     with open(diagnostics_path, 'rb') as f:
@@ -316,7 +317,7 @@ def run_prediction_from_output(adata_path, output_path, tau, n_states, use_copyn
     tree = newick_to_nx(open(os.path.join(output_path, 'tree.nwk')).read().strip(), edge_attr='length')
     evo_model = JCBModel(n_states=n_states)
     obs, chrom_ends, cell_names, obs_model = prepare_observations(
-        adata, n_states, tau, False, use_copynumbers, 'normal')
+        adata, n_states, tau, False, use_copynumbers, normal_annotation)
 
     predicted_cn_tuple = predict_cn_profiles(obs, tree, cell_names, evo_model, leaf_obs_model=obs_model, zero_absorption=True)
     cn_path = os.path.join(output_path, 'predicted_copy_numbers.npz')

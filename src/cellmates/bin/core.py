@@ -24,6 +24,7 @@ def parse_args():
     parser.add_argument('--save-diagnostics', action='store_true')
     parser.add_argument('--predict-cn', action='store_true')
     parser.add_argument('--layer-name', type=str, default=None)
+    parser.add_argument('--jitter', type=float, default=0.1)
     return parser.parse_args()
 
 def main():
