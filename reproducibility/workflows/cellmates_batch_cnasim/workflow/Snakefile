@@ -93,7 +93,7 @@ rule run_medicc2:
     params:
         directory=os.path.join(data_dir, "{dataset}", "{seed}", "medicc2_out")
     shell: """
-    medicc2 {input} {params.directory} -j {threads} --plot auto --no-wgd
+    medicc2 {input} {params.directory} -j {threads} --plot auto --no-wgd --input-allele-columns 'total_cn' --total-copy-numbers
     """
 
 rule run_dice:
@@ -104,7 +104,7 @@ rule run_dice:
     params:
         directory=os.path.join(data_dir, "{dataset}", "{seed}", "dice_out")
     shell: """
-    dice -i {input} -o {params.directory} -m balME
+    dice -i {input} -o {params.directory} -m balME --total-cn
     """
 
 rule run_cellmates_cn:

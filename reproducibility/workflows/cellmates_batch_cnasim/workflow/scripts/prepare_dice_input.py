@@ -5,12 +5,18 @@ def main():
     parser = argparse.ArgumentParser(description="Prepare input for DICE from .h5ad file")
     parser.add_argument("--input", type=str, required=True, help="Path to the .h5ad input file")
     parser.add_argument("--output", type=str, required=True, help="Path to the output tsv file")
+    parser.add_argument('--total-cn', action='store_true', help="Indicate if total copy number data is used")
     args = parser.parse_args()
 
     # Load the .h5ad file
     df = utils.adata_to_df(args.input)
     # df is expected to have columns: 'cell', 'chr', 'start', 'end', 'A', 'B'
-    df['CN states'] = df['A'].astype(str) + ',' + df['B'].astype(str)
+    if args.total_cn:
+        # For total copy number, sum A and B
+        df['CN states'] = (df['A'] + df['B']).astype(str)
+    else:
+        # For allele-specific copy number, combine A and B
+        df['CN states'] = df['A'].astype(str) + ',' + df['B'].astype(str)
     # rename columns to match DICE input format
     df = df.rename(columns={'cell': 'CELL', 'chr': 'chrom'})
     # select relevant columns

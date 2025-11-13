@@ -13,7 +13,8 @@ def main():
     # rename columns to match MEDICC2 input format
     df = df.rename(columns={'cell': 'sample_id', 'chr': 'chrom', 'start': 'start', 'end': 'end', 'A': 'cn_a', 'B': 'cn_b'})
     # select relevant columns
-    df = df[['sample_id', 'chrom', 'start', 'end', 'cn_a', 'cn_b']]
+    df['total_cn'] = df['cn_a'] + df['cn_b']
+    df = df[['sample_id', 'chrom', 'start', 'end', 'cn_a', 'cn_b', 'total_cn']]
     # save to tsv
     df.to_csv(args.output, sep='\t', index=False, header=True)
     print(f"MEDICC2 input saved to {args.output}")
