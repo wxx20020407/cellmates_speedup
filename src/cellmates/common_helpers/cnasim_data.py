@@ -122,7 +122,7 @@ def read_cell_types(cnasim_data_path: str) -> (np.ndarray, pd.DataFrame):
 
     return cell_assignment, cell_types
 
-def profiles_to_anndata(profiles_path: str) -> anndata.AnnData:
+def profiles_to_anndata(profiles_path: str, layer_name: str = 'state') -> anndata.AnnData:
     """
     Convert CNAsim profiles.tsv as in the benchmark files into anndata object
     profiles.tsv format:
@@ -134,15 +134,21 @@ def profiles_to_anndata(profiles_path: str) -> anndata.AnnData:
     # read profiles.tsv file and make anndata with obs_names and var_names
     profiles_df = pd.read_csv(profiles_path, delimiter='\t', header=0)
     # mutate copy number
-    profiles_df['cn'] = profiles_df['CN states'].transform(lambda x: sum(list(map(int, x.split(',')))))
+    profiles_df['cnA'] = profiles_df['CN states'].transform(lambda x: int(x.split(',')[0]))
+    profiles_df['cnB'] = profiles_df['CN states'].transform(lambda x: int(x.split(',')[1]))
+    profiles_df['cn'] = profiles_df['cnA'] + profiles_df['cnB']
     # to wide format
-    wide_cn_df = pd.pivot_table(profiles_df, index=['chrom', 'start', 'end'], values='cn', columns='CELL',
+    wide_cn_df = pd.pivot_table(profiles_df, index=['chrom', 'start', 'end'], values=['cn', 'cnA', 'cnB'], columns='CELL',
                                 sort=False)  # already sorted by cell number
     # extract cell columns
-    cell_names = wide_cn_df.columns.tolist()
-    cn_profiles = wide_cn_df[cell_names].transpose().to_numpy()
+    cell_names = wide_cn_df['cn'].columns.tolist()
+    cn_profiles = wide_cn_df['cn'][cell_names].transpose().to_numpy()
+    cn_profilesA = wide_cn_df['cnA'][cell_names].transpose().to_numpy()
+    cn_profilesB = wide_cn_df['cnB'][cell_names].transpose().to_numpy()
     adata = anndata.AnnData(cn_profiles)
-    adata.layers['state'] = cn_profiles
+    adata.layers[layer_name] = cn_profiles
+    adata.layers[layer_name + 'A'] = cn_profilesA
+    adata.layers[layer_name + 'B'] = cn_profilesB
     adata.obs_names = cell_names
     adata.var_names = wide_cn_df.index.map(lambda x: f"{x[0]}:{x[1]}-{x[2]}")
     # prefix can be 'chr' or 'chr_' and chromosome names can be '1', ... '22', 'X', 'Y'

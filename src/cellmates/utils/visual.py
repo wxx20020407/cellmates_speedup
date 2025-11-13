@@ -1,5 +1,9 @@
+import io
+
+import dendropy
 import matplotlib.pyplot as plt
 import networkx as nx
+from Bio import Phylo
 from matplotlib.colors import ListedColormap
 
 import seaborn as sns
@@ -151,3 +155,28 @@ if __name__ == '__main__':
     plot_cn_profile(np.random.randint(0, 6, (10, 100)), ax=ax)  # Plot a random copy number profile
     plt.show()
 
+
+def plot_tree_phylo(tree: str | dendropy.Tree,
+                    out_dir,
+                    filename='tree',
+                    show=False, save=True,
+                    title=None):
+    """
+    Plot a tree using Bio.Phylo and Matplotlib.
+    """
+    if type(tree) is dendropy.Tree:
+        true_tree_nw = tree.as_string("newick")
+    else:
+        true_tree_nw = tree
+
+    handle = io.StringIO(true_tree_nw)
+    bio_tree = Phylo.read(handle, "newick")
+
+    fig, ax = plt.subplots(figsize=(6, 4))
+    if title is not None:
+        ax.set_title(title)
+    Phylo.draw(bio_tree, axes=ax)
+    if show:
+        plt.show()
+    if save:
+        fig.savefig(out_dir + '/' + filename + ".png", format="png")

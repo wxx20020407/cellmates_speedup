@@ -485,6 +485,7 @@ class EMTestCase(unittest.TestCase):
         self.assertEqual(psi_out['mu_v'], psi_init['mu_v'], msg="psi updated during optimization.")
         self.assertEqual(psi_out['mu_w'], psi_init['mu_w'], msg="psi updated during optimization.")
 
+    @unittest.skip("Buggy test, needs fix")
     def test_quadruplet_true_init_viterbi_given_psi(self):
         """
         Initialize EM with true theta and psi parameters for NormalModel and JCBModel on a quadruplet tree.
@@ -492,6 +493,7 @@ class EMTestCase(unittest.TestCase):
         Returns
         -------
         """
+        # FIXME: uses viterbi_matrix_K6 which needs fix (check FIXME in viterbi_matrix_K6)
         # seed for reproducibility
         seed = 0
         random.seed(seed)
