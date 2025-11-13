@@ -20,6 +20,8 @@ def parse_args():
     p.add_argument("--dataset", required=True)
     p.add_argument("--seed", type=int, required=True)
     p.add_argument("--datatype", default="reads")
+    p.add_argument("--medicc2-tree", default=None, help="Path to MEDICC2 inferred tree (newick) for RF comparison.")
+    p.add_argument("--dice-tree", default=None, help="Path to DiCE inferred tree (newick) for RF comparison.")
     return p.parse_args()
 
 def group_ties(gt_dpy_tree, atol: float = 1e-7) -> bool:
@@ -72,6 +74,8 @@ def extract_from_snakemake(snakemake):
     args.dataset = snakemake.params["dataset"]
     args.seed = snakemake.params["seed"]
     args.datatype = snakemake.params.get("method", "reads")
+    args.medicc2_tree = snakemake.params.get("medicc2_tree", None)
+    args.dice_tree = snakemake.params.get("dice_tree", None)
     return args
 
 
@@ -162,6 +166,28 @@ def main(args):
     except Exception as e:
         print(f"Error computing CN MAD: {e}")
         cn_mad = None
+
+    medicc2_nrf = None
+    if args.medicc2_tree is not None:
+        # compute MEDICC2 tree RF if provided
+        medicc2_tree_path = args.medicc2_tree
+        medicc2_tree = open(medicc2_tree_path).read()
+        medicc2_nxtree = newick_to_nx(medicc2_tree)
+        medicc2_nxtree = relabel_name_to_int(medicc2_nxtree, cell_names)
+        medicc2_dpy_tree = convert_networkx_to_dendropy(medicc2_nxtree, edge_length='weight', internal_nodes_label='int', taxon_namespace=gt_dpy_tree.taxon_namespace)
+        medicc2_nrf = normalized_rf_distance(gt_dpy_tree, medicc2_dpy_tree)
+        print(f"MEDICC2 Tree RF normalized: {medicc2_nrf}")
+
+    dice_nrf = None
+    if args.dice_tree is not None:
+        # compute DICE tree RF if provided
+        dice_tree_path = args.dice_tree
+        dice_tree = open(dice_tree_path).read()
+        dice_nxtree = newick_to_nx(dice_tree)
+        dice_nxtree = relabel_name_to_int(dice_nxtree, cell_names)
+        dice_dpy_tree = convert_networkx_to_dendropy(dice_nxtree, edge_length='weight', internal_nodes_label='int', taxon_namespace=gt_dpy_tree.taxon_namespace)
+        dice_nrf = normalized_rf_distance(gt_dpy_tree, dice_dpy_tree)
+        print(f"DiCE Tree RF normalized: {dice_nrf}")
     # save results
     # for each edge, plot error, edge depth (TODO)
     results = pd.DataFrame({'dat_path': [truth_ad_path], 'dataset': [dataset], 'seed': [seed], 'n_cells': [n_cells], 'n_states': [n_states], 'n_clones': [len(set(clone_assignments))],
@@ -169,10 +195,10 @@ def main(args):
                             'lambda': [ad.uns['cnasim-params']['placement_param']],
                             'ru_mse': [err_list[0]],
                             'uv_mse': [err_list[1]], 'uw_mse': [err_list[2]],
-                            'rf': [rf], 'urf': [urf], 'nrf': [nrf], 'f1_gt': [f1_gt], 'f1_em': [f1_em], 'wgd': [ad.uns['cnasim-params']['WGD']], 'gt_ties': [gt_ties], 'data_type': [data_type], 'cn_mad': cn_mad})
+                            'rf': [rf], 'urf': [urf], 'nrf': [nrf], 'f1_gt': [f1_gt], 'f1_em': [f1_em], 'wgd': [ad.uns['cnasim-params']['WGD']], 'gt_ties': [gt_ties], 'data_type': [data_type], 'cn_mad': cn_mad,
+                            'medicc2_nrf': medicc2_nrf, 'dice_nrf': dice_nrf})
     results.to_csv(out_csv, index=False)
     print(f"Saved results to {out_csv}")
-
 
 if __name__=="__main__":
     # mock snakemake object for local testing if not executed via snakemake

@@ -69,6 +69,44 @@ rule run_cellmates:
     cellmates -i {input} -o {params.directory} -v 2 --n-states {N_STATES} --num-processors {threads} --tau 5 --learn-obs-params --save-diagnostics --numpy
     """
 
+rule prepare_medicc2:
+    input: os.path.join(data_dir, "{dataset}", "{seed}", "anndata.h5ad")
+    output: os.path.join(data_dir, "{dataset}", "{seed}", "med_input.tsv")
+    conda: "cellmates"
+    shell: """
+    python workflow/scripts/prepare_medicc2_input.py --input {input} --output {output} --layer-name noisy-cn
+    """
+
+rule prepare_dice:
+    input: os.path.join(data_dir, "{dataset}", "{seed}", "anndata.h5ad")
+    output: os.path.join(data_dir, "{dataset}", "{seed}", "dice_input.tsv")
+    conda: "cellmates"
+    shell: """
+    python workflow/scripts/prepare_dice_input.py --input {input} --output {output} --layer-name noisy-cn
+    """
+
+rule run_medicc2:
+    input: os.path.join(data_dir, "{dataset}", "{seed}", "med_input.tsv")
+    output: os.path.join(data_dir, "{dataset}", "{seed}", "medicc2_out", "med_input_final_tree.nwk")
+    benchmark: os.path.join(data_dir, "{dataset}", "{seed}", "benchmark_run_medicc2.tsv")
+    conda: "medicc2"
+    params:
+        directory=os.path.join(data_dir, "{dataset}", "{seed}", "medicc2_out")
+    shell: """
+    medicc2 {input} {params.directory} -j {threads} --plot auto --no-wgd
+    """
+
+rule run_dice:
+    input: os.path.join(data_dir, "{dataset}", "{seed}", "dice_input.tsv")
+    output: os.path.join(data_dir, "{dataset}", "{seed}", "dice_out", "standard_root_balME_tree.nwk")
+    benchmark: os.path.join(data_dir, "{dataset}", "{seed}", "benchmark_run_dice.tsv")
+    conda: "dice"
+    params:
+        directory=os.path.join(data_dir, "{dataset}", "{seed}", "dice_out")
+    shell: """
+    dice -i {input} -o {params.directory} -m balME
+    """
+
 rule run_cellmates_cn:
     input: os.path.join(data_dir, "{dataset}", "{seed}", "anndata.h5ad")
     output:
@@ -90,7 +128,9 @@ rule evaluate:
         truth_ad=os.path.join(data_dir, "{dataset}", "{seed}", "anndata.h5ad"),
         cm_dist=os.path.join(data_dir, "{dataset}", "{seed}","cm_out{datatype}","distance_matrix.npy"),
         cm_tree=os.path.join(data_dir, "{dataset}", "{seed}","cm_out{datatype}","tree.nwk"),
-        cm_cells=os.path.join(data_dir, "{dataset}", "{seed}","cm_out{datatype}","cell_names.txt")
+        cm_cells=os.path.join(data_dir, "{dataset}", "{seed}","cm_out{datatype}","cell_names.txt"),
+        medicc2_nwk=os.path.join(data_dir,"{dataset}","{seed}","medicc2_out","med_input_final_tree.nwk"),
+        dice_nwk=os.path.join(data_dir,"{dataset}","{seed}","dice_out","standard_root_balME_tree.nwk")
     output: os.path.join(data_dir, "{dataset}", "{seed}","eval_tmp{datatype}.csv")
     params:
         n_states=N_STATES,
@@ -108,7 +148,9 @@ rule evaluate:
             --n-states {params.n_states} \
             --dataset {params.dataset} \
             --seed {params.seed} \
-            --datatype {params.method}
+            --datatype {params.method} \
+            --medicc2-tree {input.medicc2_nwk} \
+            --dice-tree {input.dice_nwk}
     """
 
 rule combine_results:
