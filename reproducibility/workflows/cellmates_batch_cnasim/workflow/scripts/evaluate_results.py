@@ -169,21 +169,23 @@ def main(args):
         print(f"Error computing CN MAD: {e}")
         cn_mad = None
 
-    medicc2_nrf = None
+    medicc2_nrf = medicc2_f1 = None
     if args.medicc2_tree is not None:
         # compute MEDICC2 tree RF if provided
         medicc2_tree_path = args.medicc2_tree
-        medicc2_dpy_tree = load_medicc2_tree(medicc2_tree_path, gt_dpy_tree.taxon_namespace, len(cell_names))
+        medicc2_dpy_tree = load_medicc2_tree(medicc2_tree_path, gt_dpy_tree.taxon_namespace, len(cell_names), cell_names=cell_names)
         medicc2_nrf = normalized_rf_distance(gt_dpy_tree, medicc2_dpy_tree)
-        print(f"MEDICC2 Tree RF normalized: {medicc2_nrf}")
+        medicc2_f1 = f1_score_clades(medicc2_dpy_tree, clone_assignments)
+        print(f"MEDICC2 Tree RF normalized: {medicc2_nrf} |  F1: {medicc2_f1}")
 
-    dice_nrf = None
+    dice_nrf = dice_f1 = None
     if args.dice_tree is not None:
         # compute DICE tree RF if provided
         dice_tree_path = args.dice_tree
         dice_dpy_tree = load_dice_tree(dice_tree_path, gt_dpy_tree.taxon_namespace, cell_names)
         dice_nrf = normalized_rf_distance(gt_dpy_tree, dice_dpy_tree)
-        print(f"DiCE Tree RF normalized: {dice_nrf}")
+        dice_f1 = f1_score_clades(dice_dpy_tree, clone_assignments)
+        print(f"DiCE Tree RF normalized: {dice_nrf} |  F1: {dice_f1}")
     # save results
     # for each edge, plot error, edge depth (TODO)
     results = pd.DataFrame({'dat_path': [truth_ad_path], 'dataset': [dataset], 'seed': [seed], 'n_cells': [n_cells], 'n_states': [n_states], 'n_clones': [len(set(clone_assignments))],
@@ -192,7 +194,7 @@ def main(args):
                             'ru_mse': [err_list[0]],
                             'uv_mse': [err_list[1]], 'uw_mse': [err_list[2]],
                             'rf': [rf], 'urf': [urf], 'nrf': [nrf], 'f1_gt': [f1_gt], 'f1_em': [f1_em], 'wgd': [ad.uns['cnasim-params']['WGD']], 'gt_ties': [gt_ties], 'data_type': [data_type], 'cn_mad': cn_mad,
-                            'medicc2_nrf': medicc2_nrf, 'dice_nrf': dice_nrf})
+                            'medicc2_nrf': medicc2_nrf, 'dice_nrf': dice_nrf, 'medicc2_f1': medicc2_f1, 'dice_f1': dice_f1})
     results.to_csv(out_csv, index=False)
     print(f"Saved results to {out_csv}")
 
