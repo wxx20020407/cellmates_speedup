@@ -1,5 +1,6 @@
 #data_dir: "/home/vittorio.zampinetti/Cellmates/reproducibility/workflows/cnasim_makedata/results"
 data_dir: "/proj/sc_ml/shared/cnasim_data/dice_benchmark_reboot"
-datasets: ['A1_0', 'A1_1'] #, 'A2_1', 'A2_0']
+#datasets: ['A1_0', 'A1_1'] #, 'A2_1', 'A2_0']
+datasets: ['Cs1_0', 'Ds1_0', 'Ds3_0', 'Fs2_0', 'Fs4_0', 'Fs6_0', 'Fs8_0', 'Cs2_0','Cs2_0', 'Ds2_0', 'Fs1_0', 'Fs3_0', 'Fs5_0', 'Fs7_0']
 datatypes: ['', '_cn']
-seeds: [0, 1, 2, 3, 4]  # Empty list indicates all seeds that are available
+seeds: [0, 1, 2]  # Empty list indicates all seeds that are available
