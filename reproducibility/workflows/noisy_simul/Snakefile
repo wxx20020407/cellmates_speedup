@@ -1,30 +1,25 @@
-import yaml
-
 # Load config
 configfile: "config.yaml"
 
 # Get list of jitter values
-JITTERS = config["jitter_vals"]
+JITTERS = config["jitter_val"]
+DATA_DIR = config["data_dir"]
 
 # Get TSV inputs
 SAMPLES = glob_wildcards("{sample}.tsv").sample
 
-# Define rule outputs: one nwk per sample per jitter
-def nwk_output(sample, jitter):
-    return f"trees/{sample}_j{jitter}.nwk"
-
 rule all:
     input:
-        expand("trees/{sample}_j{jitter}.nwk",
+        expand(DATA_DIR + "trees/{sample}_j{jitter}.nwk",
                sample=SAMPLES,
                jitter=JITTERS)
 
 # Rule 1: prepare anndata per TSV
 rule prepare_anndata:
     input:
-        "{sample}.tsv"
+        DATA_DIR + "{sample}.tsv"
     output:
-        "prepared/{sample}.h5ad"
+        DATA_DIR + "prepared/{sample}.h5ad"
     conda: "cellmates"
     shell:
         """
@@ -34,12 +29,12 @@ rule prepare_anndata:
 # Rule 2: run_cellmates for each jitter value per sample
 rule run_cellmates:
     input:
-        "prepared/{sample}.h5ad"
+        DATA_DIR + "prepared/{sample}.h5ad"
     output:
-        "trees/{sample}_j{jitter}.nwk"
+        DATA_DIR + "trees/{sample}_j{jitter}.nwk"
     conda: "cellmates"
     params:
-        directory="cm_out{sample}_j{jitter}",
+        directory=DATA_DIR + "cm_out{sample}_j{jitter}",
         jitter = lambda wildcards: wildcards.jitter
     shell:
         """

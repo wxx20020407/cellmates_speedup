@@ -1,1 +1,2 @@
 jitter_val: [0.1, 0.2, 0.3, 0.5]
+data_dir: "/proj/sc_ml/users/x_vitza/cellmates_res/test_noisy/"
