@@ -338,3 +338,4 @@ def is_dice_installed():
         logging.error(f"Error checking DICE installation: {e}")
     logging.warning("DICE is not installed in the active virtual environment.")
     return False
+
