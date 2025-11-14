@@ -2,9 +2,11 @@ import numpy as np
 import pandas as pd
 import anndata
 
-def adata_to_df(adata_path, layer_name='state') -> pd.DataFrame:
+def adata_to_df(adata_path, layer_name='noisy-cn') -> pd.DataFrame:
     # create a DataFrame with the required columns
     adata = anndata.read_h5ad(adata_path)
+    if layer_name not in adata.layers.keys():
+        layer_name = 'state'
     n_obs = adata.n_obs
     n_var = adata.n_vars
     out_df = pd.DataFrame({
