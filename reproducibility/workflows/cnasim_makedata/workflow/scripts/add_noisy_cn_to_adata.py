@@ -16,8 +16,8 @@ if __name__ == '__main__':
                 if os.path.isdir(os.path.join(path, dataset, seed)):
                     if 'clean_profiles.tsv' in os.listdir(os.path.join(path, dataset, seed)):
                         cnasim_path = os.path.join(path, dataset, seed)
-                        # adata = anndata.read_h5ad(os.path.join(cnasim_path, 'anndata.h5ad'))
-                        # cn_adata = profiles_to_anndata(os.path.join(cnasim_path, "profiles.tsv"), layer_name='noisy-cn')
-                        # adata.layers['noisy-cn'] = cn_adata[adata.obs_names].layers['noisy-cn']
-                        # adata.write_h5ad(os.path.join(cnasim_path, 'anndata.h5ad'))
+                        adata = anndata.read_h5ad(os.path.join(cnasim_path, 'anndata.h5ad'))
+                        cn_adata = profiles_to_anndata(os.path.join(cnasim_path, "profiles.tsv"), layer_name='noisy-cn')
+                        adata.layers['noisy-cn'] = cn_adata[adata.obs_names].layers['noisy-cn']
+                        adata.write_h5ad(os.path.join(cnasim_path, 'anndata.h5ad'))
                         print(f"done: {os.path.join(cnasim_path, 'anndata.h5ad')}")

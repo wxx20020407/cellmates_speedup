@@ -56,12 +56,13 @@ rule simulate:
         wgd=lambda wildcards: '-w' if DATASETS[wildcards.dataset_class]["wgd"] else '',
         boundary_noise=lambda wildcards: DATASETS[wildcards.dataset_class]["boundary_noise"],
         jitter=lambda wildcards: DATASETS[wildcards.dataset_class]["jitter"],
+        cn_length_mean=lambda wildcards: DATASETS[wildcards.dataset_class]["cn_length_mean"],
         use_hg38=lambda wildcards: '--use-hg38-static' if DATASETS[wildcards.dataset_class]["n_chromosomes"] == 22 else '',
         output_dir=subpath(output[0], parent=True)
     shell: """
     cnasim -m 1 --use-uniform-coverage -n {params.n_cells} -c {params.n_clones} -E1 {params.boundary_noise} -E2 {params.jitter} \
     -p1 {params.mean_cnas_per_edge} -o {params.output_dir} -N {params.n_chromosomes} -L {params.chromosome_length} -B {params.bin_size} \
-    {params.wgd} {params.use_hg38} -P {threads}
+    {params.wgd} {params.use_hg38} -P {threads} -l {params.cn_length_mean}
     touch {output}
     """
 
