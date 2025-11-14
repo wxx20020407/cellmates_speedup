@@ -6,7 +6,7 @@ JITTERS = config["jitter_val"]
 DATA_DIR = config["data_dir"]
 
 # Get TSV inputs
-SAMPLES = glob_wildcards("{sample}.tsv").sample
+SAMPLES = glob_wildcards(DATA_DIR + "{sample,[^/]+}.tsv").sample
 
 rule all:
     input:
