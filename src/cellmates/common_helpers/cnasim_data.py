@@ -29,8 +29,8 @@ def convert_cnasim_output_to_anndata(cnasim_data_dir: str, out_path: str = None,
     if out_path is None:
         out_path = os.path.join(cnasim_data_dir, 'adata.h5ad')
 
-    if os.path.exists(os.path.join(cnasim_data_path, 'clean_profiles.tsv')):
-        noisy_adata = profiles_to_anndata(os.path.join(cnasim_data_path, 'profiles.tsv'), 'states')
+    if os.path.exists(os.path.join(cnasim_data_dir, 'clean_profiles.tsv')):
+        noisy_adata = profiles_to_anndata(os.path.join(cnasim_data_dir, 'profiles.tsv'), 'states')
         adata.layers['noisy-cn'] = noisy_adata.layers['states']
 
     adata.write(Path(out_path))
