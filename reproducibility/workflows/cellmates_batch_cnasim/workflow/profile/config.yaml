@@ -1,17 +1,28 @@
 executor: slurm
-jobs: 8
-cores: 128
+jobs: 78
+cores: 78
 
 set-threads:
-  run_cellmates: 16
+  run_cellmates: 1
+  run_cellmates_cn: 1
+  run_medicc2: 10
 
 set-resources:
   run_cellmates:
+    mem_mb_per_cpu: 10000
+    runtime: 2400
+  run_cellmates_cn:
+    mem_mb_per_cpu: 10000
+    runtime: 2400
+  run_medicc2:
+    mem_mb_per_cpu: 10000
+    runtime: 2400
+  run_dice:
+    mem_mb_per_cpu: 10000
     runtime: 400
-    mem_mb: 16000
 
 default-resources:
   mem_mb_per_cpu: 8000
-  runtime: 100
+  runtime: 400 # 400' required for 25 cells
   slurm_account: "naiss2024-22-1623"
 

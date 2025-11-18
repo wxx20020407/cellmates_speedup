@@ -59,7 +59,6 @@ rule run_cellmates:
         cm_dist=os.path.join(data_dir, "{dataset}", "{seed}", "cm_out", "distance_matrix.npy"),
         cm_tree=os.path.join(data_dir, "{dataset}", "{seed}", "cm_out", "tree.nwk"),
         cm_cells=os.path.join(data_dir, "{dataset}", "{seed}", "cm_out", "cell_names.txt"),
-        cm_diagnostics=os.path.join(data_dir, "{dataset}", "{seed}", "cm_out", "em_diagnostics.pkl")
     params:
         directory=os.path.join(data_dir, "{dataset}", "{seed}", "cm_out")
     conda: "cellmates"
@@ -74,7 +73,7 @@ rule prepare_medicc2:
     output: os.path.join(data_dir, "{dataset}", "{seed}", "med_input.tsv")
     conda: "cellmates"
     shell: """
-    python workflow/scripts/prepare_medicc2_input.py --input {input} --output {output} --layer-name noisy-cn
+    python workflow/scripts/prepare_medicc2_input.py --input {input} --output {output}
     """
 
 rule prepare_dice:
@@ -82,12 +81,12 @@ rule prepare_dice:
     output: os.path.join(data_dir, "{dataset}", "{seed}", "dice_input.tsv")
     conda: "cellmates"
     shell: """
-    python workflow/scripts/prepare_dice_input.py --input {input} --output {output} --layer-name noisy-cn
+    python workflow/scripts/prepare_dice_input.py --input {input} --output {output} --total-cn
     """
 
 rule run_medicc2:
     input: os.path.join(data_dir, "{dataset}", "{seed}", "med_input.tsv")
-    output: os.path.join(data_dir, "{dataset}", "{seed}", "medicc2_out", "med_input_final_tree.nwk")
+    output: os.path.join(data_dir, "{dataset}", "{seed}", "medicc2_out", "med_input_final_tree.new")
     benchmark: os.path.join(data_dir, "{dataset}", "{seed}", "benchmark_run_medicc2.tsv")
     conda: "medicc2"
     params:
@@ -113,14 +112,13 @@ rule run_cellmates_cn:
         cm_dist=os.path.join(data_dir, "{dataset}", "{seed}", "cm_out_cn", "distance_matrix.npy"),
         cm_tree=os.path.join(data_dir, "{dataset}", "{seed}", "cm_out_cn", "tree.nwk"),
         cm_cells=os.path.join(data_dir, "{dataset}", "{seed}", "cm_out_cn", "cell_names.txt"),
-        cm_diagnostics=os.path.join(data_dir, "{dataset}", "{seed}", "cm_out_cn", "em_diagnostics.pkl")
     params:
         directory=os.path.join(data_dir, "{dataset}", "{seed}", "cm_out_cn")
     conda: "cellmates"
     benchmark: os.path.join(data_dir, "{dataset}", "{seed}", "cm_out_cn", "benchmark_run_cellmates_cn.tsv")
     #threads: 16
     shell: """
-    cellmates -i {input} -o {params.directory} -v 2 --n-states {N_STATES} --num-processors {threads} --save-diagnostics --use-copynumbers --numpy --layer-name noisy-cn
+    cellmates -i {input} -o {params.directory} -v 2 --n-states {N_STATES} --num-processors {threads} --save-diagnostics --use-copynumbers --numpy
     """
 
 rule run_sconce2:
@@ -146,7 +144,7 @@ rule evaluate:
         cm_dist=os.path.join(data_dir, "{dataset}", "{seed}","cm_out{datatype}","distance_matrix.npy"),
         cm_tree=os.path.join(data_dir, "{dataset}", "{seed}","cm_out{datatype}","tree.nwk"),
         cm_cells=os.path.join(data_dir, "{dataset}", "{seed}","cm_out{datatype}","cell_names.txt"),
-        medicc2_nwk=os.path.join(data_dir,"{dataset}","{seed}","medicc2_out","med_input_final_tree.nwk"),
+        medicc2_nwk=os.path.join(data_dir,"{dataset}","{seed}","medicc2_out","med_input_final_tree.new"),
         dice_nwk=os.path.join(data_dir,"{dataset}","{seed}","dice_out","standard_root_balME_tree.nwk")
     output: os.path.join(data_dir, "{dataset}", "{seed}","eval_tmp{datatype}.csv")
     params:
