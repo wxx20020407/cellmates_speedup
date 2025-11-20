@@ -106,10 +106,10 @@ class EM:
         # adjust initialization shape
         if theta_init_.ndim == 3:
             # pairwise initialization provided
-            assert theta_init_.shape == (self.n_cells, self.n_cells, 3), 'theta_init must be of shape (3,) for global initialization or (n_cells, n_cells, 3) for pairwise initialization'
+            assert theta_init_.shape == (self.n_cells, self.n_cells, 3), f'theta_init must be of shape (3,) for global initialization or ({self.n_cells}, {self.n_cells}, 3) for pairwise initialization, but got {theta_init_.shape}'
             self.logger.info('using pairwise provided theta_init for initialization')
         else:
-            assert theta_init_.shape == (3,), 'theta_init must be of shape (3,) for global initialization or (n_cells, n_cells, 3) for pairwise initialization'
+            assert theta_init_.shape == (3,), f'theta_init must be of shape (3,) for global initialization or (n_cells, n_cells, 3) for pairwise initialization, but got {theta_init_.shape}'
             # expand to all pairs by using a numpy view
             self.logger.info('using global provided theta_init for initialization')
             theta_init_ = theta_init_.reshape((1, 1, 3)).repeat(self.n_cells, axis=0).repeat(self.n_cells, axis=1)

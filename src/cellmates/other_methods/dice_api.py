@@ -316,7 +316,8 @@ def load_dice_tree(dice_output_path: str,
     tree_utils.label_tree(dice_tree_dpy)
     # Convert to networkx, add root, relabel cell names to integers
     dice_tree_nx = tree_utils.convert_dendropy_to_networkx(dice_tree_dpy)
-    add_root(dice_tree_nx, healthy_cell_name=healthy_cell_name)
+    if healthy_cell_name in dice_tree_nx.nodes:
+        add_root(dice_tree_nx, healthy_cell_name=healthy_cell_name)
     dice_tree_nx = tree_utils.relabel_name_to_int(dice_tree_nx, cell_names)
     # Convert back to dendropy
     dice_tree_dpy2 = tree_utils.convert_networkx_to_dendropy(dice_tree_nx, taxon_namespace=taxon_namespace)

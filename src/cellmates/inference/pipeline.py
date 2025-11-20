@@ -256,13 +256,11 @@ def run_inference_pipeline(
         os.makedirs(out_path)
     hmm_alg = "broadcast" if numpy else "pomegranate"
 
+    cn_layer = 'state'
     if use_copynumbers and layer_name is None:
         cn_layer = 'state'
     elif use_copynumbers and layer_name is not None:
         cn_layer = layer_name
-    else:
-        # when not using copy numbers, no initialization from cn
-        cn_layer = None
     adata = load_and_prepare_adata(input, use_copynumbers)
     obs, chrom_ends, cell_names, obs_model = prepare_observations(
         adata, n_states, tau, learn_obs_params, use_copynumbers, normal_annotation, layer_name=cn_layer, jitter=jitter
@@ -271,9 +269,12 @@ def run_inference_pipeline(
 
     if init_from_cn:
         try:
-            cn_profiles = adata.layers[cn_layer]
+            cn_profiles = adata[cell_names].layers[cn_layer]
         except KeyError:
             raise KeyError(f"Cannot initialize from copy numbers, layer {cn_layer} is not in AnnData obj")
+    logger.info("adata shape: " + str(adata.shape))
+    logger.info("Observation shape: " + str(obs.shape))
+    logger.info("CN shape for initialization: " + str(cn_profiles.shape) if cn_profiles is not None else "No CN profiles for initialization.")
 
     em = run_em_inference(
         obs=obs,
