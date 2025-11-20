@@ -103,7 +103,7 @@ rule run_dice:
     params:
         directory=os.path.join(data_dir, "{dataset}", "{seed}", "dice_out")
     shell: """
-    dice -i {input} -o {params.directory} -m balME --total-cn
+    dice -i {input} -o {params.directory} -m balME --total-cn --save-dm
     """
 
 rule run_cellmates_cn:
