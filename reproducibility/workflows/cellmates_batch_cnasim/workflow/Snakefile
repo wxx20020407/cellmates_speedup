@@ -120,23 +120,23 @@ rule run_cellmates_cn:
     shell: """
     cellmates -i {input} -o {params.directory} -v 2 --n-states {N_STATES} --num-processors {threads} --save-diagnostics --use-copynumbers --numpy
     """
-
-rule run_sconce2:
-    input:
-        healthy_avg=os.path.join(data_dir, "{dataset}", "{seed}", "healthy_avg.tsv"),
-        tumor_file_list=os.path.join(data_dir, "{dataset}", "{seed}", "tumor_file_list.txt"),
-        meanvar=os.path.join(data_dir, "{dataset}", "{seed}", "meanvar.tsv")
-    params:
-        healhty_avg=input.healthy_avg,
-        tumor_file_list=input.tumor_file_list,
-        meanvar=input.meanvar,
-        k=5
-    output:
-    log:
-        stdout=output
-    shell: """
-    {SCONCE2} -d {params.healhty_avg} -t {params.tumor_file_list} -k {params.k} -v --meanVarCoefFile {params.meanvar} -o {output} --saveSconce --summarizeAll -j {threads} --sconceEstimatesPath {output} --pairedEstimatesPath {output} > test_k5_c4.log 2> test_k5_c4.err
-    """
+#
+# rule run_sconce2:
+#     input:
+#         healthy_avg=os.path.join(data_dir, "{dataset}", "{seed}", "healthy_avg.tsv"),
+#         tumor_file_list=os.path.join(data_dir, "{dataset}", "{seed}", "tumor_file_list.txt"),
+#         meanvar=os.path.join(data_dir, "{dataset}", "{seed}", "meanvar.tsv")
+#     params:
+#         healhty_avg=input.healthy_avg,
+#         tumor_file_list=input.tumor_file_list,
+#         meanvar=input.meanvar,
+#         k=5
+#     output:
+#     log:
+#         stdout=output
+#     shell: """
+#     {SCONCE2} -d {params.healhty_avg} -t {params.tumor_file_list} -k {params.k} -v --meanVarCoefFile {params.meanvar} -o {output} --saveSconce --summarizeAll -j {threads} --sconceEstimatesPath {output} --pairedEstimatesPath {output} > test_k5_c4.log 2> test_k5_c4.err
+#     """
 
 rule evaluate:
     input:

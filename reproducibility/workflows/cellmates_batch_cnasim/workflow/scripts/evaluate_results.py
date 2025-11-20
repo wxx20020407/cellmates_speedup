@@ -186,6 +186,15 @@ def main(args):
         dice_nrf = normalized_rf_distance(gt_dpy_tree, dice_dpy_tree)
         dice_f1 = f1_score_clades(dice_dpy_tree, clone_assignments)
         print(f"DiCE Tree RF normalized: {dice_nrf} |  F1: {dice_f1}")
+
+    # add cnasim params to results
+    boundary_noise = ad.uns['cnasim-params']['error_rate_1']
+    jitter_noise = ad.uns['cnasim-params']['error_rate_2']
+    # coverage?
+    n_clones_gen = ad.uns['cnasim-params']['num_clones']
+    mean_cnas_per_edge = ad.uns['cnasim-params']['placement_param']
+    cn_length_mean = ad.uns['cnasim-params']['cn_length_mean']
+
     # save results
     # for each edge, plot error, edge depth (TODO)
     results = pd.DataFrame({'dat_path': [truth_ad_path], 'dataset': [dataset], 'seed': [seed], 'n_cells': [n_cells], 'n_states': [n_states], 'n_clones': [len(set(clone_assignments))],
@@ -194,7 +203,10 @@ def main(args):
                             'ru_mse': [err_list[0]],
                             'uv_mse': [err_list[1]], 'uw_mse': [err_list[2]],
                             'rf': [rf], 'urf': [urf], 'nrf': [nrf], 'f1_gt': [f1_gt], 'f1_em': [f1_em], 'wgd': [ad.uns['cnasim-params']['WGD']], 'gt_ties': [gt_ties], 'data_type': [data_type], 'cn_mad': cn_mad,
-                            'medicc2_nrf': medicc2_nrf, 'dice_nrf': dice_nrf, 'medicc2_f1': medicc2_f1, 'dice_f1': dice_f1})
+                            'medicc2_nrf': medicc2_nrf, 'dice_nrf': dice_nrf, 'medicc2_f1': medicc2_f1, 'dice_f1': dice_f1,
+                            'boundary_noise': [boundary_noise], 'jitter_noise': [jitter_noise],
+                            'n_clones_gen': [n_clones_gen], 'mean_cnas_per_edge': [mean_cnas_per_edge], 'cn_length_mean': [cn_length_mean]
+                            })
     results.to_csv(out_csv, index=False)
     print(f"Saved results to {out_csv}")
 

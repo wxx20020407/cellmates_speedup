@@ -1,6 +1,11 @@
 #data_dir: "/home/vittorio.zampinetti/Cellmates/reproducibility/workflows/cnasim_makedata/results"
 data_dir: "/proj/sc_ml/shared/cnasim_data/dice_benchmark_reboot"
 #datasets: ['A1_0', 'A1_1'] #, 'A2_1', 'A2_0']
-datasets: ['Cs1_0', 'Ds1_0', 'Ds3_0', 'Fs2_0', 'Fs4_0', 'Fs6_0', 'Fs8_0', 'Cs2_0','Cs2_0', 'Ds2_0', 'Fs1_0', 'Fs3_0', 'Fs5_0', 'Fs7_0']
-datatypes: ['', '_cn']
-seeds: [0, 1, 2]  # Empty list indicates all seeds that are available
+#datasets: ['Cs1_0', 'Ds1_0', 'Ds3_0', 'Fs2_0', 'Fs4_0', 'Fs6_0', 'Fs8_0', 'Cs2_0','Cs2_0', 'Ds2_0', 'Fs1_0', 'Fs3_0', 'Fs5_0', 'Fs7_0']
+datasets: [
+  'Ds1_0', 'Ds1_1', 'Ds2_0', 'Ds2_1','Ds3_0', 'Ds3_1','Ds4_0', 'Ds4_1',
+  'Gs1_0', 'Gs1_1', 'Gs2_0', 'Gs2_1','Gs3_0', 'Gs3_1','Gs4_0', 'Gs4_1', 'Gs5_0', 'Gs5_1', 'Gs6_0', 'Gs6_1',
+  'Fs1_0', 'Fs3_0', 'Fs5_0', 'Fs7_0','Fs8_0', 'Fs9_0', 'Fs10_0', 'Fs11_0'
+]
+datatypes: ['_cn']
+seeds: []  # Empty list indicates all seeds that are available
