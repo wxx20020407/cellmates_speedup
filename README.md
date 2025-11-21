@@ -1,37 +1,7 @@
-# Cellmates – a proper distance method for single-cell cancer data
+# Cellmates
+> a method for single-cell phylogeny reconstruction with proper evolutionary distances from copy numbers
 
-## Execution
-
-To run tests, check out the main script in the [em.py](src/cellmates/inference/em.py) file.
-For example, run
-```bash
-python src/inference/em.py
-```
-
-## Project status
-
-This project is currently under development. The functionalities that have been implemented are described below.
-
-- [x] Data simulation (main code in function `rand_dataset()` at [datagen.py](src/cellmates/simulation/datagen.py))
-- [x] EM algorithm for root-to-centroid distance (main code in class `EM` at [em.py](src/cellmates/inference/em.py))
-- [x] Tree reconstruction algorithm from distance matrix
-(main code in function `build_tree()` at [em.py](src/cellmates/inference/em.py))
-- [x] Testing for the execution of all three steps described above in [test_tree_inference_synth()](tests/test_inference/test_em.py)
-- [x] JCB and CopyTree models for distance estimation in [evolutionary_models](src/evolutionary_models)
-
-The pseudo-algorithm with the first distance model (with $\varepsilon \in [0,1]$) is explained in the
-[general writeup](https://www.overleaf.com/project/62e11c46a9cd5d7659fc29b4)
-at Cellmates chapter, while an in-depth explanation of the JCB EM
-algorithm using additive lengths is in the [Cellmates article](https://www.overleaf.com/project/63a43d8ae9c4f58d4f48653c).
-
-The next steps are:
-
-- [ ] Merge two documents in order to have only one standalone Cellmates writeup
-- [ ] Check that both EM algorithms correctly estimate distances in a single quadruplet case (2 cells only) assuming known CN profiles
-- [ ] Implement NJ for tree reconstruction comparisons (move from notebook to code)
-- [ ] Add observation model parameters inference (whether with EM or via other softwares e.g. SCOPE)
-
-## Requirements
+## Installation
 
 - Python 3.10
 - NumPy
@@ -40,5 +10,44 @@ The next steps are:
 - anndata
 
 ```bash
-pip install -r requirements.txt
+conda create -f environment.yml
+conda activate cellmates
+pip install .
 ```
+
+## Execution
+
+You can run Cellmates from the command line as follows:
+
+```bash
+cellmates --input <input_file> --output <output_path> [options]
+```
+For detailed usage instructions and available options, run:
+
+```bash
+cellmates --help
+```
+
+## Example
+
+An example input file is provided in the `reproducibility` directory.
+You can run Cellmates on this example data as follows:
+
+```bash
+cellmates --input reproducibility/demo.h5ad --output results/ --n-states 8 --num-processors 4 --predict-cn
+```
+
+The above command will produce the following output files in the `results/` directory:
+- `distance_matrix.npy`: The computed pairwise triplet-distance matrix between cells (n_cells, n_cells, 3).
+- `tree.nwk`: The reconstructed phylogenetic tree in Newick format (with cell names if provided in input).
+- `predicted_copy_numbers.npy`: A named list with `data` (predicted copy numbers for each cell and internal node)
+- and `labels` (cell and internal node names).
+- `cell_names.txt`: A text file containing the names of the cells in the order they appear in the distance matrix.
+
+The input data is a HDF5 AnnData file containing single-cell read counts.
+In particular, the file should contain `layers/copy`, the cell-by-bin corrected read counts.
+Additional information, such as `obs_names` (cell names) can also be included in the AnnData object.
+Cell names will be used in the output tree.
+
+The data should only provide tumor cells. If normal cells are present in the dataset, please remove them before
+running Cellmates or add an annotation in `obs/normal` to indicate which cells are normal.
