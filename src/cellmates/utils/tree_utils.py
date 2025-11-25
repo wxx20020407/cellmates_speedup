@@ -76,13 +76,15 @@ def convert_dendropy_to_networkx(dendropy_tree: dpy.Tree, edge_attr='weight') ->
     return nx_tree
 
 
-def random_binary_tree(n: int, length_mean: float, seed=None)-> dpy.Tree:
+def random_binary_tree(n: int, length_mean: float = None, seed=None, full_length: float = None)-> dpy.Tree:
     """
     Generate a random binary tree with n leaves using Dendropy.
     ref: https://dendropy.org/primer/treesims.html
     Args:
         n: Number of leaves.
         seed: Random seed.
+        length_mean: Mean branch length.
+        full_length: If provided, scale the tree to have this total length, ignoring length_mean.
 
     Returns:
         A Dendropy tree.
@@ -92,16 +94,37 @@ def random_binary_tree(n: int, length_mean: float, seed=None)-> dpy.Tree:
         dpy.utility.GLOBAL_RNG.seed(seed)
         np.random.seed(seed)
         random.seed(seed)
+    if full_length is not None and length_mean is not None:
+        raise ValueError("Cannot specify both full_length and length_mean")
+    # create taxon namespace
     tns = dpy.TaxonNamespace([dpy.Taxon(str(i)) for i in range(n)], label='taxa')
-    tree = dpy.treesim.treesim.pure_kingman_tree(taxon_namespace=tns)
+    # tree = dpy.treesim.treesim.pure_kingman_tree(taxon_namespace=tns)
+    tree = dpy.treesim.treesim.uniform_pure_birth_tree(tns, birth_rate=1.0)
     tree.is_rooted = True
     label_tree(tree)
     # traverse the tree and assign _lengths
-    for edge in tree.preorder_edge_iter():
-        # scale = 1 / lambda
-        edge.length = ss.expon(scale=length_mean).rvs()
+    if full_length is not None:
+        tree = make_ultrametric(tree, target_height=full_length)
+    else:
+        for edge in tree.preorder_edge_iter():
+            if full_length is not None:
+                length_mean = edge.length # use current length as mean and add some noise
+            # scale = 1 / lambda
+            edge.length = ss.expon(scale=length_mean).rvs()
     return tree
 
+def make_ultrametric(tree: dpy.Tree, target_height):
+    # compute current leaf distances
+    max_height = tree.max_distance_from_root()
+
+    scale_factor = target_height / max_height
+
+    # scale every edge
+    for node in tree.postorder_node_iter():
+        if node.edge.length is not None:
+            node.edge.length *= scale_factor
+
+    return tree
 
 def get_node2node_distance(tree: dpy.Tree, node1_label: str, node2_label: str):
     tree.calc_node_root_distances()
