@@ -22,11 +22,11 @@ levels_jitter: [0, 0.1, 0.1]
 #    - [true, 4, 2, 2, 0.75]
 #
 Ds:
-  variable: mean_cnas_per_edge
+  variable: mean_cnas_per_edge # placement_param
   values: [2, 5, 10, 8]
 
 Fs:
-  variable: [boundary_noise, jitter, coverage, n_clones]
+  variable: [boundary_noise, jitter, coverage, n_clones]  # error_rate_1, error_rate_2, coverage, num_clones
   values:
     - [0.05, 0.02, 0.2 , 0]
     - [0.15, 0.02, 0.2 , 0]
@@ -42,7 +42,7 @@ Fs:
     - [0.05, 0.10, 0.05, 4]
 
 Gs:
-  variable: [mean_cnas_per_edge, cn_length_mean, n_clones]
+  variable: [mean_cnas_per_edge, cn_length_mean, n_clones]  # placement_param, cn_length_mean, num_clones
   values:
     - [5, 10000000, 4]
     - [5, 20000000, 4]
