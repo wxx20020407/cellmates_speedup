@@ -12,6 +12,7 @@ from cellmates.models.evo import JCBModel, EvoModel
 from cellmates.inference.em import EM, estimate_theta_from_cn
 from cellmates.utils.hmm import viterbi_decode_pomegranate
 from cellmates.utils.tree_utils import write_cells_to_tree, relabel_name_to_int_mapping, nxtree_to_newick, newick_to_nx
+from cellmates.utils.profiling import hmm_profiler
 
 logger = logging.getLogger(__name__)
 
@@ -249,12 +250,17 @@ def run_inference_pipeline(
     init_from_cn=False,
     predict_cn=True,
     layer_name=None,
-    jitter=0.1
+    jitter=0.1,
+    profile_hmm=False,
+    profile_log_path=None
 ):
     out_path = output or "."
     if not os.path.exists(out_path):
         os.makedirs(out_path)
     hmm_alg = "broadcast" if numpy else "pomegranate"
+    if profile_log_path is None:
+        profile_log_path = os.path.join(out_path, 'hmm_timing.log')
+    hmm_profiler.configure(enabled=profile_hmm, log_path=profile_log_path)
 
     cn_layer = 'state'
     if use_copynumbers and layer_name is None:
@@ -305,6 +311,10 @@ def run_inference_pipeline(
         predicted_cn_tuple = predict_cn_profiles(obs, tree_relab, cell_names, em.evo_model, leaf_obs_model=em.obs_model, zero_absorption=True)
         cn_path = save_cn_profiles(predicted_cn_tuple, out_path)
     res_paths['predicted_copy_numbers'] = cn_path
+
+    if profile_hmm:
+        hmm_profiler.summary()
+        logger.info(f"HMM profiling enabled. Timing log saved to: {profile_log_path}")
 
     return res_paths
 

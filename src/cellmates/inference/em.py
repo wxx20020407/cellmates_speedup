@@ -21,6 +21,7 @@ from cellmates.simulation.datagen import rand_dataset
 from cellmates.models.evo import EvoModel, CopyTree, JCBModel
 from cellmates.utils.math_utils import l_from_p, compute_cn_changes
 from cellmates.utils.tree_utils import convert_networkx_to_dendropy, get_ctr_table
+from cellmates.utils.profiling import hmm_profiler
 
 class EM:
     """
@@ -310,6 +311,7 @@ def fit_quadruplet(v: int, w: int, obs_vw: np.ndarray,
     likelihood_drop_counter = 0
     likelihood_max = -np.inf
     while not convergence and it < max_iter:
+        iter_t0 = time.perf_counter() if hmm_profiler.enabled else None
 
         # ---------- E-step ----------
         # compute D and D'
@@ -335,6 +337,13 @@ def fit_quadruplet(v: int, w: int, obs_vw: np.ndarray,
         # Observation model parameter update
         one_slice_marginals_v, one_slice_marginals_w = quad_model.get_one_slice_marginals()
         obs_model.update(obs_vw, (one_slice_marginals_v, one_slice_marginals_w))
+
+        if hmm_profiler.enabled:
+            hmm_profiler.record(
+                f"high.em_iteration.{quad_model.hmm_alg}",
+                time.perf_counter() - iter_t0,
+                meta={'pair': f'{v}-{w}', 'iter': it + 1, 'alg': quad_model.hmm_alg}
+            )
 
         if save_diagnostics:
             diagnostic_data['loglikelihoods'].append(loglik)

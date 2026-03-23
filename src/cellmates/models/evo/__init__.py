@@ -14,6 +14,7 @@ from cellmates.utils import tree_utils, math_utils
 from cellmates.utils.hmm import _forward_likelihood_broadcast, _forward_likelihood_pomegranate, \
     _forward_backward_broadcast, _forward_backward_pomegranate, _backward_pass_broadcast, _backward_pass_pomegranate, \
     viterbi_decode_pomegranate
+from cellmates.utils.profiling import timed_call
 
 
 class EvoModel:
@@ -227,9 +228,25 @@ class EvoModel:
         expected_counts, log_gamma, log_p = None, None, None
         match alg:
             case 'broadcast':
-                expected_counts, log_gamma, log_p = _forward_backward_broadcast(log_emissions, self.trans_mat, self.start_prob, debug=self.debug)
+                expected_counts, log_gamma, log_p = timed_call(
+                    'low.forward_backward.broadcast',
+                    _forward_backward_broadcast,
+                    log_emissions,
+                    self.trans_mat,
+                    self.start_prob,
+                    debug=self.debug,
+                    meta={'alg': 'broadcast'}
+                )
             case 'pomegranate':
-                expected_counts, log_gamma, log_p = _forward_backward_pomegranate(log_emissions, self.trans_mat, self.start_prob, debug=self.debug)
+                expected_counts, log_gamma, log_p = timed_call(
+                    'low.forward_backward.pomegranate',
+                    _forward_backward_pomegranate,
+                    log_emissions,
+                    self.trans_mat,
+                    self.start_prob,
+                    debug=self.debug,
+                    meta={'alg': 'pomegranate'}
+                )
 
         return expected_counts, log_gamma, log_p
 
@@ -285,9 +302,21 @@ class EvoModel:
         best_path, max_log_prob = None, None
         match alg:
             case 'broadcast':
-                best_path, _ = self.compute_viterbi_path(log_emissions)
+                best_path, _ = timed_call(
+                    'low.viterbi.broadcast',
+                    self.compute_viterbi_path,
+                    log_emissions,
+                    meta={'alg': 'broadcast'}
+                )
             case 'pomegranate':
-                best_path = viterbi_decode_pomegranate(log_emissions, self.trans_mat, self.start_prob)
+                best_path = timed_call(
+                    'low.viterbi.pomegranate',
+                    viterbi_decode_pomegranate,
+                    log_emissions,
+                    self.trans_mat,
+                    self.start_prob,
+                    meta={'alg': 'pomegranate'}
+                )
 
         return best_path
 

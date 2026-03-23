@@ -25,6 +25,8 @@ def parse_args():
     parser.add_argument('--predict-cn', action='store_true')
     parser.add_argument('--layer-name', type=str, default=None)
     parser.add_argument('--jitter', type=float, default=0.1)
+    parser.add_argument('--profile-hmm', action='store_true', help='Enable low/high-level HMM timing logs')
+    parser.add_argument('--profile-log-path', type=str, default=None, help='Path to timing log file')
     return parser.parse_args()
 
 def main():
