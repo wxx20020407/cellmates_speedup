@@ -25,6 +25,14 @@ from cellmates.utils.profiling import hmm_profiler
 
 _WORKER_PROFILER_INIT_PIDS = set()
 
+
+def _init_worker_profiler(profile_enabled: bool, profile_log_path: str | None):
+    """Pool initializer: configure profiler explicitly inside worker process."""
+    if not profile_enabled:
+        return
+    hmm_profiler.configure(enabled=True, log_path=profile_log_path)
+    _ensure_worker_profiler_initialized()
+
 class EM:
     """
     Runs the EM-algorithm for a set of cells. Requires the copy number sequence of the root and observations
@@ -293,7 +301,8 @@ def fit_quadruplet(v: int, w: int, obs_vw: np.ndarray,
                    obs_model_template: ObsModel,
                    psi_init: dict = None,
                    save_diagnostics: bool = False,
-                   min_iter: int = 0, checkpoint_path: str = None):
+                   min_iter: int = 0, checkpoint_path: str = None,
+                   e_step_alg: str = 'forward_backward'):
     """
     This function runs the EM algorithm for a pair of cells v, w with observations obs_vw and given initial parameters.
     It may be used in parallel, so all models are passed as templates and initialized inside the function and the EM
@@ -310,6 +319,7 @@ def fit_quadruplet(v: int, w: int, obs_vw: np.ndarray,
     # (`theta_init_ = theta_init` is wrong, but also `theta_init_ = theta_init.copy()` is prone to error
     quad_model: EvoModel = evo_model_template.new()
     quad_model.theta = theta_init_
+    quad_model.E_step_alg = e_step_alg
 
     # compute changes is observation and evolution model specific
     # FIXME: self.E_step_alg can be passed to multi_chr_expected_changes to select algorithm
@@ -327,11 +337,15 @@ def fit_quadruplet(v: int, w: int, obs_vw: np.ndarray,
 
         # ---------- E-step ----------
         # compute D and D'
-        d, dp, new_loglik = quad_model.multi_chr_expected_changes(obs_vw=obs_vw, obs_model=obs_model)
+        d, dp, new_loglik = quad_model.multi_chr_expected_changes(
+            obs_vw=obs_vw,
+            obs_model=obs_model,
+            alg=quad_model.E_step_alg
+        )
         logger.debug(f"[{it + 1}/{max_iter}] LL = {new_loglik}, d = {d}, dp = {dp}")
 
         # check convergence
-        if loglik is not None:
+        if loglik is not None and new_loglik is not None:
             likelihood_max = max(likelihood_max, new_loglik)
             if new_loglik < loglik:
                 likelihood_drop_counter += 1
@@ -352,9 +366,9 @@ def fit_quadruplet(v: int, w: int, obs_vw: np.ndarray,
 
         if hmm_profiler.enabled:
             hmm_profiler.record(
-                f"high.em_iteration.{quad_model.hmm_alg}",
+                f"high.em_iteration.{quad_model.hmm_alg}.{quad_model.E_step_alg}",
                 time.perf_counter() - iter_t0,
-                meta={'pair': f'{v}-{w}', 'iter': it + 1, 'alg': quad_model.hmm_alg}
+                meta={'pair': f'{v}-{w}', 'iter': it + 1, 'alg': quad_model.hmm_alg, 'e_step': quad_model.E_step_alg}
             )
 
         if save_diagnostics:
@@ -396,7 +410,23 @@ def _fit_em(em, obs: np.ndarray,
     pairs = list(itertools.combinations(range(em.n_cells), r=2))
     for s, t in tqdm(pairs, desc="Running inference"):
         # print(f"Processing pair ({s}, {t}) with params: theta_init = {theta_init_[s, t, :]}, psi_init = {psi_init}, max_iter = {max_iter}, rtol = {rtol}")
-        results.append(fit_quadruplet(s, t, obs[:, [s, t]], max_iter, rtol, em.evo_model, theta_init_[s, t, :], em.obs_model, psi_init, em.diagnostics, em.min_iter, checkpoint_path))
+        results.append(
+            fit_quadruplet(
+                s,
+                t,
+                obs[:, [s, t]],
+                max_iter,
+                rtol,
+                em.evo_model,
+                theta_init_[s, t, :],
+                em.obs_model,
+                psi_init,
+                em.diagnostics,
+                em.min_iter,
+                checkpoint_path,
+                em.E_step_alg
+            )
+        )
     return results
 
 ## Multiprocessing with shared memory
@@ -438,7 +468,7 @@ def _fit_quadruplet_shared_mem(args_tuple: tuple) -> tuple:
     v, w, shared_obs_mem_name, theta_init, psi_init, max_iter, rtol, em, checkpoint_path = args_tuple
     shm = shared_memory.SharedMemory(name=shared_obs_mem_name)
     obs_vw = np.ndarray((em.n_sites, em.n_cells), dtype=np.float64, buffer=shm.buf)[..., [v, w]]
-    return fit_quadruplet(v, w, obs_vw, max_iter, rtol, em.evo_model, theta_init, em.obs_model, psi_init, em.diagnostics, em.min_iter, checkpoint_path)
+    return fit_quadruplet(v, w, obs_vw, max_iter, rtol, em.evo_model, theta_init, em.obs_model, psi_init, em.diagnostics, em.min_iter, checkpoint_path, em.E_step_alg)
 
 def fit_quadruplet_wrapper(args):
     return fit_quadruplet(*args)
@@ -456,10 +486,14 @@ def _fit_copy_obs(em, obs: np.ndarray,
     n_cells = em.n_cells
     evo_model_template = em.evo_model.new() # avoid pickling the whole evo_model which might contain large trans_mat
     # generator of arguments
-    args = ((s, t, obs[:, [s, t]], max_iter, rtol, evo_model_template, theta_init[s, t, :], em.obs_model, psi_init, em.diagnostics, em.min_iter, checkpoint_path)
+    args = ((s, t, obs[:, [s, t]], max_iter, rtol, evo_model_template, theta_init[s, t, :], em.obs_model, psi_init, em.diagnostics, em.min_iter, checkpoint_path, em.E_step_alg)
             for s, t in itertools.combinations(range(n_cells), r=2))
     total_tasks = int(comb(n_cells, 2))
-    with mp.Pool(num_processors) as pool:
+    with mp.Pool(
+        num_processors,
+        initializer=_init_worker_profiler,
+        initargs=(hmm_profiler.enabled, hmm_profiler.log_path),
+    ) as pool:
         # main loop
         for res in tqdm(pool.imap_unordered(fit_quadruplet_wrapper, args, chunksize=15),
                         total=total_tasks, desc="Running inference", smoothing=0.1):
@@ -491,10 +525,14 @@ def _fit_copy_obs_async(
     args_gen = ((s, t, obs[:, [s, t]], max_iter, rtol,
                  em.evo_model, theta_init[s, t, :],
                  em.obs_model, psi_init, em.diagnostics,
-                 em.min_iter, checkpoint_path)
+                 em.min_iter, checkpoint_path, em.E_step_alg)
                 for s, t in itertools.combinations(range(n_cells), 2))
 
-    with mp.Pool(num_processors) as pool:
+    with mp.Pool(
+        num_processors,
+        initializer=_init_worker_profiler,
+        initargs=(hmm_profiler.enabled, hmm_profiler.log_path),
+    ) as pool:
         for a in args_gen:
             pool.apply_async(fit_quadruplet_wrapper, (a,), callback=collect_result)
         pool.close()
@@ -523,7 +561,8 @@ def estimate_theta_from_cn(cn_profiles, n_states: int, error_rate: float = 0.01,
                     _, init_theta[:], _, _, _, _ = fit_quadruplet(i, j, cn_profiles[[i, j], :].T, max_iter=5, rtol=1e-2,
                                    evo_model_template=evo_model if evo_model is not None else JCBModel(n_states=n_states),
                                    theta_init=np.ones(3) * 1 / n_sites,
-                                   obs_model_template=cn_obs_model)
+                                   obs_model_template=cn_obs_model,
+                                   e_step_alg='forward_backward')
         case 'triangle':
             # compute distances among pairs and from root, then solve triangle: l_ru = (l_rv + l_rw - l_vw) / 2
             min_l = l_from_p(1 / n_sites, n_states)
