@@ -23,6 +23,8 @@ from cellmates.utils.math_utils import l_from_p, compute_cn_changes
 from cellmates.utils.tree_utils import convert_networkx_to_dendropy, get_ctr_table
 from cellmates.utils.profiling import hmm_profiler
 
+_WORKER_PROFILER_INIT_PIDS = set()
+
 class EM:
     """
     Runs the EM-algorithm for a set of cells. Requires the copy number sequence of the root and observations
@@ -275,6 +277,15 @@ def em_alg(obs: np.ndarray, n_states: int = 7, eps_init=None, max_iter: int = 20
         'loglikelihoods': em.loglikelihoods
     }
 
+def _ensure_worker_profiler_initialized():
+    if not hmm_profiler.enabled:
+        return
+    pid = mp.current_process().pid
+    if pid not in _WORKER_PROFILER_INIT_PIDS:
+        hmm_profiler.configure_worker()
+        _WORKER_PROFILER_INIT_PIDS.add(pid)
+
+
 def fit_quadruplet(v: int, w: int, obs_vw: np.ndarray,
                    max_iter: int, rtol: float,
                    evo_model_template: EvoModel,
@@ -288,6 +299,7 @@ def fit_quadruplet(v: int, w: int, obs_vw: np.ndarray,
     It may be used in parallel, so all models are passed as templates and initialized inside the function and the EM
     object is not used here.
     """
+    _ensure_worker_profiler_initialized()
     eps_zero = 1e-12
     logger = logging.getLogger(__name__).getChild(f'fit_quadruplet_{v}_{w}')
     # initialize l = (l_ru, l_uv, l_uw)
