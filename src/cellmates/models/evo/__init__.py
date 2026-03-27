@@ -443,7 +443,15 @@ class CopyTree(EvoModel):
         return eps, c
 
     def new(self):
-        return CopyTree(self.n_states)
+        return CopyTree(
+            self.n_states,
+            hmm_alg=self.hmm_alg,
+            chromosome_ends=self.chromosome_ends,
+            zero_absorption=self.zero_absorption,
+            focal_rate=self.focal_rate,
+            event_length_ratio=self.event_length_ratio,
+            debug=self.debug,
+        )
 
     def update(self, exp_changes, exp_no_changes, **kwargs) -> None:
         self.eps[:] = exp_changes / (exp_changes + exp_no_changes)
@@ -490,7 +498,17 @@ class JCBModel(EvoModel):
         super().__init__(n_states=n_states, **kwargs)
 
     def new(self):
-        return JCBModel(self.n_states, self.alpha)
+        return JCBModel(
+            self.n_states,
+            self.alpha,
+            jc_correction=False,
+            hmm_alg=self.hmm_alg,
+            chromosome_ends=self.chromosome_ends,
+            zero_absorption=self.zero_absorption,
+            focal_rate=self.focal_rate,
+            event_length_ratio=self.event_length_ratio,
+            debug=self.debug,
+        )
 
     @property
     def lengths(self):
