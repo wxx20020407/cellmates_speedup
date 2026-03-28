@@ -12,7 +12,7 @@ from cellmates.models.evo import JCBModel, EvoModel
 from cellmates.inference.em import EM, estimate_theta_from_cn
 from cellmates.utils.hmm import viterbi_decode_pomegranate
 from cellmates.utils.tree_utils import write_cells_to_tree, relabel_name_to_int_mapping, nxtree_to_newick, newick_to_nx
-from cellmates.utils.profiling import hmm_profiler
+from cellmates.utils.profiling import hmm_profiler, timed_call
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +74,8 @@ def prepare_observations(adata, n_states, tau, learn_obs_params, use_copynumbers
 
 def predict_cn_profiles(obs: np.ndarray, nx_tree: nx.DiGraph, cell_names: list,
                         evo_model: EvoModel, leaf_obs_model: ObsModel,
-                        zero_absorption: bool = True) -> tuple[np.ndarray, list]:
+                        zero_absorption: bool = True,
+                        viterbi_alg: str = 'pomegranate') -> tuple[np.ndarray, list]:
     """
     Predict copy number profiles for all nodes in the tree using Viterbi algorithm.
     Parameters
@@ -151,8 +152,25 @@ def predict_cn_profiles(obs: np.ndarray, nx_tree: nx.DiGraph, cell_names: list,
                 # combine
                 log_emissions[...] = log_emissions_single[0][:, :, None] + log_emissions_single[1][:, None, :]
 
-            # FIXME: change to evo_model.viterbi_decode when available
-            path = viterbi_decode_pomegranate(log_emissions, evo_model.trans_mat, evo_model.start_prob)
+            match viterbi_alg:
+                case 'pomegranate':
+                    path = timed_call(
+                        'low.viterbi.predict_cn.pomegranate',
+                        viterbi_decode_pomegranate,
+                        log_emissions,
+                        evo_model.trans_mat,
+                        evo_model.start_prob,
+                        meta={'alg': 'pomegranate'}
+                    )
+                case 'broadcast':
+                    path, _ = timed_call(
+                        'low.viterbi.predict_cn.broadcast',
+                        evo_model.compute_viterbi_path,
+                        log_emissions,
+                        meta={'alg': 'broadcast'}
+                    )
+                case _:
+                    raise ValueError(f"Unknown decode viterbi algorithm: {viterbi_alg}")
             # FIXME: temporary fix for zero-absorbing states
             if zero_absorption:
                 # change u cn if they are zero and children are non-zero
@@ -175,11 +193,12 @@ def run_em_inference(obs,
                      alpha,
                      jc_correction,
                      hmm_alg, max_iter, rtol, num_processors, obs_model, verbose, save_diag, out_path,
-                     cn_profiles: np.ndarray = None):
+                     cn_profiles: np.ndarray = None,
+                     em_e_step: str = 'forward_backward'):
     evo_model = JCBModel(n_states=n_states, chromosome_ends=chromosome_ends,
                          jc_correction=jc_correction, alpha=alpha, hmm_alg=hmm_alg)
     em = EM(n_states=n_states, evo_model=evo_model, obs_model=obs_model,
-            verbose=verbose, diagnostics=save_diag)
+            verbose=verbose, diagnostics=save_diag, E_step_alg=em_e_step)
     theta_init = None
     if cn_profiles is not None:
         theta_init = estimate_theta_from_cn(cn_profiles, n_states=n_states, evo_model=evo_model)
@@ -252,12 +271,17 @@ def run_inference_pipeline(
     layer_name=None,
     jitter=0.1,
     profile_hmm=False,
-    profile_log_path=None
+    profile_log_path=None,
+    em_e_step='forward_backward',
+    em_hmm_alg=None,
+    decode_viterbi_alg='pomegranate'
 ):
     out_path = output or "."
     if not os.path.exists(out_path):
         os.makedirs(out_path)
-    hmm_alg = "broadcast" if numpy else "pomegranate"
+    if em_hmm_alg is None:
+        em_hmm_alg = "broadcast" if numpy else "pomegranate"
+    hmm_alg = em_hmm_alg
     if profile_log_path is None:
         profile_log_path = os.path.join(out_path, 'hmm_timing.log')
     hmm_profiler.configure(enabled=profile_hmm, log_path=profile_log_path)
@@ -296,7 +320,8 @@ def run_inference_pipeline(
         verbose=verbose,
         save_diag=save_diagnostics,
         out_path=out_path,
-        cn_profiles=cn_profiles
+        cn_profiles=cn_profiles,
+        em_e_step=em_e_step
     )
 
     logger.info("Building tree from distance matrix...")
@@ -308,12 +333,25 @@ def run_inference_pipeline(
     cn_path = None
     if predict_cn:
         logger.info("Predicting copy number profiles for all nodes in the tree...")
-        predicted_cn_tuple = predict_cn_profiles(obs, tree_relab, cell_names, em.evo_model, leaf_obs_model=em.obs_model, zero_absorption=True)
+        predicted_cn_tuple = predict_cn_profiles(
+            obs,
+            tree_relab,
+            cell_names,
+            em.evo_model,
+            leaf_obs_model=em.obs_model,
+            zero_absorption=True,
+            viterbi_alg=decode_viterbi_alg
+        )
         cn_path = save_cn_profiles(predicted_cn_tuple, out_path)
     res_paths['predicted_copy_numbers'] = cn_path
 
     if profile_hmm:
-        hmm_profiler.summary()
+        # In single-process mode, this writes the current process summary.
+        # In multi-process mode, workers write per-pid logs and we aggregate here.
+        if num_processors > 1:
+            hmm_profiler.merge_worker_logs()
+        else:
+            hmm_profiler.summary()
         logger.info(f"HMM profiling enabled. Timing log saved to: {profile_log_path}")
 
     return res_paths

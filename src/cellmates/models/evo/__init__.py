@@ -298,8 +298,7 @@ class EvoModel:
         tuple with best path array of shape (n_sites, 3) and max log probability
         """
         alg = self.hmm_alg
-        n_sites, n_states, _ = log_emissions.shape
-        best_path, max_log_prob = None, None
+        best_path = None
         match alg:
             case 'broadcast':
                 best_path, _ = timed_call(

@@ -27,6 +27,15 @@ def parse_args():
     parser.add_argument('--jitter', type=float, default=0.1)
     parser.add_argument('--profile-hmm', action='store_true', help='Enable low/high-level HMM timing logs')
     parser.add_argument('--profile-log-path', type=str, default=None, help='Path to timing log file')
+    parser.add_argument('--em-e-step', type=str, default='forward_backward',
+                        choices=['forward_backward', 'viterbi'],
+                        help='E-step algorithm for EM (forward_backward or viterbi)')
+    parser.add_argument('--em-hmm-alg', type=str, default='pomegranate',
+                        choices=['pomegranate', 'broadcast'],
+                        help='HMM backend for EM forward-backward/viterbi')
+    parser.add_argument('--decode-viterbi-alg', type=str, default='pomegranate',
+                        choices=['pomegranate', 'broadcast'],
+                        help='Viterbi backend for CN profile decoding')
     return parser.parse_args()
 
 def main():
