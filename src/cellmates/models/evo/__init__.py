@@ -27,6 +27,7 @@ class EvoModel:
         self.log_gamma = None
         self.n_states = n_states
         self.hmm_alg = kwargs.get('hmm_alg', 'pomegranate')
+        self.E_step_alg = kwargs.get('E_step_alg', 'forward_backward')
         # optional parameters
         self.zero_absorption = kwargs.get('zero_absorption', False)
         self.focal_rate = kwargs.get('focal_rate', 0.)
@@ -96,10 +97,9 @@ class EvoModel:
         # compute two slice marginals
         # prob(Cm = ijk, Cm+1 = i'j'k' | Y)
         if alg == 'viterbi':
-            # path_log_lik = None
-            viterbi_path, path_log_lik = self.compute_viterbi_path(obs_model.log_emission(obs_vw))
-            # viterbi_path = self.viterbi_path(obs_model.log_emission(obs_vw))
-            # FIXME: set log_gamma
+            viterbi_path = self.viterbi_path(obs_model.log_emission(obs_vw))
+            # FIXME: set a proper path log-likelihood for pomegranate branch if needed
+            path_log_lik = None
             # count changes along viterbi path
             d, dp = self.counts_from_paths(viterbi_path)
             return d, dp, path_log_lik, None, None
@@ -287,7 +287,7 @@ class EvoModel:
 
         return alpha, log_p
 
-    def viterbi_path(self, log_emissions) -> tuple[np.ndarray, float]:
+    def viterbi_path(self, log_emissions) -> np.ndarray:
         """
         Compute the viterbi path of the hidden markov model.
         Parameters
@@ -295,7 +295,7 @@ class EvoModel:
         log_emissions array of shape (n_sites, n_states, n_states) with log emissions
         Returns
         -------
-        tuple with best path array of shape (n_sites, 3) and max log probability
+        best path array of shape (n_sites, 3)
         """
         alg = self.hmm_alg
         best_path = None
