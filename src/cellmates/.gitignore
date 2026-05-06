@@ -1,0 +1,17 @@
+# Pycharm stuff
+
+.idea/*
+**/__pycache__/*
+*.log
+.DS_Store
+# notes
+notes.md
+/img/
+# output dirs
+*_out
+**/output/
+/venv/
+/build/
+/data/
+# snakemake dir
+**/.snakemake/

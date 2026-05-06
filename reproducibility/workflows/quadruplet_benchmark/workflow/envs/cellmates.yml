@@ -1,0 +1,20 @@
+name: cellmates
+channels:
+  - conda-forge
+  - bioconda
+  - nodefaults  ## block user/system channels
+dependencies:
+  - python=3.11
+  - anndata
+  - dendropy
+  - networkx
+  - numpy
+  - scipy
+  - pandas
+  - biopython
+  - seaborn
+  - scikit-bio
+  - pip
+  - pip:
+    - -e ${CELLMATES_PATH}[dev]
+    - git+https://github.com/mondrian-scwgs/scgenome
